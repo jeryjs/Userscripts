@@ -138,13 +138,23 @@
 
         // Add click event listeners to quality headers to select all links
         document.querySelectorAll('#Quality b').forEach(header => {
-            header.addEventListener('click', () => {
-                const links = header.closest('ol').querySelectorAll('li');
-                const range = new Range();
-                range.selectNodeContents(links[0]);
-                range.setEndAfter(links[links.length - 1]);
-                window.getSelection().removeAllRanges();
-                window.getSelection().addRange(range);
+            let headerHTML = header.innerHTML;
+            let sdHTML = `
+            <div style="display: flex; justify-content: flex-end; padding: 10px;">
+                <ul style="list-style: none; display: flex; gap: 10px;">
+                    <button type="button" id="AniLINK_selectLinks" style="background-color: #FFC119; color: #FFF; padding: 5px 10px; border: none; border-radius: 5px; cursor: pointer; user-select:auto;">Select</button>
+                    <button type="button" id="AniLINK_copyLinks" style="background-color: #FFC119; color: #FFF; padding: 5px 10px; border: none; border-radius: 5px; cursor: pointer; user-select:auto;">Copy</button>
+                    <button type="button" id="AniLINK_exportLinks" style="background-color: #FFC119; color: #FFF; padding: 5px 10px; border: none; border-radius: 5px; cursor: pointer; user-select:auto;">Export</button>
+                </ul>
+            </div>`
+            header.addEventListener('mouseenter', () => {
+                header.innerHTML = sdHTML;
+                onSelectBtnPressed();
+                onCopyBtnClicked();
+                onExportBtnClicked();
+            });
+            header.addEventListener('mouseleave', () => {
+                header.innerHTML = headerHTML;
             });
         });
 
