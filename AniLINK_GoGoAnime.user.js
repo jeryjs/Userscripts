@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK: GoGoAnime
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.1
+// @version     2.1.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK for GoGoAnime! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=gogoanime.llc
 // @author      Jery
@@ -47,7 +47,6 @@
         button.style.cursor = cursor;
         button.removeEventListener('click', onButtonPressed);
     }
-
     // Enable the button with the provided text content
     function enableButton(text) {
         const button = document.getElementById(buttonId);
@@ -55,11 +54,34 @@
         button.style.cursor = 'pointer';
         button.addEventListener('click', onButtonPressed);
     }
-
     // Update the status message on the button
     async function updateStatus(episode) {
         const button = document.getElementById(buttonId);
         button.innerHTML = `Processing Ep ${episode.match(/(?:.+)-(\d+)$/)[1]}`;
+    }
+
+    // Function to execute when the button is pressed
+    async function onButtonPressed() {
+        disableButton('progress', '<i class="icongec-dowload"></i> Generating Links...');
+        // Get page for each ep
+        const epLinks = Array.from(document.querySelectorAll('#episode_related li > a')).reverse();
+        try {
+            // Get links for each ep and then get HTMl from it
+            const fetchPromises = epLinks.map(epLink => fetchEpisodeHTML(epLink.href));
+            const htmls = await Promise.all(fetchPromises);
+
+            // Get download links for each ep
+            htmls.forEach(html => extractLinksFromHTML(html));
+
+            // Display download links in the linksContainer
+            generateLinksHTML();
+
+        } catch (error) {
+            // Handle any errors
+            console.error(error);
+            enableButton('<i class="icongec-dowload"></i> Error generating download links');
+            alert(`Error generating download links.\nCheck the console for more details.\n\n${error}`);
+        }
     }
 
     // Fetch the HTML content of an episode link
@@ -116,7 +138,7 @@
 
             // Generate HTML for each download link
             const listOfLinks = [...sortedLinks.entries()].map(([episode, link]) => {
-                const [, animeName, epNumber] = decodeURIComponent(episode).match(/(.+) - (\d+)/);
+                const [, animeName, epNumber] = decodeURIComponent(episode).match(/^(.+) - (\d+)$/);
                 return `<li id="EpisodeLINK" style="list-style-type: none;">
                       <span style="user-select:none; color:cyan;">
                       Ep ${epNumber.replace(/^0+/, '')}: </span>
@@ -153,30 +175,7 @@
         disableButton('not-allowed', '<i class="icongec-dowload"></i> Download links generated!!');
     }
 
-    // Function to execute when the button is pressed
-    async function onButtonPressed() {
-        disableButton('progress', '<i class="icongec-dowload"></i> Generating Links...');
-
-        // Get page for each ep
-        const epLinks = Array.from(document.querySelectorAll('#episode_related li > a')).reverse();
-
-        try {
-            // Get links for each ep and then get HTMl from it
-            const fetchPromises = epLinks.map(epLink => fetchEpisodeHTML(epLink.href));
-            const htmls = await Promise.all(fetchPromises);
-
-            // Get download links for each ep
-            htmls.forEach(html => extractLinksFromHTML(html));
-            // Display download links in the linksContainer
-            generateLinksHTML();
-        } catch (error) {
-            // Handle any errors
-            console.error(error);
-            enableButton('<i class="icongec-dowload"></i> Error generating download links');
-            alert(`Error generating download links.\nCheck the console for more details.\n\n${error}`);
-        }
-    }
-
+    // Attach hover listeners to the linksContainer to handle various actions
     function attachHoverListeners(linksContainer) {
         // Add hover event listeners to update link text on hover
         const linkElements = linksContainer.querySelectorAll('#EpisodeLINK');
@@ -215,82 +214,90 @@
                 header.innerHTML = headerHTML;
             });
         });
-    }
 
-    function attachBtnClickListeners() {
-        let sl = document.querySelector('#AniLINK_selectLinks')
-        sl.addEventListener('click', () => { onSelectBtnPressed(sl); });
+        // Attach click listeners to the speed dial buttons
+        function attachBtnClickListeners() {
+            const buttonIds = [
+                { id: 'AniLINK_selectLinks', handler: onSelectBtnPressed },
+                { id: 'AniLINK_copyLinks', handler: onCopyBtnClicked },
+                { id: 'AniLINK_exportLinks', handler: onExportBtnClicked },
+                { id: 'AniLINK_playLinks', handler: onPlayBtnClicked }
+            ];
 
-        let cl = document.querySelector('#AniLINK_copyLinks')
-        cl.addEventListener('click', () => { onCopyBtnClicked(cl); });
+            buttonIds.forEach(({ id, handler }) => {
+                const button = document.querySelector(`#${id}`);
+                button.addEventListener('click', () => handler(button));
+            });
 
-        let el = document.querySelector('#AniLINK_exportLinks')
-        el.addEventListener('click', () => { onExportBtnClicked(el); });
+            // Select Button click event handler
+            function onSelectBtnPressed(it) {
+                const links = it.closest('ol').querySelectorAll('li');
+                const range = new Range();
+                range.selectNodeContents(links[0]);
+                range.setEndAfter(links[links.length - 1]);
+                window.getSelection().removeAllRanges();
+                window.getSelection().addRange(range);
+                it.textContent = 'Selected!!';
+                setTimeout(() => { it.textContent = 'Select'; }, 1000);
+            }
 
-        let pl = document.querySelector('#AniLINK_playLinks')
-        pl.addEventListener('click', () => { onPlayBtnClicked(pl); });
-    }
+            // copySelectedLinks click event handler
+            function onCopyBtnClicked(it) {
+                const links = it.closest('ol').querySelectorAll('li');
+                let string = '';
+                links.forEach(link => {
+                    string += link.children[1].href + '\n';
+                });
+                navigator.clipboard.writeText(string);
+                it.textContent = 'Copied!!';
+                setTimeout(() => { it.textContent = 'Copy'; }, 1000);
+            }
 
-    // Select Button click event handler
-    function onSelectBtnPressed(it) {
-        const links = it.closest('ol').querySelectorAll('li');
-        const range = new Range();
-        range.selectNodeContents(links[0]);
-        range.setEndAfter(links[links.length - 1]);
-        window.getSelection().removeAllRanges();
-        window.getSelection().addRange(range);
-        it.textContent = 'Selected!!';
-        setTimeout(() => { it.textContent = 'Select'; }, 1000);
-    }
+            // exportToPlaylist click event handler
+            function onExportBtnClicked(it) {
+                // Export all links under the quality header into a playlist file
+                const links = it.closest('ol').querySelectorAll('li');
+                let string = '#EXTM3U\n';
+                links.forEach(link => {
+                    const episode = decodeURIComponent(link.children[1].download);
+                    string += `#EXTINF:-1,${episode}\n`;
+                    string += link.children[1].href + '\n';
+                });
+                const fileName = links[0].querySelector('a').title + '.m3u';
+                const file = new Blob([string], { type: 'application/vnd.apple.mpegurl' });
+                const a = document.createElement('a');
+                a.href = window.URL.createObjectURL(file);
+                a.download = fileName;
+                a.click();
+                it.textContent = 'Exported!!';
+                setTimeout(() => { it.textContent = 'Export'; }, 1000);
+            }
 
-    // copySelectedLinks click event handler
-    function onCopyBtnClicked(it) {
-        const links = it.closest('ol').querySelectorAll('li');
-        let string = new String();
-        links.forEach(link => {
-            string += link.children[1].href + '\n';
-        });
-        navigator.clipboard.writeText(string);
-        it.textContent = 'Copied!!';
-        setTimeout(() => { it.textContent = 'Copy'; }, 1000);
-    }
+            // PlayWithVLC click event handler
+            function onPlayBtnClicked(it) {
+                // Export all links under the quality header into a playlist file
+                const links = it.closest('ol').querySelectorAll('li');
+                let string = '#EXTM3U\n';
+                links.forEach(link => {
+                    const episode = decodeURIComponent(link.children[1].download);
+                    string += `#EXTINF:-1,${episode}\n`;
+                    string += link.children[1].href + '\n';
+                });
+                const file = new Blob([string], { type: 'application/vnd.apple.mpegurl' });
+                const fileUrl = URL.createObjectURL(file);
+                window.open(fileUrl);
+                it.textContent = 'Launching VLC!!';
+                setTimeout(() => { it.textContent = 'Play with VLC'; }, 2000);
+                alert("Due to browser limitations, there is a high possibility that this feature may not work correctly.\nIf the video does not automatically play, please utilize the export button and manually open the playlist file manually.");
+            }
 
-    // exportToPlaylist click event handler
-    function onExportBtnClicked(it) {
-        // Export all links under the quality header into a playlist file
-        const links = it.closest('ol').querySelectorAll('li');
-        let string = new String('#EXTM3U\n');
-        links.forEach(link => {
-            const episode = decodeURIComponent(link.children[1].download);
-            string += `#EXTINF:-1,${episode}\n`;
-            string += link.children[1].href + '\n';
-        });
-        const fileName = links[0].querySelector('a').title + '.m3u';
-        const file = new Blob([string], { type: 'application/vnd.apple.mpegurl' });
-        const a = document.createElement('a');
-        a.href = window.URL.createObjectURL(file);
-        a.download = fileName;
-        a.click();
-        it.textContent = 'Exported!!';
-        setTimeout(() => { it.textContent = 'Export'; }, 1000);
-    }
-
-    // PlayWithVLC click event handler
-    function onPlayBtnClicked(it) {
-        // Export all links under the quality header into a playlist file
-        const links = it.closest('ol').querySelectorAll('li');
-        let string = new String('#EXTM3U\n');
-        links.forEach(link => {
-            const episode = decodeURIComponent(link.children[1].download);
-            string += `#EXTINF:-1,${episode}\n`;
-            string += link.children[1].href + '\n';
-        });
-        const file = new Blob([string], { type: 'application/vnd.apple.mpegurl' });
-        const fileUrl = URL.createObjectURL(file);
-        window.open(fileUrl);
-        it.textContent = 'Launching VLC!!';
-        setTimeout(() => { it.textContent = 'Play with VLC'; }, 2000);
-        alert("Due to browser limitations, there is a high possibility that this feature may not work correctly.\nIf the video does not automatically play, please utilize the export button and manually open the playlist file manually.");
+            return {
+                onSelectBtnPressed,
+                onCopyBtnClicked,
+                onExportBtnClicked,
+                onPlayBtnClicked
+            };
+        }
     }
 
     // Call the generateButton function to initialize the script
