@@ -138,6 +138,9 @@
 
             // Generate HTML for each download link
             const listOfLinks = [...sortedLinks.entries()].map(([episode, link]) => {
+
+                newLink(link);
+
                 const [, animeName, epNumber] = decodeURIComponent(episode).match(/^(.+) - (\d+)$/);
                 return `<li id="EpisodeLINK" style="list-style-type: none;">
                       <span style="user-select:none; color:cyan;">
@@ -156,6 +159,17 @@
                     ${listOfLinks}
                 </ol><br><br>`;
         });
+
+        async function newLink(link) {
+            try {
+                console.warn(link);
+                const response = await fetch(link);
+                const finalUrl = response.url;
+                console.warn(finalUrl);
+            } catch (error) {
+                console.error('Error fetching the final URL:', error);
+            }
+        }
 
         // Update the linksContainer with the finally generated links under each quality option header
         linksContainer.innerHTML = qualityLinkLists.join("");
