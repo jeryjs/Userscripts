@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         JAIN - LMS Attendance Helper
 // @namespace    https://greasyfork.org/en/users/781076-jery-js
-// @version      2.0
+// @version      2.0.1
 // @description  Simplify the process of taking the attendance in Jain University's LMS.
 // @author       Jery
 // @license      MIT
@@ -177,7 +177,7 @@ function attendance() {
 
         sortedUSNs.forEach(usn => {
             let listItem = document.createElement("li");
-            listItem.style.cssText = "width: 100px; height: 40px; margin: 5px; border-radius: 5px; display: flex; font-weight: bold; align-items: center; justify-content: center;";
+            listItem.style.cssText = "width: 100px; height: 40px; margin: 5px; border-radius: 5px; display: flex; cursor: pointer; font-weight: bold; align-items: center; justify-content: center;";
             listItem.textContent = usn;
 
             let row = rows.find(row => row.querySelectorAll("td")[3].textContent === usn);
