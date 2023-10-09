@@ -20,12 +20,12 @@ if (GM_getValue("version") != GM_info.script.version) {
     GM_setValue("attendanceType", "modern");
     GM_setValue("version", GM_info.script.version);
     alert(`
-        JAIN - LMS Attendance Helper:\n\n
+        ${GM_info.script.name}:\n
         This scipt has been updated!!\n
-        Try out the new features soon!!\n\n
-        What's new:\n
-         -New 'Modern' attendance gui\n
-         -Bug Fixes`
+        What's new:
+         -'Modern' gui now supports typing in USN directly.\n
+         -Bug Fixes
+         -Code Cleanup`
     );
 }
 
@@ -61,7 +61,7 @@ document.querySelector(".btn.btn-secondary").parentElement.appendChild(startButt
 
 // Add an event listener to the start button
 startButton.addEventListener("click", function () {
-    attendance();
+    startAttendance();
 });
 
 /***************************************************************
@@ -111,100 +111,135 @@ dropdown.addEventListener("change", function () {
 
 /***************************************************************
  * Main Function to handle attendance.
- * Shows a prompt for entering students USN number.
- * First marks everyone (who isnt marked yet) as ABSENT
- * and then marks the entered numbers as PRESENT.
+ * CLASSIC: Shows a prompt for entering students USN number
+ * MODERN: Shows a GUI with USN boxes for marking attendance.
  ***************************************************************/
-function attendance() {
-    if (dropdown.value != "modern") {
-        // Set all (unmarked) students to PRESENT/ABSENT at start.
-        document.querySelector("td.cell.c4 [name='setallstatus-select']").value = "unselected";
-        if (dropdown.value == "present") document.querySelector("td.cell.c6 input[name='setallstatuses']").checked = true;
-        else if (dropdown.value == "absent") document.querySelector("td.cell.c5 input[name='setallstatuses']").checked = true;
+function startAttendance() {
+    if (dropdown.value != "modern")
+        attendanceClassic();
+    else
+        attendanceModern();
+}
 
-        // Initialize a variable to end loop
-        let stop = false;
+// Attendance style: Classic
+function attendanceClassic() {
+    // Set all (unmarked) students to PRESENT/ABSENT at start.
+    document.querySelector("td.cell.c4 [name='setallstatus-select']").value = "unselected";
+    if (dropdown.value == "present") document.querySelector("td.cell.c6 input[name='setallstatuses']").checked = true;
+    else if (dropdown.value == "absent") document.querySelector("td.cell.c5 input[name='setallstatuses']").checked = true;
 
-        // Not using a while loop here because the script works in a single thread,
-        // so it wont be able to reflect any changes until the while loop ends.
-        let loop = () => {
-            if (stop) return;
-            // Create a prompt to get USN of student
-            let usn = prompt("Enter the USN (or enter a non-numeric value to end)");
-            // Check whether the input is a number or else terminate.
-            if (isNaN(usn)) {
-                stop = true;
-            } else {
-                // remove whitespaces from USN and pad it with 0s to make it 3 digit
-                usn = usn.trim().toString().padStart(3, '0')
-                // Initialize the rows and cells
-                let rows = document.querySelectorAll("table tr");
-                for (let i = 3; i < rows.length; i++) {
-                    let cells = rows[i].querySelectorAll("td");
-                    if (cells.length > 0 && cells[3].textContent.endsWith(usn)) {
-                        if (dropdown.value == "present") cells[6].querySelector("input").checked = true;        // Mark the cell (student) PRESENT
-                        else if (dropdown.value == "absent") cells[7].querySelector("input").checked = true;    // Mark the cell (student) ABSENT
-                        showToast("Marked USN " + usn + " as present.")     // Display success message
-                        break;
-                    }
-                    else {
-                        showToast("No student with USN " + usn + " found.") // Display error message
-                    }
+    // Initialize a variable to end loop
+    let stop = false;
+
+    // Not using a while loop here because the script works in a single thread,
+    // so it wont be able to reflect any changes until the while loop ends.
+    let loop = () => {
+        if (stop) return;
+        // Create a prompt to get USN of student
+        let usn = prompt("Enter the USN (or enter a non-numeric value to end)");
+        // Check whether the input is a number or else terminate.
+        if (isNaN(usn)) {
+            stop = true;
+        } else {
+            // remove whitespaces from USN and pad it with 0s to make it 3 digit
+            usn = usn.trim().toString().padStart(3, '0')
+            // Initialize the rows and cells
+            let rows = document.querySelectorAll("table tr");
+            for (let i = 3; i < rows.length; i++) {
+                let cells = rows[i].querySelectorAll("td");
+                if (cells.length > 0 && cells[3].textContent.endsWith(usn)) {
+                    if (dropdown.value == "present") cells[6].querySelector("input").checked = true;        // Mark the cell (student) PRESENT
+                    else if (dropdown.value == "absent") cells[7].querySelector("input").checked = true;    // Mark the cell (student) ABSENT
+                    showToast("Marked USN " + usn + " as present.")     // Display success message
+                    break;
+                }
+                else {
+                    showToast("No student with USN " + usn + " found.") // Display error message
                 }
             }
-            setTimeout(loop, 0);
-        };
-        loop();
-    }
-    else {
-        let colorPresent = "rgb(122, 255, 122)";
-        let colorAbsent = "rgb(253, 186, 47)";
+        }
+        setTimeout(loop, 0);
+    };
+    loop();
+}
 
-        let overlayDiv = document.createElement("div");
-        overlayDiv.style.cssText = "position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); z-index: 999; display: flex; align-items: center; justify-content: center;";
-        document.body.appendChild(overlayDiv);
+// Attendance style: Modern
+function attendanceModern() {
+    // colors for USN boxes
+    const colorPresent = "rgb(122, 255, 122)";
+    const colorAbsent = "rgb(253, 186, 47)";
 
-        let formDiv = document.createElement("div");
-        formDiv.style.cssText = "position: relative; width: 80%; height: 70%; background-color: rgba(255, 255, 255, 0.8); border-radius: 10px; padding: 20px; overflow: auto; display: flex; flex-direction: column; align-items: center; justify-content: center; resize: both;";
-        overlayDiv.appendChild(formDiv);
+    // Create a overlay to cover the page
+    let overlayDiv = document.createElement("div");
+    overlayDiv.id = "attendance-overlay";
+    overlayDiv.style.cssText = "position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); z-index: 999; display: flex; align-items: center; justify-content: center;";
+    document.body.appendChild(overlayDiv);
 
-        let rows = Array.from(document.querySelectorAll("table tr")).slice(3);
-        let sortedUSNs = rows.map(row => row.querySelectorAll("td")[3].textContent).sort();
+    // Create a form to display the USN boxes
+    let formDiv = document.createElement("div");
+    formDiv.id = "attendance-form";
+    formDiv.style.cssText = "position: relative; width: 80%; height: 70%; background-color: rgba(255, 255, 255, 0.8); border-radius: 20px; padding: 20px; overflow: auto; display: flex; flex-direction: column; align-items: center; justify-content: center; resize: both;";
+    overlayDiv.appendChild(formDiv);
 
-        let list = document.createElement("ul");
-        list.style.cssText = "list-style-type: none; display: flex; padding: 20px; flex-wrap: wrap; justify-content: center;";
-        formDiv.appendChild(list);
+    // extract USN rows from the table and sort out their USN Boxes 
+    let rows = Array.from(document.querySelectorAll("table tr")).slice(3);
+    let sortedUSNs = rows.map(row => row.querySelectorAll("td")[3].textContent).sort();
 
-        sortedUSNs.forEach(usn => {
-            let listItem = document.createElement("li");
-            listItem.style.cssText = "width: 100px; height: 40px; margin: 5px; border-radius: 5px; display: flex; cursor: pointer; font-weight: bold; align-items: center; justify-content: center;";
-            listItem.textContent = usn;
+    // Create a list to display the USN boxes
+    let list = document.createElement("ul");
+    list.id = "attendance-list";
+    list.style.cssText = "list-style-type: none; display: flex; padding: 20px; flex-wrap: wrap; justify-content: center;";
+    formDiv.appendChild(list);
 
-            let row = rows.find(row => row.querySelectorAll("td")[3].textContent === usn);
-            let presentRadio = row.querySelectorAll("input")[0];
-            let absentRadio = row.querySelectorAll("input")[1];
+    // Append each USN box to the list
+    sortedUSNs.forEach(usn => {
+        let listItem = document.createElement("li");
+        listItem.className = "attendance-item"
+        listItem.style.cssText = "width: 100px; height: 40px; margin: 5px; border-radius: 5px; display: flex; cursor: pointer; font-weight: bold; align-items: center; justify-content: center;";
+        listItem.textContent = usn;
 
-            listItem.style.backgroundColor = presentRadio.checked ? colorPresent : colorAbsent;
+        let row = rows.find(row => row.querySelectorAll("td")[3].textContent === usn);
+        let presentRadio = row.querySelectorAll("input")[0];
+        let absentRadio = row.querySelectorAll("input")[1];
 
-            listItem.addEventListener("click", function () {
-                listItem.style.backgroundColor = listItem.style.backgroundColor === colorPresent ? colorAbsent : colorPresent;
-                showToast(`Marked USN ${usn} as ${listItem.style.backgroundColor === colorPresent ? "present" : "absent"}.`);
-                presentRadio.checked = listItem.style.backgroundColor === colorPresent;
-                absentRadio.checked = listItem.style.backgroundColor === colorAbsent;
-            });
+        listItem.style.backgroundColor = presentRadio.checked ? colorPresent : colorAbsent;
 
-            list.appendChild(listItem);
+        // Mark USN as present/absent on clicking USN box
+        listItem.addEventListener("click", function () {
+            listItem.style.backgroundColor = listItem.style.backgroundColor === colorPresent ? colorAbsent : colorPresent;
+            showToast(`Marked USN ${usn} as ${listItem.style.backgroundColor === colorPresent ? "present" : "absent"}.`);
+            presentRadio.checked = listItem.style.backgroundColor === colorPresent;     // Mark as PRESENT if USN box is green
+            absentRadio.checked = listItem.style.backgroundColor === colorAbsent;       // Mark as ABSENT if USN box is orange
         });
 
-        let closeButton = document.createElement("button");
-        closeButton.innerHTML = "Close";
-        closeButton.style.cssText = "position: sticky; bottom: 10px; align-self: end;";
-        closeButton.addEventListener("click", function () {
-            document.body.removeChild(overlayDiv);
-        });
+        list.appendChild(listItem);
+    });
 
-        formDiv.appendChild(closeButton);
-    }
+    // Add input box to attendance form for entering USN directly
+    let inputBox = document.createElement("button");
+    inputBox.id = "attendance-input";
+    inputBox.style.cssText = "width: 100px; height: 40px; margin: 5px; border-radius: 5px; display: flex; cursor: pointer; font-weight: bold; align-items: center; justify-content: center;";
+    inputBox.textContent = "Enter USN";
+    // inputBox.addEventListener("keyup", function (event) {
+    //     if (event.keyCode === 13) {
+    //         event.preventDefault();
+    //         showToast(`Marked USN ${usn} as ${listItem.style.backgroundColor === colorPresent ? "present" : "absent"}.`);
+    //         presentRadio.checked = listItem.style.backgroundColor === colorPresent;
+    //         absentRadio.checked = listItem.style.backgroundColor === colorAbsent;
+    //     }
+    // });
+    inputBox.addEventListener("click", function () { attendanceClassic() });
+    formDiv.appendChild(inputBox);
+
+    // Close button to exit the attendance form
+    let closeButton = document.createElement("button");
+    closeButton.innerHTML = "Close";
+    closeButton.className = "btn btn-secondary";
+    closeButton.style.cssText = "position: sticky; width: fit-content; bottom: 10px; align-self: flex-end;";
+    closeButton.addEventListener("click", function () {
+        document.body.removeChild(overlayDiv);
+    });
+    formDiv.appendChild(closeButton);
 }
 
 
