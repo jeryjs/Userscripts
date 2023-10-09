@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.1.4
+// @version     1.2.0
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -33,6 +33,7 @@ if (GM_getValue("version") != GM_info.script.version) {
         ${GM_info.script.name}:\n
         This scipt has been updated!!\n
         What's new:
+         -Added AniList [service]
          -Added Yugen List [service]
          -Added change service menu option [feature]
          -Added weekly auto-refresh [feature]
@@ -142,7 +143,7 @@ class AnimeList {
 class MALService {
     icon = "https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ";
     name = "MyAnimeList";
-    statuses = ['watching', 'plan_to_watch', 'completed', 'on_hold', 'dropped']
+    statuses = ['watching', 'plan_to_watch', 'on_hold', 'dropped', 'completed', '']
     constructor(clientId) {
         this.clientId = clientId;
         this.apiBaseUrl = 'https://api.myanimelist.net/v2/users';
@@ -153,8 +154,7 @@ class MALService {
         const url = `${proxyUrl}${this.apiBaseUrl}/${username}/animelist?status=${status}&limit=1000`;
         const config = {
             headers: {
-                'X-MAL-CLIENT-ID': this.clientId,
-                'Origin': window.location.href
+                'X-MAL-CLIENT-ID': this.clientId
             }
         };
         const response = await axios.get(url, config);
@@ -163,37 +163,42 @@ class MALService {
 }
 
 // Anilist service
-// TODO: Add support for Anilist
 class AnilistService {
-    icon = "https://upload.wikimedia.org/wikipedia/commons/thumb/6/61/AniList_logo.svg/2048px-AniList_logo.svg.png";
+    icon = "https://upload.wikimedia.org/wikipedia/commons/6/61/AniList_logo.svg";
     name = "AniList";
-    statuses = ['watching', 'plan_to_watch', 'completed', 'on_hold', 'dropped']
-    constructor(clientId, token) {
-        this.clientId = clientId;
-        this.token = token;
-        this.apiBaseUrl = '...';
-    }
+    statuses = ['CURRENT', 'PLANNING', 'PAUSED', 'DROPPED', 'COMPLETED', '']
+    constructor() { this.apiBaseUrl = 'https://graphql.anilist.co'; }
 
     async getAnimeList(username, status) {
-        const url = `${this.apiBaseUrl}/${username}/?status=${status}`;
-        const config = {
-            headers: {
-                'Authorization': token,
-                'Origin': window.location.href
-            }
-        };
-        const response = await axios.get(url, config);
-        return response.data.data.map(entry => new AnimeEntry(entry.node.title));
+        let page = 1;
+        let entries = [];
+        let hasNextPage = true;
+
+        while (hasNextPage) {
+            const query = `
+                query {
+                    Page(page: ${page}, perPage: 50) {
+                    pageInfo { hasNextPage }
+                    mediaList(userName:"${username}",  type:ANIME, status:${status}) {
+                        media { title { romaji } } }
+                    }
+                }
+            `;
+            const response = await axios.post(this.apiBaseUrl, { query });
+            const data = response.data.data.Page;
+            entries = entries.concat(data.mediaList);
+            hasNextPage = data.pageInfo.hasNextPage;
+            page = data.pageInfo.currentPage + 1;
+        }
+        return entries.map(entry => new AnimeEntry(entry.media.title.romaji));
     }
 }
 
 class YugenService {
     icon = "https://yugenanime.tv/static/img/logo__light.png";
     name = "YugenAnime";
-    statuses = [1, 2, 3, 4, 5]
-    constructor() {
-        this.apiBaseUrl = 'https://yugenanime.tv/api/mylist';
-    }
+    statuses = [1, 2, 4, 5, 3]
+    constructor() { this.apiBaseUrl = 'https://yugenanime.tv/api/mylist'; }
 
     async getAnimeList(username, status) {
         const url = `${this.apiBaseUrl}/?list_status=${status}`;
@@ -247,8 +252,8 @@ class Website {
         animeItems.each((_, animeItem) => {
             const animeTitle = this.getAnimeTitle(animeItem);
             const isRelated = animeList.isEntryExist(animeTitle) || manualList.isEntryExist(animeTitle);
-            console.log(`Anime "${animeTitle}" is related:`, isRelated);
             if (isRelated) {
+                console.log(`Anime "${animeTitle}" is related:`, isRelated);
                 $(animeItem).find(this.site.thumbnail).css({
                     opacity: '1',
                     filter: 'brightness(1)',
@@ -345,7 +350,7 @@ function changeUsername() {
 // Manually add anime
 function modifyManualAnime() {
     const animeTitle = prompt('This is a fallback mechanism to be used when the anime is not available on any service.\nFor both- Adding and Removing an anime, just enter the anime name.\n\nWith exact spelling, Enter the anime title:').trim();
-    if (animeTitle=='clear') { manualList.clear(); GM_setValue(manualListKey, manualList.entries); alert('Manual List Cleared'); return; }
+    if (animeTitle == 'clear') { manualList.clear(); GM_setValue(manualListKey, manualList.entries); alert('Manual List Cleared'); return; }
     if (animeTitle) {
         const animeEntry = new AnimeEntry(animeTitle);
         if (manualList.isEntryExist(animeTitle)) {
@@ -361,44 +366,79 @@ function modifyManualAnime() {
 }
 
 // Prompt the user to choose a service
-function chooseService(ch) {
-    let choice = 0;
-    if (typeof ch !== 'number')
-        choice = prompt(GM_info.script.name+'\n\nChoose a service:\n1. MyAnimeList\n2. AniList (incomplete)\n3. YugenAnime', parseInt(GM_getValue('service', 1)));
-    else choice = ch;
+// function chooseService(ch) {
+//     let choice = 0;
+//     if (typeof ch !== 'number')
+//         choice = prompt(GM_info.script.name + '\n\nChoose a service:\n1. MyAnimeList\n2. AniList (incomplete)\n3. YugenAnime', parseInt(GM_getValue('service', 1)));
+//     else choice = ch;
 
-    if (choice == null) { return; } else choice = parseInt(choice);
-    
-    switch (choice) {
-        case 1:
-            service = new MALService(MALClientId);;
-            GM_setValue('service', choice);
-            if ((typeof ch !== 'number')) {
-                GM_notification(`Switched to ${service.name} service.`, GM_info.script.name, service.icon);
-                refreshList();
-            }
-            console.log(`Switched to ${service.name} service.`);
-            break;
-        case 2:
-            // service = new AnilistService();
-            alert('Anilist is not supported yet.\nSwitch to a different service for now.');
-            chooseService(null)
-            break;
-        case 3:
-            service = new YugenService();
-            GM_setValue('service', choice);
-            if ((typeof ch !== 'number')) {
-                GM_notification(`Switched to ${service.name} service.`, GM_info.script.name, service.icon);
-                refreshList();
-            }
-            console.log(`Switched to ${service.name} service.`);
-            break;
-        default:
-            console.log('Invalid choice. Switch to a different service for now.');
-            chooseService(1)
-            break;
+//     if (choice == null) { return; } else choice = parseInt(choice);
+
+//     switch (choice) {
+//         case 1:
+//             service = new MALService(MALClientId);
+//             GM_setValue('service', choice);
+//             if ((typeof ch !== 'number')) {
+//                 GM_notification(`Switched to ${service.name} service.`, GM_info.script.name, service.icon);
+//                 refreshList();
+//             }
+//             console.log(`Switched to ${service.name} service.`);
+//             break;
+//         case 2:
+//             service = new AnilistService();
+//             GM_setValue('service', choice);
+//             if ((typeof ch !== 'number')) {
+//                 GM_notification(`Switched to ${service.name} service.`, GM_info.script.name, service.icon);
+//                 refreshList();
+//             }
+//             console.log(`Switched to ${service.name} service.`);
+//             break;
+//         case 3:
+//             service = new YugenService();
+//             GM_setValue('service', choice);
+//             if ((typeof ch !== 'number')) {
+//                 GM_notification(`Switched to ${service.name} service.`, GM_info.script.name, service.icon);
+//                 refreshList();
+//             }
+//             console.log(`Switched to ${service.name} service.`);
+//             break;
+//         default:
+//             console.log('Invalid choice. Switch to a different service for now.');
+//             chooseService(1)
+//             break;
+//     }
+//     return service
+// }
+function chooseService(ch) {
+    const services = [
+        new MALService(MALClientId),
+        new AnilistService(),
+        new YugenService()
+    ];
+
+    let choice = typeof ch == 'number' ? ch : parseInt(GM_getValue('service', 1));
+
+    if (typeof ch !== 'number') {
+        const msg = `${GM_info.script.name}\n\nChoose a service:\n${services.map((s, i) => `${i + 1}. ${s.name}`).join('\n')}`;
+        choice = prompt(msg, choice);
     }
-    return service
+    if (choice == null) { return } else choice = parseInt(choice);
+    let newService = services[choice - 1];
+
+    if (!newService) {
+        console.log('Invalid choice. Switch to a different service for now.');
+        return chooseService(parseInt(GM_getValue('service', 1)));
+    } else service = newService;
+
+    GM_setValue('service', choice);
+
+    if (typeof ch !== 'number') {
+        GM_notification(`Switched to ${service.name} service.`, GM_info.script.name, service.icon);
+        refreshList();
+    }
+
+    console.log(`Switched to ${service.name} service.`);
+    return service;
 }
 
 // Undarken related eps based on the anime titles
