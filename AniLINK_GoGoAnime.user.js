@@ -1,217 +1,154 @@
 // ==UserScript==
 // @name        AniLINK: GoGoAnime
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.1.1
+// @version     3.0.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK for GoGoAnime! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
-// @icon        https://www.google.com/s2/favicons?domain=gogoanime.llc
+// @icon        https://www.google.com/s2/favicons?domain=gogoanimehd.io
 // @author      Jery
 // @license     MIT
-// @include     https://gogoanime.tld/*
-// @match       https://gogoanime.cl/*
-// @match       https://gogoanime.llc/*
-// @grant       none
+// @match       https://gogoanimehd.io/*
+// @match       https://gogoanimehd.*/*
+// @match       https://gogoanime3.net/*
+// @match       https://gogoanime3.*/*
+// @match       https://gogoanime.*/*
+// @grant       GM_registerMenuCommand
 // ==/UserScript==
 
-(function () {
-    'use strict';
-
-    // Constants
-    const buttonId = "AniLINK_GenerateBtn";
-    const linksContId = "AniLINK_LinksContainer";
-    const qualityOptions = [];
-    const links = new Map();
-
-    // Create and add the generate button to the page
-    function generateButton() {
-        const btn = document.createElement('a');
-        btn.id = buttonId;
-        btn.innerHTML = '<i class="icongec-dowload"></i> Generate Download Links';
-        btn.style.cursor = "pointer";
-        btn.style.backgroundColor = "#00A651";
-        const btnArea = document.querySelector('.cf-download');
-
-        // Add the button to the page if user is logged in otherwise show placeholder
-        if (btnArea) {
-            btnArea.appendChild(btn);
-        } else {
-            const loginMessage = document.querySelector('.list_dowload > div > span');
-            loginMessage.innerHTML = `<b style="color:#FFC119;">GoGo Batch AniDl:</b> Please <a href="/login.html" title="login"><u>log in</u></a> to be able to batch download animes.`;
-        }
-        btn.addEventListener('click', onButtonPressed);
+class Episode {
+    constructor(number, title, links, thumbnail) {
+        this.number = number;
+        this.title = title;
+        this.links = links;
+        this.thumbnail = thumbnail;
+        this.name = `${this.title} - ${this.number}`;
     }
+}
 
-    // Disable the button and update its text content
-    function disableButton(cursor, text) {
-        const button = document.getElementById(buttonId);
-        button.innerHTML = text;
-        button.style.cursor = cursor;
-        button.removeEventListener('click', onButtonPressed);
-    }
-    // Enable the button with the provided text content
-    function enableButton(text) {
-        const button = document.getElementById(buttonId);
-        button.innerHTML = text;
-        button.style.cursor = 'pointer';
-        button.addEventListener('click', onButtonPressed);
-    }
-    // Update the status message on the button
-    async function updateStatus(episode) {
-        const button = document.getElementById(buttonId);
-        button.innerHTML = `Processing Ep ${episode.match(/(?:.+)-(\d+)$/)[1]}`;
-    }
+const websites = [
+    {
+        name: 'GoGoAnime',
+        url: ['gogoanimehd.io/', 'gogoanime3.net/', 'gogoanime.to/'],
+        epLinks: '#episode_related > li > a',
+        epTitle: '.title_name > h2',
+        linkElems: '.cf-download > a',
+        thumbnail: '.headnav_left > a > img',
+        extractEpisodes: async function (status) {
+            status.textContent = 'Starting...';
+            let episodes = {};
+            const episodePromises = Array.from(document.querySelectorAll(this.epLinks)).map(async epLink => {
+                const response = await fetchHtml(epLink.href);
+                const page = (new DOMParser()).parseFromString(response, 'text/html');
+                
+                const [, epTitle, epNumber] = page.querySelector(this.epTitle).textContent.match(/(.+?) Episode (\d+)(?:.+)$/);
+                const episodeTitle = `${epNumber.padStart(3, '0')} - ${epTitle}`;
+                const thumbnail = page.querySelector(this.thumbnail).src;
+                const links = [...page.querySelectorAll(this.linkElems)].reduce((obj, elem) => ({ ...obj, [elem.textContent.trim()]: elem.href }), {});
+                status.textContent = `Extracting ${epTitle} - ${epNumber.padStart(3, '0')}...`;
 
-    // Function to execute when the button is pressed
-    async function onButtonPressed() {
-        disableButton('progress', '<i class="icongec-dowload"></i> Generating Links...');
-        // Get page for each ep
-        const epLinks = Array.from(document.querySelectorAll('#episode_related li > a')).reverse();
-        try {
-            // Get links for each ep and then get HTMl from it
-            const fetchPromises = epLinks.map(epLink => fetchEpisodeHTML(epLink.href));
-            const htmls = await Promise.all(fetchPromises);
-
-            // Get download links for each ep
-            htmls.forEach(html => extractLinksFromHTML(html));
-
-            // Display download links in the linksContainer
-            generateLinksHTML();
-
-        } catch (error) {
-            // Handle any errors
-            console.error(error);
-            enableButton('<i class="icongec-dowload"></i> Error generating download links');
-            alert(`Error generating download links.\nCheck the console for more details.\n\n${error}`);
+                console.log(episodeTitle);
+                episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, thumbnail);
+            });
+            await Promise.all(episodePromises);
+            return episodes;
         }
     }
+];
 
-    // Fetch the HTML content of an episode link
-    async function fetchEpisodeHTML(url) {
-        const response = await fetch(url);
-        if (response.ok) {
-            updateStatus(url);
-            return await response.text();
-        } else {
-            throw new Error(`Failed to fetch HTML for ${url}`);
-        }
+async function fetchHtml(url) {
+    const response = await fetch(url);
+    if (response.ok) {
+        return response.text();
+    } else {
+        alert(`Failed to fetch HTML for ${url}`);
+        throw new Error(`Failed to fetch HTML for ${url}`);
+    }
+}
+
+GM_registerMenuCommand('Extract Episodes', extractEpisodes);
+
+
+// This function creates an overlay on the page and displays a list of episodes extracted from a website.
+// The function is triggered by a user command registered with `GM_registerMenuCommand`.
+// The episode list is generated by calling the `extractEpisodes` method of a website object that matches the current URL.
+async function extractEpisodes() {
+    // Restore last overlay if it exists
+    if (document.getElementById("AniLINK_Overlay")) {
+        document.getElementById("AniLINK_Overlay").style.display = "flex";
+        return;
     }
 
-    // Extract episode information and download links from the HTML content
-    function extractLinksFromHTML(html) {
-        const parser = new DOMParser();
-        const epPage = parser.parseFromString(html, 'text/html');
-        const titleElement = epPage.querySelector('.title_name h2');
+    // Create an overlay to cover the page
+    const overlayDiv = document.createElement("div");
+    overlayDiv.id = "AniLINK_Overlay";
+    overlayDiv.style.cssText = "position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.6); z-index: 999; display: flex; align-items: center; justify-content: center;";
+    document.body.appendChild(overlayDiv);
+    overlayDiv.onclick = event => linksContainer.contains(event.target) ? null : overlayDiv.style.display = "none";
 
-        // Extract the episode title and number from the title element
-        const [, epTitle, epNumber] = titleElement.textContent.match(/(.+?) Episode (\d+)(?:.+)$/);
-        const episode = encodeURIComponent(`${epTitle} - ${("000" + epNumber).slice(-3)}`);
+    // Create a form to display the Episodes list
+    const linksContainer = document.createElement('div');
+    linksContainer.id = "AniLINK_LinksContainer";
+    linksContainer.style.cssText = "position:relative; height:70%; width:60%; color:cyan; background-color:#0b0b0b; overflow:auto; border: groove rgb(75, 81, 84); border-radius: 10px; padding: 10px 5px; resize: both; scrollbar-width: thin; scrollbar-color: cyan transparent; display: flex; justify-content: center; align-items: center;";
+    overlayDiv.appendChild(linksContainer);
 
-        // Extract the download links from the episode page
-        const dwnldLinks = Array.from(epPage.querySelectorAll('.cf-download a'));
-        if (dwnldLinks.length === 0) {
-            return; // Skip episodes with no download links
-        }
+    // Create a progress bar to display the progress of the episode extraction process
+    const statusBar = document.createElement('span');
+    statusBar.id = "AniLINK_StatusBar";
+    statusBar.textContent = "Extracting Links..."
+    statusBar.style.cssText = "background-color: #0b0b0b; color: cyan;";
+    linksContainer.appendChild(statusBar);
 
-        dwnldLinks.forEach(dwnldLink => {
-            const qualityOption = dwnldLink.textContent.trim();
+    // Extract episodes
+    const website = websites.find(site => site.url.some(url => window.location.href.includes(url)));
+    const episodes = await website.extractEpisodes(statusBar);
 
-            // Add quality option to the list if it's not already present
-            if (!qualityOptions.includes(qualityOption)) { qualityOptions.push(qualityOption); }
+    console.log(episodes);
 
-            // Add the episode and download link to the corresponding quality option
-            if (!links.has(qualityOption)) { links.set(qualityOption, new Map()); }
+    // Get all links into format - {[qual1]:[ep1,2,3,4], [qual2]:[ep1,2,3,4], ...}
+    const sortedEpisodes = Object.values(episodes).sort((a, b) => a.number - b.number);
+    const sortedLinks = sortedEpisodes.reduce((acc, episode) => {
+        for (let quality in episode.links) (acc[quality] ??= []).push(episode);
+        return acc;
+    }, {});
+    console.log('sorted', sortedLinks);
 
-            links.get(qualityOption).set(episode, dwnldLink.href);
-        });
-    }
 
-    // Generate the HTML for the download links
-    function generateLinksHTML() {
-        const linksContainer = document.createElement('div');
-        linksContainer.id = linksContId;
-        linksContainer.style.cssText = "height:0px; width:100%; color:cyan; background:black; overflow:scroll; resize:both; border: groove; border-color: #4b5154; border-radius: 10px; padding: 10px 5px;";
-        document.querySelector('.list_dowload').appendChild(linksContainer);
-
-        // Generate HTML for each download link and then add them under their quality option header
-        const qualityLinkLists = qualityOptions.map(qualityOption => {
-            const qualityLinks = links.get(qualityOption);
-            const sortedLinks = new Map([...qualityLinks.entries()].sort());
-
-            // Generate HTML for each download link
-            const listOfLinks = [...sortedLinks.entries()].map(([episode, link]) => {
-
-                newLink(link);
-
-                const [, animeName, epNumber] = decodeURIComponent(episode).match(/^(.+) - (\d+)$/);
-                return `<li id="EpisodeLINK" style="list-style-type: none;">
+    const qualityLinkLists = Object.entries(sortedLinks).map(([quality, episode]) => {
+        const listOfLinks = episode.map(ep => {
+            return `<li id="EpisodeLink" style="list-style-type: none;">
                       <span style="user-select:none; color:cyan;">
-                      Ep ${epNumber.replace(/^0+/, '')}: </span>
-                      <a title="${animeName.replace(/[<>:"/\\|?*]/g, '')}" download="${episode}.mp4" href="${link}" style="color:#FFC119;">
-                      ${link}</a>
+                      Ep ${ep.number.replace(/^0+/, '')}: </span>
+                      <a title="${ep.title.replace(/[<>:"/\\|?*]/g, '')}" download="${encodeURI(ep.name)}.mp4" href="${ep.links[quality]}" style="color:#FFC119;">
+                      ${ep.links[quality]}</a>
                   </li>`;
-            }).join("");
+        }).join("");
 
-            // Generate HTML for each quality option with links under it
-            return `<ol style="white-space: nowrap;">
-                    <span id="Quality" style="display:flex; justify-content:center; align-items:center;">
+        return `<ol style="white-space: nowrap;">
+                      <span id="Quality" style="display:flex; justify-content:center; align-items:center;">
                         <b style="color:#58FFA9; font-size:25px; cursor:pointer; user-select:none;">
-                        --------------${qualityOption}--------------\n</b>
-                    </span>
-                    ${listOfLinks}
-                </ol><br><br>`;
-        });
+                          -------------------${quality}-------------------\n
+                        </b>
+                      </span>
+                      ${listOfLinks}
+                    </ol><br><br>`;
+    });
 
-        async function newLink(link) {
-            try {
-                console.warn(link);
-                const response = await fetch(link);
-                const finalUrl = response.url;
-                console.warn(finalUrl);
-            } catch (error) {
-                console.error('Error fetching the final URL:', error);
-            }
-        }
+    // Update the linksContainer with the finally generated links under each quality option header
+    linksContainer.style.cssText = "position:relative; height:70%; width:60%; color:cyan; background-color:#0b0b0b; overflow:auto; border: groove rgb(75, 81, 84); border-radius: 10px; padding: 10px 5px; resize: both; scrollbar-width: thin; scrollbar-color: cyan transparent;";
+    linksContainer.innerHTML = qualityLinkLists.join("");
 
-        // Update the linksContainer with the finally generated links under each quality option header
-        linksContainer.innerHTML = qualityLinkLists.join("");
+    // Add hover event listeners to update link text on hover
+    linksContainer.querySelectorAll('#EpisodeLink').forEach(element => {
+        const episode = element.querySelector('a');
+        const link = episode.href;
+        const name = decodeURIComponent(episode.download);
+        element.addEventListener('mouseenter', () => window.getSelection().isCollapsed && (episode.textContent = name));
+        element.addEventListener('mouseleave', () => episode.textContent = decodeURIComponent(link));
+    });
 
-        // Add hover event listeners to the linksContainer
-        attachHoverListeners(linksContainer);
-
-        // Add click event listeners to episode page links to enable button
-        document.querySelectorAll('#episode_page a').forEach(page => {
-            page.addEventListener('click', () => {
-                enableButton('<i class="icongec-dowload"></i> Regenerate Download Links For All Episodes');
-            });
-        });
-
-        // Reveal the linksContainer once links are generated
-        linksContainer.style.height = "500px";
-        disableButton('not-allowed', '<i class="icongec-dowload"></i> Download links generated!!');
-    }
-
-    // Attach hover listeners to the linksContainer to handle various actions
-    function attachHoverListeners(linksContainer) {
-        // Add hover event listeners to update link text on hover
-        const linkElements = linksContainer.querySelectorAll('#EpisodeLINK');
-        linkElements.forEach(element => {
-            let episode = element.querySelector('a');
-            let link = episode.href;
-            let name = decodeURIComponent(episode.download);
-            element.addEventListener('mouseenter', () => {
-                if (window.getSelection().isCollapsed) {    // Only update the link text if no text is selected
-                    episode.textContent = name;
-                }
-            });
-            element.addEventListener('mouseleave', () => {
-                episode.textContent = decodeURIComponent(link);
-            });
-        });
-
-        // Add hover event listeners to quality headers to transform them into speed dials
-        document.querySelectorAll('#Quality b').forEach(header => {
-            let headerHTML = header.innerHTML;
-            let style = `style="background-color: #00A651; padding: 5px 10px; border: none; border-radius: 5px; cursor: pointer; user-select: none;"`
-            let sdHTML = `
+    // Add hover event listeners to quality headers to transform them into speed dials
+    document.querySelectorAll('#Quality b').forEach(header => {
+        const style = `style="background-color: #00A651; padding: 5px 10px; border: none; border-radius: 5px; cursor: pointer; user-select: none;"`
+        const sdHTML = `
             <div style="display: flex; justify-content: center; padding: 10px;">
                 <ul style="list-style: none; display: flex; gap: 10px;">
                     <button type="button" ${style} id="AniLINK_selectLinks">Select</button>
@@ -220,108 +157,84 @@
                     <button type="button" ${style} id="AniLINK_playLinks">Play with VLC</button>
                 </ul>
             </div>`
-            header.parentElement.addEventListener('mouseenter', () => {
-                header.innerHTML = sdHTML;
-                attachBtnClickListeners();
-            });
-            header.parentElement.addEventListener('mouseleave', () => {
-                header.innerHTML = headerHTML;
-            });
+
+        let headerHTML = header.innerHTML;
+        header.parentElement.addEventListener('mouseenter', () => (header.innerHTML = sdHTML, attachBtnClickListeners()));
+        header.parentElement.addEventListener('mouseleave', () => (header.innerHTML = headerHTML));
+    });
+
+    // Attach click listeners to the speed dial buttons
+    function attachBtnClickListeners() {
+        const buttonIds = [
+            { id: 'AniLINK_selectLinks', handler: onSelectBtnPressed },
+            { id: 'AniLINK_copyLinks', handler: onCopyBtnClicked },
+            { id: 'AniLINK_exportLinks', handler: onExportBtnClicked },
+            { id: 'AniLINK_playLinks', handler: onPlayBtnClicked }
+        ];
+
+        buttonIds.forEach(({ id, handler }) => {
+            const button = document.querySelector(`#${id}`);
+            button.addEventListener('click', () => handler(button));
         });
 
-        // Attach click listeners to the speed dial buttons
-        function attachBtnClickListeners() {
-            const buttonIds = [
-                { id: 'AniLINK_selectLinks', handler: onSelectBtnPressed },
-                { id: 'AniLINK_copyLinks', handler: onCopyBtnClicked },
-                { id: 'AniLINK_exportLinks', handler: onExportBtnClicked },
-                { id: 'AniLINK_playLinks', handler: onPlayBtnClicked }
-            ];
-
-            buttonIds.forEach(({ id, handler }) => {
-                const button = document.querySelector(`#${id}`);
-                button.addEventListener('click', () => handler(button));
-            });
-
-            // Select Button click event handler
-            function onSelectBtnPressed(it) {
-                const links = it.closest('ol').querySelectorAll('li');
-                const range = new Range();
-                range.selectNodeContents(links[0]);
-                range.setEndAfter(links[links.length - 1]);
-                window.getSelection().removeAllRanges();
-                window.getSelection().addRange(range);
-                it.textContent = 'Selected!!';
-                setTimeout(() => { it.textContent = 'Select'; }, 1000);
-            }
-
-            // copySelectedLinks click event handler
-            function onCopyBtnClicked(it) {
-                const links = it.closest('ol').querySelectorAll('li');
-                let string = '';
-                links.forEach(link => {
-                    string += link.children[1].href + '\n';
-                });
-                navigator.clipboard.writeText(string);
-                it.textContent = 'Copied!!';
-                setTimeout(() => { it.textContent = 'Copy'; }, 1000);
-            }
-
-            // exportToPlaylist click event handler
-            function onExportBtnClicked(it) {
-                // Export all links under the quality header into a playlist file
-                const links = it.closest('ol').querySelectorAll('li');
-                let string = '#EXTM3U\n';
-                links.forEach(link => {
-                    const episode = decodeURIComponent(link.children[1].download);
-                    string += `#EXTINF:-1,${episode}\n`;
-                    string += link.children[1].href + '\n';
-                });
-                const fileName = links[0].querySelector('a').title + '.m3u';
-                const file = new Blob([string], { type: 'application/vnd.apple.mpegurl' });
-                const a = document.createElement('a');
-                a.href = window.URL.createObjectURL(file);
-                a.download = fileName;
-                a.click();
-                it.textContent = 'Exported!!';
-                setTimeout(() => { it.textContent = 'Export'; }, 1000);
-            }
-
-            // PlayWithVLC click event handler
-            function onPlayBtnClicked(it) {
-                // Export all links under the quality header into a playlist file
-                const links = it.closest('ol').querySelectorAll('li');
-                let string = '#EXTM3U\n';
-                links.forEach(link => {
-                    const episode = decodeURIComponent(link.children[1].download);
-                    string += `#EXTINF:-1,${episode}\n`;
-                    string += link.children[1].href + '\n';
-                });
-                const file = new Blob([string], { type: 'application/vnd.apple.mpegurl' });
-                const fileUrl = URL.createObjectURL(file);
-                window.open(fileUrl);
-                it.textContent = 'Launching VLC!!';
-                setTimeout(() => { it.textContent = 'Play with VLC'; }, 2000);
-                alert("Due to browser limitations, there is a high possibility that this feature may not work correctly.\nIf the video does not automatically play, please utilize the export button and manually open the playlist file manually.");
-            }
-
-            return {
-                onSelectBtnPressed,
-                onCopyBtnClicked,
-                onExportBtnClicked,
-                onPlayBtnClicked
-            };
+        // Select Button click event handler
+        function onSelectBtnPressed(it) {
+            const links = it.closest('ol').querySelectorAll('li');
+            const range = new Range();
+            range.selectNodeContents(links[0]);
+            range.setEndAfter(links[links.length - 1]);
+            window.getSelection().removeAllRanges();
+            window.getSelection().addRange(range);
+            it.textContent = 'Selected!!';
+            setTimeout(() => { it.textContent = 'Select'; }, 1000);
         }
+
+        // copySelectedLinks click event handler
+        function onCopyBtnClicked(it) {
+            const links = it.closest('ol').querySelectorAll('li');
+            const string = [...links].map(link => link.children[1].href).join('\n');
+            navigator.clipboard.writeText(string);
+            it.textContent = 'Copied!!';
+            setTimeout(() => { it.textContent = 'Copy'; }, 1000);
+        }
+
+        // exportToPlaylist click event handler
+        function onExportBtnClicked(it) {
+            // Export all links under the quality header into a playlist file
+            const links = it.closest('ol').querySelectorAll('li');
+            const string = ['#EXTM3U', ...links].map(link => {
+                const episode = decodeURIComponent(link.children[1].download);
+                return `#EXTINF:-1,${episode}\n${link.children[1].href}`;
+            }).join('\n');
+            const fileName = links[0].querySelector('a').title + '.m3u';
+            const file = new Blob([string], { type: 'application/vnd.apple.mpegurl' });
+            const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(file), download: fileName });
+            a.click();
+            it.textContent = 'Exported!!';
+            setTimeout(() => { it.textContent = 'Export'; }, 1000);
+        }
+
+        // PlayWithVLC click event handler
+        function onPlayBtnClicked(it) {
+            // Export all links under the quality header into a playlist file
+            const links = it.closest('ol').querySelectorAll('li');
+            const string = ['#EXTM3U', ...links].map(link => {
+                const episode = decodeURI(link.children[1].download);
+                return `#EXTINF:-1,${episode}\n${link.children[1].href}`;
+            }).join('\n');
+            const file = new Blob([string], { type: 'application/vnd.apple.mpegurl' });
+            const fileUrl = URL.createObjectURL(file);
+            window.open(fileUrl);
+            it.textContent = 'Launching VLC!!';
+            setTimeout(() => { it.textContent = 'Play with VLC'; }, 2000);
+            alert("Due to browser limitations, there is a high possibility that this feature may not work correctly.\nIf the video does not automatically play, please utilize the export button and manually open the playlist file manually.");
+        }
+
+        return {
+            onSelectBtnPressed,
+            onCopyBtnClicked,
+            onExportBtnClicked,
+            onPlayBtnClicked
+        };
     }
-
-    // Call the generateButton function to initialize the script
-    generateButton();
-})();
-
-
-/**
- * This user script adds a button to the GoGoAnime website that generates direct download links for all episodes of an anime, sorted by quality.
- * The generated links can be copied into a download manager like IDM to batch download all episodes.
- * The script uses DOM manipulation and fetch requests to extract episode information and download links from the page.
- * It also provides functionality to select, copy and export (to playlist) all links under each quality option and regenerate the download links when navigating to a different episode.
- */
+}
