@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.2.0
+// @version     1.3.0
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -33,12 +33,7 @@ if (GM_getValue("version") != GM_info.script.version) {
         ${GM_info.script.name}:\n
         This scipt has been updated!!\n
         What's new:
-         -Added AniList [service]
-         -Added Yugen List [service]
-         -Added change service menu option [feature]
-         -Added weekly auto-refresh [feature]
-         -Added manual list clear option [hidden-feature]
-         -Now shows number of changed anime on refresh [feature]`
+         -Improved anime title detection [feature]`
     );
 }
 
@@ -134,8 +129,37 @@ class AnimeList {
         this.entries.push(entry);
     }
 
+    // Use jaro-winkler algorithm to compare whether the given title is similar present in the animelist
     isEntryExist(title) {
-        return this.entries.some(entry => entry.title.toLowerCase() === title.toLowerCase());
+        const threshold = 0.8;
+        const a = title.toLowerCase();
+        return this.entries.some(e => {
+            const b = e.title.toLowerCase(), m = a.length, n = b.length;
+            if (n === 0 || m === 0) return false;
+            const max = Math.floor(Math.max(n, m) / 2) - 1, ma = Array(n).fill(false), mb = Array(m).fill(false);
+            let mtc = 0;
+            for (let i = 0; i < n; i++) {
+                const s = Math.max(0, i - max), e = Math.min(m, i + max + 1);
+                for (let j = s; j < e; j++) {
+                    if (!mb[j] && b[i] === a[j]) {
+                        ma[i] = true, mb[j] = true, mtc++;
+                        break;
+                    }
+                }
+            }
+            if (mtc === 0) return false;
+            let tr = 0, k = 0;
+            for (let i = 0; i < n; i++) {
+                if (ma[i]) {
+                    while (!mb[k]) k++;
+                    if (b[i] !== a[k]) tr++;
+                    k++;
+                }
+            }
+            const sim = (mtc / n + mtc / m + (mtc - tr / 2) / mtc) / 3;
+            if (sim >= threshold) console.log(`jaro-winkler: ${b} - ${a} = ${sim}`);
+            return sim >= threshold;
+        });
     }
 }
 
@@ -239,21 +263,23 @@ class Website {
         `);
     }
 
+    // Gets all the anime items on the page
     getAnimeItems() {
         return $(this.site.item);
     }
 
+    // Gets the anime title from the anime item
     getAnimeTitle(animeItem) {
         return $(animeItem).find(this.site.title).text().trim();
     }
 
-    undarkenRelatedEps(animeList, manualList) {
+    undarkenRelatedEps(animeList) {
         const animeItems = this.getAnimeItems();
         animeItems.each((_, animeItem) => {
             const animeTitle = this.getAnimeTitle(animeItem);
-            const isRelated = animeList.isEntryExist(animeTitle) || manualList.isEntryExist(animeTitle);
+            const isRelated = animeList.isEntryExist(animeTitle);
             if (isRelated) {
-                console.log(`Anime "${animeTitle}" is related:`, isRelated);
+                // console.log(`Anime "${animeTitle}" is related:`, isRelated);
                 $(animeItem).find(this.site.thumbnail).css({
                     opacity: '1',
                     filter: 'brightness(1)',
@@ -366,49 +392,6 @@ function modifyManualAnime() {
 }
 
 // Prompt the user to choose a service
-// function chooseService(ch) {
-//     let choice = 0;
-//     if (typeof ch !== 'number')
-//         choice = prompt(GM_info.script.name + '\n\nChoose a service:\n1. MyAnimeList\n2. AniList (incomplete)\n3. YugenAnime', parseInt(GM_getValue('service', 1)));
-//     else choice = ch;
-
-//     if (choice == null) { return; } else choice = parseInt(choice);
-
-//     switch (choice) {
-//         case 1:
-//             service = new MALService(MALClientId);
-//             GM_setValue('service', choice);
-//             if ((typeof ch !== 'number')) {
-//                 GM_notification(`Switched to ${service.name} service.`, GM_info.script.name, service.icon);
-//                 refreshList();
-//             }
-//             console.log(`Switched to ${service.name} service.`);
-//             break;
-//         case 2:
-//             service = new AnilistService();
-//             GM_setValue('service', choice);
-//             if ((typeof ch !== 'number')) {
-//                 GM_notification(`Switched to ${service.name} service.`, GM_info.script.name, service.icon);
-//                 refreshList();
-//             }
-//             console.log(`Switched to ${service.name} service.`);
-//             break;
-//         case 3:
-//             service = new YugenService();
-//             GM_setValue('service', choice);
-//             if ((typeof ch !== 'number')) {
-//                 GM_notification(`Switched to ${service.name} service.`, GM_info.script.name, service.icon);
-//                 refreshList();
-//             }
-//             console.log(`Switched to ${service.name} service.`);
-//             break;
-//         default:
-//             console.log('Invalid choice. Switch to a different service for now.');
-//             chooseService(1)
-//             break;
-//     }
-//     return service
-// }
 function chooseService(ch) {
     const services = [
         new MALService(MALClientId),
@@ -445,11 +428,14 @@ function chooseService(ch) {
 function undarkenRelatedEps() {
     const animeSite = getCurrentSite();
     const thisSite = new Website(animeSite);
-    console.log(animeSite)
+    console.log('animeList', animeList)
     // Workaround for sites like AnimePahe which dynamically generate episodes page
     setTimeout(() => {
+        const entriesList = Object.create(animeList);
+        entriesList.entries = animeList.entries.concat(manualList.entries);
+        console.log('entriesList', entriesList);
         if (!animeSite) console.error('No matching website found.');
-        else thisSite.undarkenRelatedEps(animeList, manualList);
+        else thisSite.undarkenRelatedEps(entriesList);
     }, animeSite.timeout);
 }
 
