@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.3.0
+// @version     1.3.1
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -33,7 +33,9 @@ if (GM_getValue("version") != GM_info.script.version) {
         ${GM_info.script.name}:\n
         This scipt has been updated!!\n
         What's new:
-         -Improved anime title detection [feature]`
+         -Improved anime title detection [feature]
+         -All menus merged into a single menu [feature]
+         -Code Cleanup`
     );
 }
 
@@ -312,15 +314,25 @@ let service = null;
 chooseService(parseInt(GM_getValue('service', 1)));
 
 // Register menu commands
-GM_registerMenuCommand('Change MAL Username', changeUsername);
-GM_registerMenuCommand('Refresh Anime List', refreshList);
-GM_registerMenuCommand('Manually Add/Remove Anime', modifyManualAnime);
-GM_registerMenuCommand('Choose Service', chooseService);
+GM_registerMenuCommand('Show Options', showOptions);
 
 
 /***************************************************************
  * Functions for working of script
  ***************************************************************/
+// Show menu options as a prompt
+function showOptions() {
+    let options = {'Change Username': changeUsername, 'Refresh Anime List': refreshList, 'Manually Add/Remove Anime': modifyManualAnime, 'Choose Service': chooseService}
+    let opt = prompt(
+        `${GM_info.script.name}\n\nChoose an option:\n${Object.keys(options).map((key, i) => `${i + 1}. ${key}`).join('\n')}`
+    )
+    if (opt !== null) {
+        let index = parseInt(opt) - 1
+        let selectedOption = Object.values(options)[index]
+        selectedOption()
+    }
+}
+
 // Refresh the anime list from MAL and store it using GM_setValue
 async function refreshList() {
     try {
