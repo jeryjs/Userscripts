@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.3.2
+// @version     1.3.3
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -102,8 +102,8 @@ const services = [
                     'X-MAL-CLIENT-ID': this.clientId
                 }
             };
-            const response = await fetch(url, config);
-            const data = await response.json();
+            const response = await axios.get(url, config);
+            const data = response.data;
             return data.data.map(entry => new AnimeEntry(entry.node.title));
         }
     },
@@ -113,21 +113,25 @@ const services = [
         statuses: ['CURRENT', 'PLANNING', 'COMPLETED', 'DROPPED', 'PAUSED', ''],
         apiBaseUrl: 'https://graphql.anilist.co',
         async getAnimeList(username, status) {
-            const query = `
-                query ($username: String, $status: [MediaListStatus]) {
-                    MediaListCollection(userName: ${username}, type: ANIME, status_in: ${status}) {
-                        lists { entries { media { title { romooaji } } } }
+            let page = 1, entries = [], hasNextPage = true;
+            while (hasNextPage) {
+                const query = `
+                    query {
+                        Page(page:${page}, perPage:50) {
+                            pageInfo { hasNextPage, currentPage },
+                            mediaList(userName:"${username}", type:ANIME, status:${status}) {
+                                media { title { romaji } }
+                            }
+                        }
                     }
-                }
-            `;
-            const config = {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                }
-            };
-            const response = await axios.post(this.apiBaseUrl, { query }, config);
-            return response.data.data.MediaListCollection.lists[0].entries.map(entry => new AnimeEntry(entry.media.title.romaji));
+                `;
+                const response = await axios.post(this.apiBaseUrl, { query });
+                const data = response.data.data.Page;
+                entries = entries.concat(data.mediaList);
+                hasNextPage = data.pageInfo.hasNextPage;
+                page = data.pageInfo.currentPage + 1;
+            }
+            return entries.map(entry => new AnimeEntry(entry.media.title.romaji));
         }
     },
     {
