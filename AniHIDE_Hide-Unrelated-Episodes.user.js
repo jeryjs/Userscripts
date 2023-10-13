@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.3.3
+// @version     1.3.4
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -29,15 +29,15 @@
 if (GM_getValue("version") != GM_info.script.version) {
     // refreshList();
     GM_setValue("version", GM_info.script.version);
-    alert(`
+    const msg = `
         ${GM_info.script.name}:\n
         This scipt has been updated!!\n
         What's new:
-         -Improved anime title detection [feature]
-         -All menus merged into a single menu [feature]
-         -Services saved as a array instead of class [improvement]
-         -Code Cleanup`
-    );
+         -Anilist fixed [bug fix]
+         -Improved AniList query [improvement]
+         -Now stores different usernames for different services [feature]
+    `
+    alert(msg);
 }
 
 /* Preferred Format sample-
@@ -158,14 +158,9 @@ const services = [
  ***************************************************************/
 // User settings
 class UserSettings {
-    constructor(username = '') {
-        this.username = username;
+    constructor(usernames = {}) {
+        this.usernames = usernames;
     }
-
-    save() {
-        GM_setValue(userSettingsKey, this);
-    }
-
     static load() {
         return GM_getValue(userSettingsKey, new UserSettings());
     }
@@ -317,8 +312,9 @@ function showOptions() {
 // Refresh the anime list from MAL and store it using GM_setValue
 async function refreshList() {
     try {
-        if (!userSettings.username) {
-            alert('Please set your MAL username to continue.');
+        const username = userSettings.usernames[service.name]
+        if (!username) {
+            alert(`Please set your ${service.name} username to continue.`);
             changeUsername();
             return;
         }
@@ -326,8 +322,8 @@ async function refreshList() {
 
         GM_notification("Refreshing your list...", GM_info.script.name, service.icon)
 
-        const entriesWatching = await service.getAnimeList(userSettings.username, service.statuses[0]);
-        const entriesPlanned = await service.getAnimeList(userSettings.username, service.statuses[1]);
+        const entriesWatching = await service.getAnimeList(username, service.statuses[0]);
+        const entriesPlanned = await service.getAnimeList(username, service.statuses[1]);
         const entriesManual = manualList.entries;
 
         const oldAnimeList = animeList.entries.map(entry => entry.title);
@@ -358,10 +354,10 @@ async function refreshList() {
 
 // Change MAL username
 function changeUsername() {
-    const newUsername = prompt('Enter your MAL username:');
+    const newUsername = prompt(`Enter your ${service.name} username:`);
     if (newUsername) {
-        userSettings.username = newUsername;
-        userSettings.save();
+        userSettings.usernames[service.name] = newUsername;
+        GM_setValue(userSettingsKey, this);
         refreshList();
     }
 }
