@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.3.1
+// @version     1.3.2
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -35,6 +35,7 @@ if (GM_getValue("version") != GM_info.script.version) {
         What's new:
          -Improved anime title detection [feature]
          -All menus merged into a single menu [feature]
+         -Services saved as a array instead of class [improvement]
          -Code Cleanup`
     );
 }
@@ -83,6 +84,66 @@ const animeSites = [
         title: '.episode-title > a',
         thumbnail: '.episode-snapshot > img',
         timeout: 500
+    }
+];
+
+const services = [
+    {
+        name: "MyAnimeList",
+        icon: "https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ",
+        statuses: ['watching', 'plan_to_watch', 'on_hold', 'dropped', 'completed', ''],
+        apiBaseUrl: 'https://api.myanimelist.net/v2/users',
+        clientId: MALClientId,
+        async getAnimeList(username, status) {
+            const proxyUrl = 'https://corsproxy.io/?';
+            const url = `${proxyUrl}${this.apiBaseUrl}/${username}/animelist?status=${status}&limit=1000`;
+            const config = {
+                headers: {
+                    'X-MAL-CLIENT-ID': this.clientId
+                }
+            };
+            const response = await fetch(url, config);
+            const data = await response.json();
+            return data.data.map(entry => new AnimeEntry(entry.node.title));
+        }
+    },
+    {
+        name: "AniList",
+        icon: "https://anilist.co/img/icons/android-chrome-512x512.png",
+        statuses: ['CURRENT', 'PLANNING', 'COMPLETED', 'DROPPED', 'PAUSED', ''],
+        apiBaseUrl: 'https://graphql.anilist.co',
+        async getAnimeList(username, status) {
+            const query = `
+                query ($username: String, $status: [MediaListStatus]) {
+                    MediaListCollection(userName: ${username}, type: ANIME, status_in: ${status}) {
+                        lists { entries { media { title { romooaji } } } }
+                    }
+                }
+            `;
+            const config = {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                }
+            };
+            const response = await axios.post(this.apiBaseUrl, { query }, config);
+            return response.data.data.MediaListCollection.lists[0].entries.map(entry => new AnimeEntry(entry.media.title.romaji));
+        }
+    },
+    {
+        name: "YugenAnime",
+        icon: "https://yugenanime.tv/static/img/logo__light.png",
+        statuses: [1, 2, 4, 5, 3],
+        apiBaseUrl: 'https://yugenanime.tv/api/mylist',
+        async getAnimeList(username, status) {
+            const url = `${this.apiBaseUrl}/?list_status=${status}`;
+            const response = await axios.get(url);
+            const doc = new DOMParser().parseFromString(response.data.query, 'text/html');
+            const list = Array.from(doc.querySelectorAll('.list-entry-row'), row => {
+                return new AnimeEntry(row.querySelector('.list-entry-title a').textContent.trim());
+            });
+            return list;
+        }
     }
 ];
 
@@ -165,90 +226,6 @@ class AnimeList {
     }
 }
 
-// MAL service
-class MALService {
-    icon = "https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ";
-    name = "MyAnimeList";
-    statuses = ['watching', 'plan_to_watch', 'on_hold', 'dropped', 'completed', '']
-    constructor(clientId) {
-        this.clientId = clientId;
-        this.apiBaseUrl = 'https://api.myanimelist.net/v2/users';
-    }
-
-    async getAnimeList(username, status) {
-        const proxyUrl = 'https://corsproxy.io/?';
-        const url = `${proxyUrl}${this.apiBaseUrl}/${username}/animelist?status=${status}&limit=1000`;
-        const config = {
-            headers: {
-                'X-MAL-CLIENT-ID': this.clientId
-            }
-        };
-        const response = await axios.get(url, config);
-        return response.data.data.map(entry => new AnimeEntry(entry.node.title));
-    }
-}
-
-// Anilist service
-class AnilistService {
-    icon = "https://upload.wikimedia.org/wikipedia/commons/6/61/AniList_logo.svg";
-    name = "AniList";
-    statuses = ['CURRENT', 'PLANNING', 'PAUSED', 'DROPPED', 'COMPLETED', '']
-    constructor() { this.apiBaseUrl = 'https://graphql.anilist.co'; }
-
-    async getAnimeList(username, status) {
-        let page = 1;
-        let entries = [];
-        let hasNextPage = true;
-
-        while (hasNextPage) {
-            const query = `
-                query {
-                    Page(page: ${page}, perPage: 50) {
-                    pageInfo { hasNextPage }
-                    mediaList(userName:"${username}",  type:ANIME, status:${status}) {
-                        media { title { romaji } } }
-                    }
-                }
-            `;
-            const response = await axios.post(this.apiBaseUrl, { query });
-            const data = response.data.data.Page;
-            entries = entries.concat(data.mediaList);
-            hasNextPage = data.pageInfo.hasNextPage;
-            page = data.pageInfo.currentPage + 1;
-        }
-        return entries.map(entry => new AnimeEntry(entry.media.title.romaji));
-    }
-}
-
-class YugenService {
-    icon = "https://yugenanime.tv/static/img/logo__light.png";
-    name = "YugenAnime";
-    statuses = [1, 2, 4, 5, 3]
-    constructor() { this.apiBaseUrl = 'https://yugenanime.tv/api/mylist'; }
-
-    async getAnimeList(username, status) {
-        const url = `${this.apiBaseUrl}/?list_status=${status}`;
-        const headers = {
-            'accept': '*/*',
-            'sec-fetch-mode': 'cors',
-            'sec-fetch-site': 'same-origin',
-            'x-requested-with': 'XMLHttpRequest',
-            'Origin': window.location.href
-        };
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: headers,
-            credentials: 'include'
-        });
-        const data = await response.json();
-        const doc = new DOMParser().parseFromString(data.query, 'text/html');
-        const list = Array.from(doc.querySelectorAll('.list-entry-row'), row => {
-            return new AnimeEntry(row.querySelector('.list-entry-title a').textContent.trim());
-        });
-        return list;
-    }
-}
-
 // Website class
 class Website {
     constructor(site) {
@@ -322,9 +299,9 @@ GM_registerMenuCommand('Show Options', showOptions);
  ***************************************************************/
 // Show menu options as a prompt
 function showOptions() {
-    let options = {'Change Username': changeUsername, 'Refresh Anime List': refreshList, 'Manually Add/Remove Anime': modifyManualAnime, 'Choose Service': chooseService}
+    let options = { 'Refresh Anime List': refreshList, 'Change Username': changeUsername, 'Manually Add/Remove Anime': modifyManualAnime, 'Choose Service': chooseService }
     let opt = prompt(
-        `${GM_info.script.name}\n\nChoose an option:\n${Object.keys(options).map((key, i) => `${i + 1}. ${key}`).join('\n')}`
+        `${GM_info.script.name}\n\nChoose an option:\n${Object.keys(options).map((key, i) => `${i + 1}. ${key}`).join('\n')}`, '1'
     )
     if (opt !== null) {
         let index = parseInt(opt) - 1
@@ -405,12 +382,6 @@ function modifyManualAnime() {
 
 // Prompt the user to choose a service
 function chooseService(ch) {
-    const services = [
-        new MALService(MALClientId),
-        new AnilistService(),
-        new YugenService()
-    ];
-
     let choice = typeof ch == 'number' ? ch : parseInt(GM_getValue('service', 1));
 
     if (typeof ch !== 'number') {
