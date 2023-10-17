@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.3.4
+// @version     1.3.6
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -9,11 +9,14 @@
 // @match       https://yugenanime.*/*
 // @match       https://yugenanime.tv/*
 // @match       https://gogoanimehd.*/*
-// @match       https://gogoanimehd.to/*
+// @match       https://gogoanimehd.io/*
 // @match       https://gogoanime3.*/*
 // @match       https://gogoanime3.net/*
 // @match       https://animepahe.*/
 // @match       https://animepahe.ru/
+// @match       https://animesuge.to/*
+// @match       https://animesuge.*/*
+// @match       https://*animesuge.cc/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_addStyle
 // @grant       GM_getValue
@@ -33,9 +36,10 @@ if (GM_getValue("version") != GM_info.script.version) {
         ${GM_info.script.name}:\n
         This scipt has been updated!!\n
         What's new:
-         -Anilist fixed [bug fix]
-         -Improved AniList query [improvement]
-         -Now stores different usernames for different services [feature]
+         -Added AnimeSuge [website]
+         -Updated gogoanime [domain]
+         -Improved anime site detection [improvement]
+         -Improved anime title extractino [improvement]
     `
     alert(msg);
 }
@@ -66,6 +70,7 @@ const MALClientId = 'cfdd50f8037e9e8cf489992df497c761';
 const animeSites = [
     {
         name: 'yugenanime',
+        url: ['yugenanime.tv'],
         item: '.ep-grid > li',
         title: '.ep-origin-name',
         thumbnail: '.ep-thumbnail > img',
@@ -73,6 +78,7 @@ const animeSites = [
     },
     {
         name: 'gogoanime',
+        url: ['gogoanime3', 'gogoanimehd', 'gogoanime'],
         item: '.items > li',
         title: '.name > a',
         thumbnail: '.img > a > img',
@@ -80,10 +86,27 @@ const animeSites = [
     },
     {
         name: 'animepahe',
+        url: ['animepahe.ru', 'animepahe.com', 'animepahe'],
         item: '.episode-wrap > .episode',
         title: '.episode-title > a',
         thumbnail: '.episode-snapshot > img',
         timeout: 500
+    },
+    {
+        name: 'animesuge',
+        url: ['animesuge.to', 'animesuge.cc'],
+        item: '.item',
+        title: '.name > a',
+        thumbnail: '.poster img',
+        timeout: 0
+    },
+    {
+        name: 'animesuge',
+        url: ['animesuge.su'],
+        item: '.bs',
+        title: '.tt',
+        thumbnail: 'img',
+        timeout: 0
     }
 ];
 
@@ -219,7 +242,7 @@ class AnimeList {
                 }
             }
             const sim = (mtc / n + mtc / m + (mtc - tr / 2) / mtc) / 3;
-            if (sim >= threshold) console.log(`jaro-winkler: ${b} - ${a} = ${sim}`);
+            if (sim >= 0.7) console.log(`jaro-winkler: ${b} - ${a} = ${sim}`);
             return sim >= threshold;
         });
     }
@@ -248,7 +271,9 @@ class Website {
 
     // Gets the anime title from the anime item
     getAnimeTitle(animeItem) {
-        return $(animeItem).find(this.site.title).text().trim();
+        return $(animeItem).find(this.site.title).contents().filter(function() {
+            return this.nodeType === Node.TEXT_NODE;
+        }).text().trim();
     }
 
     undarkenRelatedEps(animeList) {
@@ -425,7 +450,7 @@ function undarkenRelatedEps() {
 // Get the current website based on the URL
 function getCurrentSite() {
     const currentUrl = window.location.href.toLowerCase();
-    return animeSites.find(website => currentUrl.includes(website.name));
+    return animeSites.find(website => website.url.some(site => currentUrl.includes(site)));
 }
 
 // Run the script
