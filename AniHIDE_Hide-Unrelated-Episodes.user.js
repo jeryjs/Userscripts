@@ -94,10 +94,18 @@ const animeSites = [
     },
     {
         name: 'animesuge',
-        url: ['animesuge.to', 'animesuge.cc'],
+        url: ['animesuge.to'],
         item: '.item',
         title: '.name > a',
         thumbnail: '.poster img',
+        timeout: 0
+    },
+    {
+        name: 'animesuge',
+        url: ['animesuge.cc'],
+        item: '.itemlist > li',
+        title: '.name a',
+        thumbnail: '.poster > img',
         timeout: 0
     },
     {
