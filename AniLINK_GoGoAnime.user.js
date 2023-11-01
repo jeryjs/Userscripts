@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK: GoGoAnime
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     3.0.0
+// @version     3.0.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK for GoGoAnime! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=gogoanimehd.io
 // @author      Jery
@@ -202,10 +202,11 @@ async function extractEpisodes() {
         function onExportBtnClicked(it) {
             // Export all links under the quality header into a playlist file
             const links = it.closest('ol').querySelectorAll('li');
-            const string = ['#EXTM3U', ...links].map(link => {
+            let string = '#EXTM3U\n';
+            links.forEach(link => {
                 const episode = decodeURIComponent(link.children[1].download);
-                return `#EXTINF:-1,${episode}\n${link.children[1].href}`;
-            }).join('\n');
+                string += `#EXTINF:-1,${episode}\n` + link.children[1].href + '\n';
+            });
             const fileName = links[0].querySelector('a').title + '.m3u';
             const file = new Blob([string], { type: 'application/vnd.apple.mpegurl' });
             const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(file), download: fileName });
@@ -218,10 +219,11 @@ async function extractEpisodes() {
         function onPlayBtnClicked(it) {
             // Export all links under the quality header into a playlist file
             const links = it.closest('ol').querySelectorAll('li');
-            const string = ['#EXTM3U', ...links].map(link => {
-                const episode = decodeURI(link.children[1].download);
-                return `#EXTINF:-1,${episode}\n${link.children[1].href}`;
-            }).join('\n');
+            let string = '#EXTM3U\n';
+            links.forEach(link => {
+                const episode = decodeURIComponent(link.children[1].download);
+                string += `#EXTINF:-1,${episode}\n` + link.children[1].href + '\n';
+            });
             const file = new Blob([string], { type: 'application/vnd.apple.mpegurl' });
             const fileUrl = URL.createObjectURL(file);
             window.open(fileUrl);
