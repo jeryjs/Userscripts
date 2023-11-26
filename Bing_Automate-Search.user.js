@@ -48,7 +48,8 @@ icon.addEventListener('click', function() {
 
     for (let i = 0; i < words.length; i++) {
         const word = words[i];
-        const page = window.open(`https://www.bing.com/search?q=${encodeURIComponent(word)}`);
+        const windowFeatures = "height=400,width=1024";
+        const page = window.open(`https://www.bing.com/search?q=${encodeURIComponent(word)}`, "_blank", windowFeatures);
         pages.push(page);
     }
     console.log(pages);
