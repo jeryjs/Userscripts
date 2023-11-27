@@ -1,18 +1,20 @@
 // ==UserScript==
 // @name         Automatically search bing with random words.
 // @namespace    https://github.com/jeryjs/
-// @version      1.0.0
+// @version      2.0.0
 // @description  Automatically find random words from current search and search bing with it.
 // @author       Jery
 // @match        https://www.bing.com/*
-// @grant        none
+// @grant        GM_setValue
+// @grant        GM_getValue
 // @license      MIT
 // ==/UserScript==
 
+
+var searches = GM_getValue("searches", []);
+
 // Constants
 const MAX_WORDS = 30
-const COUNTDOWN = 15
-
 
 // Create an element to represent the circular icon
 const icon = document.createElement('div');
@@ -27,52 +29,29 @@ icon.style.cursor = 'pointer';
 icon.title = 'Search Random Words from Descriptions';
 
 // Helper function to update the icon's appearance
-function updateIcon(timeLeft) {
-    icon.style.backgroundColor = timeLeft > 0 ? 'blue' : 'rgba(255, 192, 203, 0.6)';
-    icon.textContent = timeLeft > 0 ? timeLeft.toString() : '';
+function updateIcon(content) {
+    icon.style.backgroundColor = content > 0 ? 'blue' : 'rgba(255, 192, 203, 0.6)';
+    icon.textContent = content > 0 ? content.toString() : '';
 }
 
 // Perform a search for dynamically extracted random words from descriptions when the icon is clicked
 icon.addEventListener('click', function() {
     const resultElements = document.querySelectorAll('.b_caption p');
-    let words = [];
+    let searches = [];
     resultElements.forEach(element => {
         const text = element.textContent.trim().split(/\s+/);
-        words.push(...text);
+        searches.push(...text);
     });
-    words = [...new Set(words)]; // Remove duplicates
-    words = words.slice(0, MAX_WORDS); // Extract up to MAX_WORDS
-    console.log(words);
+    searches = [...new Set(searches)]; // Remove duplicates
+    searches = searches.slice(0, MAX_WORDS); // Extract up to MAX_WORDS
+    console.log(searches);
 
-    const pages = [];
+    GM_setValue("searches", searches);
 
-    for (let i = 0; i < words.length; i++) {
-        const word = words[i];
-        const windowFeatures = "height=400,width=1024";
-        const page = window.open(`https://www.bing.com/search?q=${encodeURIComponent(word)}`, "_blank", windowFeatures);
-        pages.push(page);
-    }
-    console.log(pages);
-    
-    // Update icon appearance to show the countdown
-    updateIcon(COUNTDOWN);
-
-    // Countdown timer
-    let countdown = COUNTDOWN;
-    const countdownInterval = setInterval(function() {
-        countdown--;
-        updateIcon(countdown);
-        if (countdown <= 0) {
-            clearInterval(countdownInterval);
-            for (let i = 0; i < pages.length; i++) {
-                const page = pages[i];
-                if (!page.closed) {
-                    page.close();
-                }
-            }
-            updateIcon(0); // Reset icon appearance
-        }
-    }, 1000);
+    updateIcon(searches.length);
+    document.querySelector('#sb_form_q').textContent = searches.pop();
+    GM_setValue("searches", searches);
+    document.querySelector("#sb_form_go").click();
 });
 
 // Check if the current page is Bing
@@ -80,4 +59,14 @@ const isBingPage = window.location.hostname === 'www.bing.com';
 if (isBingPage) {
     // Add the icon to the top left corner of the page
     document.body.appendChild(icon);
+}
+
+// Start the search if previously interrupted
+if (searches.length > 0 && window.location.href.includes("&qs=ds&form=QBRE")) {
+    updateIcon(searches.length);
+    setTimeout(() => {
+        document.querySelector('#sb_form_q').textContent = searches.pop();
+        GM_setValue("searches", searches);
+        document.querySelector("#sb_form_go").click();
+    }, 3000);
 }
