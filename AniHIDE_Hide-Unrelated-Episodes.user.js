@@ -1,15 +1,15 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.3.6
+// @version     1.3.7
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
 // @license     MIT
 // @match       https://yugenanime.*/*
 // @match       https://yugenanime.tv/*
-// @match       https://gogoanimehd.*/*
-// @match       https://gogoanimehd.io/*
+// @match       https://anitaku.*/*
+// @match       https://anitaku.to/*
 // @match       https://gogoanime3.*/*
 // @match       https://gogoanime3.net/*
 // @match       https://animepahe.*/
@@ -23,6 +23,8 @@
 // @grant       GM_setValue
 // @grant       GM_notification
 // @require     https://unpkg.com/axios/dist/axios.min.js
+// @downloadURL https://update.greasyfork.org/scripts/470233/AniHIDE%20-%20Hide%20Unrelated%20Episodes.user.js
+// @updateURL https://update.greasyfork.org/scripts/470233/AniHIDE%20-%20Hide%20Unrelated%20Episodes.meta.js
 // ==/UserScript==
 
 
@@ -390,7 +392,7 @@ function changeUsername() {
     const newUsername = prompt(`Enter your ${service.name} username:`);
     if (newUsername) {
         userSettings.usernames[service.name] = newUsername;
-        GM_setValue(userSettingsKey, this);
+        GM_setValue(userSettingsKey, userSettings);
         refreshList();
     }
 }
