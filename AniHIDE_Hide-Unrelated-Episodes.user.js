@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.3.7
+// @version     1.3.9
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -38,10 +38,7 @@ if (GM_getValue("version") != GM_info.script.version) {
         ${GM_info.script.name}:\n
         This scipt has been updated!!\n
         What's new:
-         -Added AnimeSuge [website]
-         -Updated gogoanime [domain]
-         -Improved anime site detection [improvement]
-         -Improved anime title extractino [improvement]
+         -Fixed CORS Proxy issue with MAL [fix]
     `
     alert(msg);
 }
@@ -128,7 +125,7 @@ const services = [
         apiBaseUrl: 'https://api.myanimelist.net/v2/users',
         clientId: MALClientId,
         async getAnimeList(username, status) {
-            const proxyUrl = 'https://corsproxy.io/?';
+            const proxyUrl = 'https://test.cors.workers.dev/?'; //'https://corsproxy.io/?';
             const url = `${proxyUrl}${this.apiBaseUrl}/${username}/animelist?status=${status}&limit=1000`;
             const config = {
                 headers: {
