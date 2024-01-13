@@ -8,11 +8,6 @@
 // @license     MIT
 // @match       https://er4uenterpriseplus.in/er4u/jeshmargin/combination_list.php
 // @match       https://er4uenterpriseplus.in/er4u/jeshmargin/catalog_category_map.php?&comid=*
-// @grant       GM_registerMenuCommand
-// @grant       GM_addStyle
-// @grant       GM_getValue
-// @grant       GM_setValue
-// @grant       GM_notification
 // @require     https://unpkg.com/axios/dist/axios.min.js
 // ==/UserScript==
 
