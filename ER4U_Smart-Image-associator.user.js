@@ -194,6 +194,7 @@ function displayForm() {
 
     // Add big left arrow to the top right of the form
     const leftArrow = document.createElement("div");
+    rightArrow.id = 'SIA_prevProduct';
     leftArrow.innerHTML = "&#x2190;"; // Left arrow unicode
     leftArrow.style.cssText = "position: absolute; top: 10px; right: 100px; font-size: 50px; cursor: pointer; background-color: #007a7a; color: white; width: 60px; height: 60px; border-radius: 50%; display: flex; justify-content: center; align-items: center;";
     leftArrow.addEventListener("click", () => {
@@ -203,6 +204,7 @@ function displayForm() {
 
     // Add big right arrow to the top right of the form
     const rightArrow = document.createElement("div");
+    rightArrow.id = 'SIA_nextProduct';
     rightArrow.innerHTML = "&#x2192;"; // Right arrow unicode
     rightArrow.style.cssText = "position: absolute; top: 10px; right: 10px; font-size: 50px; cursor: pointer; background-color: #007a7a; color: white; width: 60px; height: 60px; border-radius: 50%; display: flex; justify-content: center; align-items: center;";
     rightArrow.addEventListener("click", () => {
@@ -210,9 +212,21 @@ function displayForm() {
         updateProductCard();
     });
 
-    // Attach the arrows to the formDiv as siblings
+    // Add checkbox for auto go to next product
+    const autoNextCheckbox = document.createElement("input");
+    autoNextCheckbox.type = "checkbox";
+    autoNextCheckbox.id = "SIA_AutoNextCheckbox";
+    autoNextCheckbox.style.cssText = "position: absolute; bottom: 10px; right: 10px; cursor: pointer;";
+    const autoNextLabel = document.createElement("label");
+    autoNextLabel.htmlFor = "SIA_AutoNextCheckbox";
+    autoNextLabel.textContent = "Automatically Go to Next Product";
+    autoNextLabel.style.cssText = "margin-left: 5px;";
+
+    // Attach the arrows and checkbox to the formDiv as siblings
     formDiv.appendChild(leftArrow);
     formDiv.appendChild(rightArrow);
+    formDiv.appendChild(autoNextCheckbox);
+    formDiv.appendChild(autoNextLabel);
 
     // Initial update of the product card
     updateProductCard();
@@ -284,6 +298,12 @@ async function generateProductCard(product) {
             allImages[i].addEventListener("click", function() {
                 console.log(images[i].original);
                 setProductImage(product.id, images[i].original);
+
+                setTimeout(() => {
+                    if (document.getElementById("SIA_AutoNextCheckbox").checked) {
+                        document.getElementById('SIA_nextProduct').click();
+                    }
+                }, 1000);
 
                 // Remove shadow from all images
                 const allImages = document.querySelectorAll(".product-image");
