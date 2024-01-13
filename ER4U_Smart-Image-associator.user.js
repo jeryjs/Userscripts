@@ -81,7 +81,8 @@ class ProductList {
 }
 
 class Image {
-	constructor(original, thumbnail) {
+	constructor(title, original, thumbnail) {
+        this.title = title;
 		this.original = original;
 		this.thumbnail = thumbnail;
 	}
@@ -123,8 +124,9 @@ const Services = [
 			const response = await axios.get(url);
 
 			const results = response.data["images_results"];
+            console.log(results);
 			results.forEach((result) => {
-				const image = new Image(result["original"], result["thumbnail"]);
+				const image = new Image(result["title"], result["original"], result["thumbnail"]);
 				imageList.addImage(image);
 			});
 
@@ -136,16 +138,6 @@ const Services = [
 /***************************************************************
  * Functions for working of script
  ***************************************************************/
-async function getImages(query) {
-	// const query = '8901314010322';
-	const service = Services[0];
-
-	const images = await service.getImages(query);
-
-	console.log(images);
-}
-
-
 function displayForm() {
     const formOverlayId = 'SIA_FormOverlay';
 
@@ -281,7 +273,7 @@ async function generateProductCard(product) {
         const allImages = imageContainer.querySelectorAll(".product-image");
         for (let i = 0; i < allImages.length; i++) {
             allImages[i].src = images[i].thumbnail;
-            allImages[i].title = images[i].original;
+            allImages[i].title = images[i].title + '\n' + images[i].original;
 
             // Add hover animation
             allImages[i].addEventListener("mouseover", function() {
