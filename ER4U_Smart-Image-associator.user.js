@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        ER4U - Smart Image Associator
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     0.1.0
+// @version     1.0.0
 // @description Automatically search for images for each product and let user select the best image to associate with the product
 // @icon        https://er4uenterpriseplus.in/er4u/jeshmargin/img/f.jpg
 // @author      Jery
@@ -9,6 +9,8 @@
 // @match       https://er4uenterpriseplus.in/er4u/jeshmargin/combination_list.php
 // @match       https://er4uenterpriseplus.in/er4u/jeshmargin/catalog_category_map.php?&comid=*
 // @require     https://unpkg.com/axios/dist/axios.min.js
+// @downloadURL https://update.greasyfork.org/scripts/484708/ER4U%20-%20Smart%20Image%20Associator.user.js
+// @updateURL https://update.greasyfork.org/scripts/484708/ER4U%20-%20Smart%20Image%20Associator.meta.js
 // ==/UserScript==
 
 
