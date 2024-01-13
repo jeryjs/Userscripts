@@ -189,7 +189,7 @@ function displayForm() {
 
     // Add big left arrow to the top right of the form
     const leftArrow = document.createElement("div");
-    rightArrow.id = 'SIA_prevProduct';
+    leftArrow.id = 'SIA_prevProduct';
     leftArrow.innerHTML = "&#x2190;"; // Left arrow unicode
     leftArrow.style.cssText = "position: absolute; top: 10px; right: 100px; font-size: 50px; cursor: pointer; background-color: #007a7a; color: white; width: 60px; height: 60px; border-radius: 50%; display: flex; justify-content: center; align-items: center;";
     leftArrow.addEventListener("click", () => {
@@ -211,17 +211,18 @@ function displayForm() {
     const autoNextCheckbox = document.createElement("input");
     autoNextCheckbox.type = "checkbox";
     autoNextCheckbox.id = "SIA_AutoNextCheckbox";
-    autoNextCheckbox.style.cssText = "position: absolute; bottom: 10px; right: 10px; cursor: pointer;";
+    autoNextCheckbox.checked = true;
+    autoNextCheckbox.style.cssText = "cursor: pointer; position: absolute; right: 210px; top: 80px;";
     const autoNextLabel = document.createElement("label");
     autoNextLabel.htmlFor = "SIA_AutoNextCheckbox";
     autoNextLabel.textContent = "Automatically Go to Next Product";
-    autoNextLabel.style.cssText = "margin-left: 5px;";
+    autoNextLabel.style.cssText = "margin-left: 5px; position: absolute; top: 80px; right: 10px;";
 
     // Attach the arrows and checkbox to the formDiv as siblings
-    formDiv.appendChild(leftArrow);
-    formDiv.appendChild(rightArrow);
     formDiv.appendChild(autoNextCheckbox);
     formDiv.appendChild(autoNextLabel);
+    formDiv.appendChild(leftArrow);
+    formDiv.appendChild(rightArrow);
 
     // Initial update of the product card
     updateProductCard();
@@ -280,6 +281,7 @@ async function generateProductCard(product) {
         const allImages = imageContainer.querySelectorAll(".product-image");
         for (let i = 0; i < allImages.length; i++) {
             allImages[i].src = images[i].thumbnail;
+            allImages[i].title = images[i].original;
 
             // Add hover animation
             allImages[i].addEventListener("mouseover", function() {
