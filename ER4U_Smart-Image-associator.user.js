@@ -13,6 +13,11 @@
 // @updateURL https://update.greasyfork.org/scripts/484708/ER4U%20-%20Smart%20Image%20Associator.meta.js
 // ==/UserScript==
 
+/************************
+ * SETTINGS
+ ************************/
+const serviceId = 0;
+
 
 /***************************************************************
  * Helper sub-script to set image url in a new tab
@@ -102,7 +107,7 @@ class ImageList {
 
 const Services = [
 	{
-		name: "Google",
+		name: "SerpAPI",
 		icon: "https://www.google.com/favicon.ico",
 		apiUrl: "https://serpapi.com/search.json?engine=google_images",
 		async getImages(query) {
@@ -135,6 +140,44 @@ const Services = [
 			return imageList.images;
 		},
 	},
+    {
+        name: "Google",
+        icon: "https://www.google.com/favicon.ico",
+        apiUrl: "https://www.googleapis.com/customsearch/v1?",
+        async getImages(query) {
+            const proxyUrl = "https://test.cors.workers.dev/?";
+            const imageList = new ImageList();
+
+            if (!localStorage.getItem("googleapi_key")) {
+                const promptMessage = "Please enter your Google API key:";
+                const userInput = prompt(promptMessage);
+
+                if (userInput.length>10 && userInput.trim() !== "") {
+                    localStorage.setItem("googleapi_key", userInput.trim());
+                } else {
+                    console.error("Invalid Google API Key");
+                }
+            }
+
+            const api_key = localStorage.getItem("googleapi_key");
+            const params = `cx=364fea58938af485a&searchType=image&key=${api_key}&q=${query}`;
+            const url = this.apiUrl + params;
+            const response = await axios.get(url);
+
+            console.log(response.data);
+
+            const results = response.data['items'];
+            results.forEach((result) => {
+                imageList.addImage(new Image(
+                    title = result["title"],
+                    original = result["link"],
+                    thumbnail = result["image"]["thumbnailLink"]
+                ));
+            });
+
+            return imageList.images;
+        },
+    }
 ];
 
 /***************************************************************
@@ -263,7 +306,7 @@ async function generateProductCard(product) {
     card.appendChild(imageContainer);
 
     // Get Images from API
-    const service = Services[0];
+    const service = Services[1];
     const barcode = product.barcode.length > 7 ? product.barcode : '';
     const query = `${barcode}  ${product.name}  product image png`.trim();
     
