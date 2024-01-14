@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        ER4U - Smart Image Associator
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.0.0
+// @version     1.1.0
 // @description Automatically search for images for each product and let user select the best image to associate with the product
 // @icon        https://er4uenterpriseplus.in/er4u/jeshmargin/img/f.jpg
 // @author      Jery
@@ -167,6 +167,7 @@ const Services = [
             console.log(response.data);
 
             const results = response.data['items'];
+            console.log(results);
             results.forEach((result) => {
                 imageList.addImage(new Image(
                     title = result["title"],
@@ -219,30 +220,57 @@ function displayForm() {
     formDiv.appendChild(productContainer);
 
     // Function to update the product card
-    async function updateProductCard() {
+    function updateProductCard() {
         productContainer.innerHTML = "";
-        productContainer.appendChild(await generateProductCard(products[currentProductIndex]));
+        productContainer.appendChild(generateProductCard(products[currentProductIndex]));
     }
 
-    // Add big left arrow to the top right of the form
+    // Create a Div in top right of form for navigation buttons
+    const navigationDiv = document.createElement("div");
+    navigationDiv.id = "SIA_NavigationDiv";
+    navigationDiv.style.cssText = "position: absolute; top: 10px; right: 10px; display: flex; justify-content: space-between; width: 230px;";
+
+    // Add Custom Link Butotn to the navigation div
+    const customLinkBtn = document.createElement("div");
+    customLinkBtn.title = 'Set Custom Image Link';
+    customLinkBtn.innerHTML = "&#x1F517;"; // Link symbol unicode
+    customLinkBtn.style.cssText = "font-size: 30px; cursor: pointer; background-color: #007a7a; color: white; width: 60px; height: 60px; border-radius: 50%; display: flex; justify-content: center; align-items: center;";
+    customLinkBtn.addEventListener("click", () => {
+        const imgLink = prompt('Enter Image URL (jpg, png, webp)');
+        if (imgLink) {
+            setProductImage(products[currentProductIndex].id, imgLink);
+            setTimeout(() => {
+                if (document.getElementById("SIA_AutoNextCheckbox").checked) {
+                    document.getElementById('SIA_nextProduct').click();
+                }
+            }, 1000);
+        }
+    });
+
+    // Add big left arrow to the navigation div
     const leftArrow = document.createElement("div");
     leftArrow.id = 'SIA_prevProduct';
     leftArrow.innerHTML = "&#x2190;"; // Left arrow unicode
-    leftArrow.style.cssText = "position: absolute; top: 10px; right: 100px; font-size: 50px; cursor: pointer; background-color: #007a7a; color: white; width: 60px; height: 60px; border-radius: 50%; display: flex; justify-content: center; align-items: center;";
+    leftArrow.style.cssText = "font-size: 50px; cursor: pointer; background-color: #007a7a; color: white; width: 60px; height: 60px; border-radius: 50%; display: flex; justify-content: center; align-items: center;";
     leftArrow.addEventListener("click", () => {
         currentProductIndex = (currentProductIndex - 1 + products.length) % products.length;
         updateProductCard();
     });
 
-    // Add big right arrow to the top right of the form
+    // Add big right arrow to the navigation div
     const rightArrow = document.createElement("div");
     rightArrow.id = 'SIA_nextProduct';
     rightArrow.innerHTML = "&#x2192;"; // Right arrow unicode
-    rightArrow.style.cssText = "position: absolute; top: 10px; right: 10px; font-size: 50px; cursor: pointer; background-color: #007a7a; color: white; width: 60px; height: 60px; border-radius: 50%; display: flex; justify-content: center; align-items: center;";
+    rightArrow.style.cssText = "font-size: 50px; cursor: pointer; background-color: #007a7a; color: white; width: 60px; height: 60px; border-radius: 50%; display: flex; justify-content: center; align-items: center;";
     rightArrow.addEventListener("click", () => {
         currentProductIndex = (currentProductIndex + 1) % products.length;
         updateProductCard();
     });
+
+    // Append the arrows to the Navigation div
+    navigationDiv.appendChild(customLinkBtn);
+    navigationDiv.appendChild(leftArrow);
+    navigationDiv.appendChild(rightArrow);
 
     // Add checkbox for auto go to next product
     const autoNextCheckbox = document.createElement("input");
@@ -258,14 +286,13 @@ function displayForm() {
     // Attach the arrows and checkbox to the formDiv as siblings
     formDiv.appendChild(autoNextCheckbox);
     formDiv.appendChild(autoNextLabel);
-    formDiv.appendChild(leftArrow);
-    formDiv.appendChild(rightArrow);
+    formDiv.appendChild(navigationDiv);
 
     // Initial update of the product card
     updateProductCard();
 }
 
-async function generateProductCard(product) {
+function generateProductCard(product) {
     console.log(product.name);
     
     const card = document.createElement("div");
@@ -276,8 +303,21 @@ async function generateProductCard(product) {
     // Title
     const title = document.createElement("h1");
     title.textContent = `${product.id.toString().padStart(3, '0')}:  ${product.name}`;
+    title.style.cursor = "pointer";
+    title.addEventListener("mouseover", function () { this.style.textDecoration = "underline"; });
+    title.addEventListener("mouseout", function () { this.style.textDecoration = "none"; });
+    title.addEventListener("click", () => {
+        const text = prompt('', title.textContent);
+        if (text) {
+            title.textContent = text;        
+            loadImagesIntoContainer(title.textContent + '  product image', product);
+        }
+    });
+    
+    
     card.appendChild(title);
-
+    
+    // Barcode
     const subTitle = document.createElement("h2");
     subTitle.textContent = `Barcode: ${product.barcode}`;
     card.appendChild(subTitle);
@@ -305,56 +345,67 @@ async function generateProductCard(product) {
 
     card.appendChild(imageContainer);
 
-    // Get Images from API
-    const service = Services[serviceId];
+    // Get Images from API and update the image container in the background
     const barcode = product.barcode.length > 7 ? product.barcode : '';
     const query = `${barcode}  ${product.name}  product image png`.trim();
-    
-    // Start the image loading in the background
-    const imageLoadingPromise = service.getImages(query).then(images => {
-        console.log(images);
-
-        // Replace placeholder images with actual images
-        const allImages = imageContainer.querySelectorAll(".product-image");
-        for (let i = 0; i < allImages.length; i++) {
-            allImages[i].src = images[i].thumbnail;
-            allImages[i].title = images[i].title + '\n' + images[i].original;
-
-            // Add hover animation
-            allImages[i].addEventListener("mouseover", function() {
-                this.style.transform = "scale(1.1)";
-            });
-            allImages[i].addEventListener("mouseout", function() {
-                this.style.transform = "scale(1)";
-            });
-
-            // Add click event
-            allImages[i].addEventListener("click", function() {
-                console.log(images[i].original);
-                setProductImage(product.id, images[i].original);
-
-                setTimeout(() => {
-                    if (document.getElementById("SIA_AutoNextCheckbox").checked) {
-                        document.getElementById('SIA_nextProduct').click();
-                    }
-                }, 1000);
-
-                // Remove shadow from all images
-                const allImages = document.querySelectorAll(".product-image");
-                allImages.forEach(img => img.style.boxShadow = "");
-
-                // Add shadow to clicked image
-                this.style.boxShadow = "0 0 10px";
-            });
-        }
-    });
+    loadImagesIntoContainer(query, product);
 
     // Return the card immediately, and the images will update when they're loaded
     return card;
+}
+
+function loadImagesIntoContainer(query, product) {
+    // Turn images into placeholders
+    document.querySelectorAll(".image-row > img").forEach(image => {
+        image.src = "https://media.tenor.com/v_OKGJFSkOQAAAAM/loading-gif.gif";
+    });
+    const service = Services[serviceId];
+    service.getImages(query).then(images => updateImageContainer(images, product));
+}
+
+function updateImageContainer(images, product) {
+    const imageContainer = document.querySelector('.image-container');
+    const allImages = imageContainer.querySelectorAll(".product-image");
+    for (let i = 0; i < allImages.length; i++) {
+        allImages[i].src = images[i].thumbnail;
+        allImages[i].title = images[i].title + '\n' + images[i].original;
+
+        // Add hover animation
+        allImages[i].addEventListener("mouseover", function() {
+            this.style.transform = "scale(1.1)";
+        });
+        allImages[i].addEventListener("mouseout", function() {
+            this.style.transform = "scale(1)";
+        });
+
+        // Add click event
+        allImages[i].addEventListener("click", function() {
+            console.log(images[i].original);
+            setProductImage(product.id, images[i].original);
+
+            setTimeout(() => {
+                if (document.getElementById("SIA_AutoNextCheckbox").checked) {
+                    document.getElementById('SIA_nextProduct').click();
+                }
+            }, 1000);
+
+            // Remove shadow from all images
+            const allImages = document.querySelectorAll(".product-image");
+            allImages.forEach(img => img.style.boxShadow = "");
+
+            // Add shadow to clicked image
+            this.style.boxShadow = "0 0 10px";
+        });
+    }
 }
 
 function setProductImage(id, imageLink) {
     const url = `https://er4uenterpriseplus.in/er4u/jeshmargin/catalog_category_map.php?&comid=${id}&new_img_url=` + imageLink
     // window.open(url, '_blank', 'noopener,noreferrer');
     window.open(url,null,"height=10,width=10,status=yes,toolbar=no,scrollbars=yes,menubar=no,location=no")
+
+    // Set the item's image state to 'Y' in the products list using id
+    const productRow = document.querySelector(`[href="image_view.php?comid=${id}"]`);
+    productRow.textContent = "Y ";
+    productRow.style.color = "blue";
 }
