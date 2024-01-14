@@ -48,19 +48,25 @@ if (window.location.href.includes("combination_list.php")) {
     const generateBtnArea = document.querySelector("#center-column > div.col-md-12 > div > div > table:nth-child(8) > thead:nth-child(1) > tr");
     
     // Associate Images Button
-    generateBtnArea.innerHTML += `<td><a id="associateImagesBtn" style="color: white; cursor: pointer;">Associate Images</a></td>`;
-    document.querySelector("#associateImagesBtn").addEventListener("click", () => displayForm());
+    const associateImagesBtn = document.createElement("a");
+    associateImagesBtn.textContent = "Associate Images";
+    associateImagesBtn.style = "color: white; cursor: pointer;";
+    associateImagesBtn.addEventListener("click", () => displayForm());
+    generateBtnArea.appendChild(document.createElement("td")).appendChild(associateImagesBtn);
+    // generateBtnArea.innerHTML += `<td><a id="ClearZeroQtyBtn" style="color: white; cursor: pointer;">Clear 0 Qty</a></td>`;
 
     // Clear 0 qty Button
-    generateBtnArea.innerHTML += `<td><a id="ClearZeroQtyBtn" style="color: white; cursor: pointer;">Clear 0 Qty</a></td>`;
-    document.querySelector("#ClearZeroQtyBtn").addEventListener("click", () => {
+    const clearZeroQtyBtn = document.createElement("a");
+    clearZeroQtyBtn.textContent = "Clear 0 Qty";
+    clearZeroQtyBtn.style = "color: white; cursor: pointer;";
+    clearZeroQtyBtn.addEventListener("click", () => {
+        console.log("Clearing 0 Qty");
         const zeroQtyRows = document.querySelectorAll(`#item-list td:nth-child(29)`);
         zeroQtyRows.forEach((row) => {
-            if (row.textContent.trim() == "0") {
-                row.parentElement.remove();
-            }
+            if (row.textContent.trim() == "0") row.parentElement.remove();
         });
     });
+    generateBtnArea.appendChild(document.createElement("td")).appendChild(clearZeroQtyBtn);
 }
 
 /***************************************************************
