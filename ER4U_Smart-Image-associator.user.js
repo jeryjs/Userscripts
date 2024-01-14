@@ -16,7 +16,7 @@
 /************************
  * SETTINGS
  ************************/
-const serviceId = 0;
+const serviceId = 1;
 
 
 /***************************************************************
@@ -306,7 +306,7 @@ async function generateProductCard(product) {
     card.appendChild(imageContainer);
 
     // Get Images from API
-    const service = Services[1];
+    const service = Services[serviceId];
     const barcode = product.barcode.length > 7 ? product.barcode : '';
     const query = `${barcode}  ${product.name}  product image png`.trim();
     
