@@ -1,19 +1,18 @@
 // ==UserScript==
 // @name         Automatically search bing with random words.
 // @namespace    https://github.com/jeryjs/
-// @version      2.1.0
+// @version      2.2.2
 // @description  Automatically find random words from current search and search bing with it.
 // @author       Jery
 // @match        https://www.bing.com/*
-// @grant        GM_setValue
-// @grant        GM_getValue
 // @license      MIT
 // ==/UserScript==
 
-var searches = GM_getValue("searches", []);
+var searches = JSON.parse(localStorage.getItem("searches")) || [];
 
 // Constants
 const MAX_WORDS = 30;
+const TIMEOUT = 4000;
 
 // Create an element to represent the circular icon
 const icon = document.createElement("div");
@@ -28,9 +27,9 @@ icon.style.cursor = "pointer";
 icon.title = "Search Random Words from Descriptions";
 
 // Helper function to update the icon's appearance
-function updateIcon(content) {
+function updateIcon(content, color="blue") {
   icon.style.backgroundColor =
-    content > 0 ? "blue" : "rgba(255, 192, 203, 0.6)";
+    content > 0 ? color : "rgba(255, 192, 203, 0.6)";
   icon.textContent = content > 0 ? content.toString() : "";
 }
 
@@ -46,11 +45,11 @@ icon.addEventListener("click", function () {
   searches = searches.slice(0, MAX_WORDS); // Extract up to MAX_WORDS
   console.log(searches);
 
-  GM_setValue("searches", searches);
+  localStorage.setItem("searches", JSON.stringify(searches));
 
   updateIcon(searches.length);
   document.querySelector("#sb_form_q").textContent = searches.pop();
-  GM_setValue("searches", searches);
+  localStorage.setItem("searches", JSON.stringify(searches));
   document.querySelector("#sb_form_go").click();
 });
 
@@ -79,10 +78,7 @@ if (searches.length > 0 && window.location.href.includes("&qs=ds&form=QBRE")) {
             if (mutation.type === "childList" || mutation.type === "characterData") {
                 let newTextContent = targetNode.textContent.trim();
                 if (newTextContent != oldTextContent) {
-                    // alert(`${oldTextContent} != ${newTextContent} - ${newTextContent != oldTextContent}`);
-                    document.querySelector("#sb_form_q").textContent = searches.pop();
-                    GM_setValue("searches", searches);
-                    document.querySelector("#sb_form_go").click();
+                    gotoNextSearch();
                     observer.disconnect();
                     break;
                 }
@@ -91,4 +87,28 @@ if (searches.length > 0 && window.location.href.includes("&qs=ds&form=QBRE")) {
     });
 
     observer.observe(targetNode, observerOptions);
+
+    setTimeout(() => {
+        gotoNextSearch();
+        observer.disconnect();
+    }, 10000);
+
+  function gotoNextSearch() {
+    countdownTimer(TIMEOUT/1000)
+    setTimeout(() => {
+      document.querySelector("#sb_form_q").textContent = searches.pop();
+      document.querySelector("#sb_form_go").click();
+      localStorage.setItem("searches", JSON.stringify(searches));
+    }, TIMEOUT);
+  }
+  function countdownTimer(count) {
+    let c = count;
+    const intervalId = setInterval(() => {
+      updateIcon(c, "green");
+      if (c === 0) {
+        clearInterval(intervalId);
+      }
+      c--;
+    }, 1000);
+  }
 }
