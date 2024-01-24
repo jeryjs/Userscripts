@@ -377,7 +377,7 @@ async function refreshList() {
         output += `${unchangedAnime.join('\n')}`;
 
         alert(`Anime list refreshed (${newAnimeList.length - oldAnimeList.length}/${newAnimeList.length}):\n\n${output}`);
-        undarkenRelatedEps();
+        run();
     } catch (error) {
         console.error('An error occurred while refreshing the anime list:', error);
         alert(`An error occurred while refreshing the anime list:\n\n${error}\n\n\nAlternatively, you can try to refresh the list from any other supported site and return here.\n\nSupported sites: ${animeSites.map(site => site.name).join(', ')}`);
@@ -408,7 +408,7 @@ function modifyManualAnime() {
             alert(`Anime Added Successfully:\n\n${animeEntry.title}`);
         }
         GM_setValue(manualListKey, manualList.entries);
-        undarkenRelatedEps();
+        run();
     }
 }
 
@@ -439,21 +439,6 @@ function chooseService(ch) {
     return service;
 }
 
-// Undarken related eps based on the anime titles
-function undarkenRelatedEps() {
-    const animeSite = getCurrentSite();
-    const thisSite = new Website(animeSite);
-    console.log('animeList', animeList)
-    // Workaround for sites like AnimePahe which dynamically generate episodes page
-    setTimeout(() => {
-        const entriesList = Object.create(animeList);
-        entriesList.entries = animeList.entries.concat(manualList.entries);
-        console.log('entriesList', entriesList);
-        if (!animeSite) console.error('No matching website found.');
-        else thisSite.undarkenRelatedEps(entriesList);
-    }, animeSite.timeout);
-}
-
 // Get the current website based on the URL
 function getCurrentSite() {
     const currentUrl = window.location.href.toLowerCase();
@@ -461,7 +446,7 @@ function getCurrentSite() {
 }
 
 // Run the script
-undarkenRelatedEps();
+run();
 
 // Refresh the anime list if it has been more than a week since the last refresh
 const lastRefreshTime = GM_getValue('lastRefreshTime', 0);
