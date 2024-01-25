@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Automatically search bing with random words.
 // @namespace    https://github.com/jeryjs/
-// @version      2.2.2
+// @version      2.3.0
 // @description  Automatically find random words from current search and search bing with it.
 // @author       Jery
 // @match        https://www.bing.com/*
@@ -39,7 +39,7 @@ icon.addEventListener("click", function () {
   let searches = [];
   resultElements.forEach((element) => {
     const text = element.textContent.trim().split(/\s+/);
-    searches.push(...text);
+    if (text != '...') searches.push(...text);
   });
   searches = [...new Set(searches)]; // Remove duplicates
   searches = searches.slice(0, MAX_WORDS); // Extract up to MAX_WORDS
@@ -48,9 +48,8 @@ icon.addEventListener("click", function () {
   localStorage.setItem("searches", JSON.stringify(searches));
 
   updateIcon(searches.length);
-  document.querySelector("#sb_form_q").textContent = searches.pop();
+  window.open(`https://www.bing.com/search?q=${searches.pop()}&qs=ds&form=QBRE`,"_self");
   localStorage.setItem("searches", JSON.stringify(searches));
-  document.querySelector("#sb_form_go").click();
 });
 
 // Check if the current page is Bing
@@ -91,13 +90,12 @@ if (searches.length > 0 && window.location.href.includes("&qs=ds&form=QBRE")) {
     setTimeout(() => {
         gotoNextSearch();
         observer.disconnect();
-    }, 10000);
+    }, 7000);
 
   function gotoNextSearch() {
     countdownTimer(TIMEOUT/1000)
     setTimeout(() => {
-      document.querySelector("#sb_form_q").textContent = searches.pop();
-      document.querySelector("#sb_form_go").click();
+      window.open(`https://www.bing.com/search?q=${searches.pop()}&qs=ds&form=QBRE`,"_self");
       localStorage.setItem("searches", JSON.stringify(searches));
     }, TIMEOUT);
   }
