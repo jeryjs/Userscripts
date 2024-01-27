@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.0.8
+// @version     1.0.9
 // @description Get discussions from popular sites like MAL and AL for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -125,6 +125,128 @@ class Discussion {
 }
 
 /***************************************************************
+ * The UI elements
+ ***************************************************************/
+// generate the discussion area
+function generateDiscussionArea() {
+	const discussionArea = document.createElement("div");
+	discussionArea.className = "discussion-area";
+
+	const discussionTitle = document.createElement("h3");
+	discussionTitle.className = "discussion-title";
+
+	const discussionTitleText = document.createElement("a");
+	discussionTitleText.textContent = `${site.getAnimeTitle()} Episode ${site.getEpNum()} Discussion`;
+	discussionTitleText.title = 'Click to view the original discussion';
+	discussionTitleText.target = "_blank";
+	discussionTitle.appendChild(discussionTitleText);
+
+	const serviceIcon = document.createElement("img");
+	serviceIcon.className = "service-icon";
+	serviceIcon.title = 'Powered by' + service.name
+	serviceIcon.src = service.icon;
+	discussionTitle.appendChild(serviceIcon);
+
+	const discussionList = document.createElement("ul");
+	discussionList.className = "discussion-list";
+
+	discussionArea.appendChild(discussionTitle);
+	discussionArea.appendChild(discussionList);
+
+	return discussionArea;
+}
+
+// build a row for a single chat with the avatar in the left (with the username below it) and the message in the right
+function buildChatRow(chat) {
+	const chatRow = document.createElement("li");
+	chatRow.className = "chat-row";
+
+	const userArea = document.createElement("div");
+	userArea.className = "chat-user";
+	userArea.href = chat.userLink;
+
+	const avatar = document.createElement("img");
+	avatar.className = "user-avatar";
+	avatar.src = chat.avatar;
+
+	const username = document.createElement("span");
+	username.className = "user-name";
+	username.textContent = chat.user;
+
+	const msg = document.createElement("span");
+	msg.className = "chat-msg";
+	msg.innerHTML = chat.msg;
+
+	userArea.appendChild(avatar);
+	userArea.appendChild(username);
+	chatRow.appendChild(userArea);
+	chatRow.appendChild(msg);
+
+	return chatRow;
+}
+
+// Add CSS styles to the page
+const styles = `
+	.discussion-area {
+		border-radius: 10px;
+		padding: 20px;
+	}
+
+	.discussion-title {
+		display: flex;
+		justify-content: space-between;
+		margin-bottom: 20px;
+	}
+
+	.service-icon {
+		height: 20px;
+	}
+
+	.chat-row {
+		display: flex;
+		align-items: center;
+		padding: 10px;
+		border-top: 1px solid #eee;
+	}
+
+	.chat-user {
+		width: 90px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		margin-right: 15px;
+	}
+
+	.user-avatar {
+		width: 90px;
+		height: 90px;
+		object-fit: cover;
+		border-radius: 25px;
+	}
+
+	.user-name {
+		font-weight: bold;
+		font-size: 14px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		width: 90px;
+		text-align: center;
+		padding-top: 10px;
+	}
+
+	.chat-msg {
+		font-size: 14px;
+		padding: 10px;
+		border-left: 1px solid #ccf;
+	}
+
+	.error-message {
+		color: red;
+		white-space: pre-wrap;
+	}
+`;
+
+/***************************************************************
  * Initialize all data and setup menu commands
  ***************************************************************/
 // User settings
@@ -141,7 +263,7 @@ chooseService(parseInt(GM_getValue("service", 1)));
 // GM_registerMenuCommand("Show Options", showOptions);
 
 /***************************************************************
- * Functions for working of script
+ * Functions for working of the script
  ***************************************************************/
 // Show menu options as a prompt
 function showOptions() {
@@ -195,80 +317,14 @@ function getCurrentSite() {
 	return animeSites.find((website) => website.url.some((site) => currentUrl.includes(site)));
 }
 
-/***************************************************************
- * Functions for UI elements
- ***************************************************************/
-// generate the discussion area
-function generateDiscussionArea() {
-	const discussionArea = document.createElement("div");
-	discussionArea.className = "discussion-area";
-	discussionArea.style.cssText = `border-radius: 10px; padding: 20px;`;
-
-	const discussionTitle = document.createElement("h3");
-	discussionTitle.className = "discussion-title";
-	discussionTitle.style.cssText = `display: flex; justify-content: space-between; margin-bottom: 20px;`;
-
-	const discussionTitleText = document.createElement("a");
-	discussionTitleText.textContent = `${site.getAnimeTitle()} Episode ${site.getEpNum()} Discussion`;
-	discussionTitleText.title = 'Click to view the original discussion';
-	discussionTitle.appendChild(discussionTitleText);
-
-	const serviceIcon = document.createElement("img");
-	serviceIcon.className = "service-icon";
-	serviceIcon.title = service.name
-	serviceIcon.src = service.icon;
-	serviceIcon.style.cssText = `height: 20px;`;
-	discussionTitle.appendChild(serviceIcon);
-
-	const discussionList = document.createElement("ul");
-	discussionList.className = "discussion-list";
-
-	discussionArea.appendChild(discussionTitle);
-	discussionArea.appendChild(discussionList);
-
-	return discussionArea;
-}
-
-// build a row for a single chat with the avatar in the left (with the username below it) and the message in the right
-function buildChatRow(chat) {
-	const size = '90px';	// size of the avatar and related elements
-
-	const chatRow = document.createElement("li");
-	chatRow.className = "chat-row";
-	chatRow.style.cssText = `display: flex; align-items: center; padding: 10px; border-top: 1px solid #eee;`;
-
-	const userArea = document.createElement("div");
-	userArea.className = "chat-user";
-	userArea.href = chat.userLink;
-	userArea.style.cssText = `width: ${size}; display: flex; flex-direction: column; align-items: center; margin-right: 15px;`;
-
-	const avatar = document.createElement("img");
-	avatar.className = "user-avatar";
-	avatar.src = chat.avatar;
-	avatar.style.cssText = `width: ${size}; height: ${size}; object-fit: cover; border-radius: 25px;`;
-
-	const username = document.createElement("span");
-	username.className = "user-name";
-	username.textContent = chat.user;
-	username.style.cssText = `font-weight: bold; font-size: 14px; overflow: hidden; text-overflow: ellipsis; width: ${size}; text-align: center; padding-top: 10px;`;
-
-	const msg = document.createElement("span");
-	msg.className = "chat-msg";
-	msg.innerHTML = chat.msg;
-	msg.style.cssText = `font-size: 14px; padding: 10px; border-left: 1px solid #ccf;`;
-
-	userArea.appendChild(avatar);
-	userArea.appendChild(username);
-	chatRow.appendChild(userArea);
-	chatRow.appendChild(msg);
-
-	return chatRow;
-}
-
 // Run the script
 async function run() {
 	const discussionArea = generateDiscussionArea();
 	document.querySelector(site.chatArea).appendChild(discussionArea);
+
+	const styleElement = document.createElement("style");
+	styleElement.textContent = styles;
+	discussionArea.append(styleElement);
 
 	const loadingElement = document.createElement("img");
 	loadingElement.src = "https://flyclipart.com/thumb2/explosion-gif-transparent-transparent-gif-sticker-741584.png";
@@ -289,7 +345,6 @@ async function run() {
 		console.error(`${error.code} : ${error.message}`);
 		const errorElement = document.createElement("span");
 		errorElement.className = "error-message";
-		errorElement.style.cssText = 'white-space: pre-wrap;';
 		errorElement.textContent = `AniCHAT:\n${error.code} : ${error.message}\nCheck the console logs for more detail.`;
 		discussionArea.appendChild(errorElement);
 	}
