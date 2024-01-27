@@ -1,15 +1,13 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.0.9
+// @version     1.0.10
 // @description Get discussions from popular sites like MAL and AL for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
 // @license     MIT
 // @match       https://yugenanime.*/*
 // @match       https://yugenanime.tv/*
-// @grant       GM_registerMenuCommand
-// @grant       GM_addStyle
 // @grant       GM_getValue
 // @grant       GM_setValue
 // @grant       GM_notification
@@ -21,7 +19,7 @@
  ***************************/
 // key to store the user settings in the GM storage
 const userSettingsKey = "userSettings";
-// seconds to wait before loading the discussions (to avoid overloading the service)
+// seconds to wait before loading the discussions (to avoid spamming the service)
 const TIMEOUT = 15000;
 // proxy to bypass the cors restriction on services like MAL
 const PROXYURL = "https://proxy.cors.sh/"; //"https://test.cors.workers.dev/?"; //'https://corsproxy.io/?';
@@ -55,14 +53,14 @@ const services = [
 			let response = await axios.get(url, {
 				params: {
 					q: query,
-					limit: 5,
+					limit: 15,
 				},
 				headers: {
 					"X-MAL-CLIENT-ID": this.clientId,
 					"x-cors-api-key": this.proxyKey,
 				},
 			});
-			const topic = response.data.data.find((topic) => topic.title.toLowerCase().includes(query.replace(animeTitle, '').toLowerCase()));
+			const topic = response.data.data.find((topic) => topic.title.toLowerCase().includes(animeTitle.toLowerCase()) && topic.title.toLowerCase().includes(epNum.toLowerCase()));
 			
 			// 1 secound pause to avoid being rate-limited
 			await new Promise(resolve => setTimeout(resolve, 1000));
@@ -143,7 +141,7 @@ function generateDiscussionArea() {
 
 	const serviceIcon = document.createElement("img");
 	serviceIcon.className = "service-icon";
-	serviceIcon.title = 'Powered by' + service.name
+	serviceIcon.title = 'Powered by ' + service.name
 	serviceIcon.src = service.icon;
 	discussionTitle.appendChild(serviceIcon);
 
@@ -183,6 +181,40 @@ function buildChatRow(chat) {
 	chatRow.appendChild(msg);
 
 	return chatRow;
+}
+
+// Countdown to show before load the discussions
+function generateTimeoutProgressBar() {
+	let countdown = TIMEOUT;
+	const progressBar = document.createElement("div");
+	progressBar.className = "progress-bar";
+	progressBar.style.width = "100%";
+	progressBar.style.height = "10px";
+	progressBar.style.backgroundColor = "#ccc";
+	progressBar.style.position = "relative";
+	
+	const progressFill = document.createElement("div");
+	progressFill.className = "progress-fill";
+	progressFill.style.width = "0%";
+	progressFill.style.height = "100%";
+	progressFill.style.backgroundColor = "#4CAF50";
+	progressFill.style.position = "absolute";
+	progressFill.style.top = "0";
+	progressFill.style.left = "0";
+	
+	progressBar.appendChild(progressFill);
+	// document.querySelector(site.chatArea).appendChild(progressBar);
+	console.log("Countdown started: " + countdown + "ms");
+	
+	const countdownInterval = setInterval(() => {
+		countdown-=100;
+		const progressWidth = 100 - (countdown / TIMEOUT) * 100;
+		progressFill.style.width = `${progressWidth}%`;
+		if (countdown == 0) {
+			clearInterval(countdownInterval);
+		}
+	}, 100);
+	return progressBar;
 }
 
 // Add CSS styles to the page
@@ -330,17 +362,20 @@ async function run() {
 	loadingElement.src = "https://flyclipart.com/thumb2/explosion-gif-transparent-transparent-gif-sticker-741584.png";
 	loadingElement.style.cssText = `width: 150px; margin-right: 30px;`;
 	discussionArea.appendChild(loadingElement);
+	discussionArea.appendChild(generateTimeoutProgressBar());
 
 	try {
-		const discussion = await service.getDiscussion(site.getAnimeTitle(), site.getEpNum());
-		console.log(discussion);
-		discussion.chats.forEach((chat) => {
-			discussionArea.querySelector("ul").appendChild(buildChatRow(chat));
-		});
+		setTimeout(async () => {
+			const discussion = await service.getDiscussion(site.getAnimeTitle(), site.getEpNum());
+			console.log(discussion);
+			discussion.chats.forEach((chat) => {
+				discussionArea.querySelector("ul").appendChild(buildChatRow(chat));
+			});
 
-		discussionArea.querySelector(".discussion-title a").href = discussion.link;
-		discussionArea.querySelector(".discussion-title a").textContent = discussion.title;
-		loadingElement.remove();
+			discussionArea.querySelector(".discussion-title a").href = discussion.link;
+			discussionArea.querySelector(".discussion-title a").textContent = discussion.title;
+			loadingElement.remove();
+		}, TIMEOUT);
 	} catch (error) {
 		console.error(`${error.code} : ${error.message}`);
 		const errorElement = document.createElement("span");
