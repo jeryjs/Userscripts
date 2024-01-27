@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     0.1.8
+// @version     1.0.8
 // @description Get discussions from popular sites like MAL and AL for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -19,11 +19,15 @@
 /**************************
  * CONSTANTS
  ***************************/
+// key to store the user settings in the GM storage
 const userSettingsKey = "userSettings";
-const proxyUrl = "https://cors-anywhere.herokuapp.com/"; //"https://test.cors.workers.dev/?"; //'https://corsproxy.io/?';
+// seconds to wait before loading the discussions (to avoid overloading the service)
+const TIMEOUT = 15000;
+// proxy to bypass the cors restriction on services like MAL
+const PROXYURL = "https://proxy.cors.sh/"; //"https://test.cors.workers.dev/?"; //'https://corsproxy.io/?';
 
 /***************************************************************
- * ANIME SITES
+ * ANIME SITES & SERVICES
  ***************************************************************/
 const animeSites = [
 	{
@@ -41,27 +45,34 @@ const services = [
 	{
 		name: "MyAnimeList",
 		icon: "https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ",
-		apiBaseUrl: "https://api.myanimelist.net/v2/forum",
-		clientId: "cfdd50f8037e9e8cf489992df497c761",
+		url: "https://myanimelist.net/",
+		clientId: "dbe5cec5a2f33fdda148a6014384b984",
+		proxyKey: "temp_2ed7d641dd52613591687200e7f7958b",
 		async getDiscussion(animeTitle, epNum) {
 			// get the discussion
-			let url = proxyUrl + `https://api.myanimelist.net/v2/forum/topics`;
+			let url = PROXYURL + `https://api.myanimelist.net/v2/forum/topics`;
+			let query = `${animeTitle} Episode ${epNum} Discussion`;
 			let response = await axios.get(url, {
 				params: {
-					q: `${animeTitle} Episode ${epNum} Discussion`,
-					limit: 1,
+					q: query,
+					limit: 5,
 				},
 				headers: {
-					"X-MAL-CLIENT-ID": "cfdd50f8037e9e8cf489992df497c761",
+					"X-MAL-CLIENT-ID": this.clientId,
+					"x-cors-api-key": this.proxyKey,
 				},
 			});
-			const topic = response.data.data[0];
+			const topic = response.data.data.find((topic) => topic.title.toLowerCase().includes(query.replace(animeTitle, '').toLowerCase()));
+			
+			// 1 secound pause to avoid being rate-limited
+			await new Promise(resolve => setTimeout(resolve, 1000));
 
 			// get the chats from the discussion
-			url = proxyUrl + `https://api.myanimelist.net/v2/forum/topic/${topic.id}`;
+			url = PROXYURL + `https://api.myanimelist.net/v2/forum/topic/${topic.id}`;
 			response = await axios.get(url, {
 				headers: {
-					"X-MAL-CLIENT-ID": "cfdd50f8037e9e8cf489992df497c761",
+					"X-MAL-CLIENT-ID": this.clientId,
+					"x-cors-api-key": this.proxyKey,
 				},
 			});
 
@@ -75,15 +86,14 @@ const services = [
 				chats.push(new Chat(user, userLink, avatar, msg));
 			});
 
-			const discussion = new Discussion(topic.id, 'https://myanimelist.net/forum/?topicid='+topic.id, chats);
+			const discussion = new Discussion(topic.title, "https://myanimelist.net/forum/?topicid=" + topic.id, chats);
 			return discussion;
 		},
 	},
 ];
 
 /***************************************************************
- * Classes for handling various data like settings, lists,
- * services and websites
+ * Classes for handling various data like settings & discussions
  ***************************************************************/
 // User settings
 class UserSettings {
@@ -95,7 +105,7 @@ class UserSettings {
 	}
 }
 
-// Chat class
+// Class to hold each row of a discussion
 class Chat {
 	constructor(user, userLink, avatar, msg) {
 		this.user = user;
@@ -105,9 +115,10 @@ class Chat {
 	}
 }
 
+// Class to hold the complete discussions
 class Discussion {
-	constructor(id, link, chats) {
-		this.id = id;
+	constructor(title, link, chats) {
+		this.title = title;
 		this.link = link;
 		this.chats = chats;
 	}
@@ -127,7 +138,7 @@ let service = services[0];
 chooseService(parseInt(GM_getValue("service", 1)));
 
 // Register menu commands
-GM_registerMenuCommand("Show Options", showOptions);
+// GM_registerMenuCommand("Show Options", showOptions);
 
 /***************************************************************
  * Functions for working of script
@@ -147,15 +158,6 @@ function showOptions() {
 		let index = parseInt(opt) - 1;
 		let selectedOption = Object.values(options)[index];
 		selectedOption();
-	}
-}
-
-// Change MAL username
-function changeUsername() {
-	const newUsername = prompt(`Enter your ${service.name} username:`);
-	if (newUsername) {
-		userSettings.usernames[service.name] = newUsername;
-		GM_setValue(userSettingsKey, userSettings);
 	}
 }
 
@@ -204,11 +206,16 @@ function generateDiscussionArea() {
 
 	const discussionTitle = document.createElement("h3");
 	discussionTitle.className = "discussion-title";
-	discussionTitle.textContent = `${site.getAnimeTitle()} Episode ${site.getEpNum()} Discussion`;
 	discussionTitle.style.cssText = `display: flex; justify-content: space-between; margin-bottom: 20px;`;
+
+	const discussionTitleText = document.createElement("a");
+	discussionTitleText.textContent = `${site.getAnimeTitle()} Episode ${site.getEpNum()} Discussion`;
+	discussionTitleText.title = 'Click to view the original discussion';
+	discussionTitle.appendChild(discussionTitleText);
 
 	const serviceIcon = document.createElement("img");
 	serviceIcon.className = "service-icon";
+	serviceIcon.title = service.name
 	serviceIcon.src = service.icon;
 	serviceIcon.style.cssText = `height: 20px;`;
 	discussionTitle.appendChild(serviceIcon);
@@ -224,29 +231,31 @@ function generateDiscussionArea() {
 
 // build a row for a single chat with the avatar in the left (with the username below it) and the message in the right
 function buildChatRow(chat) {
+	const size = '90px';	// size of the avatar and related elements
+
 	const chatRow = document.createElement("li");
 	chatRow.className = "chat-row";
 	chatRow.style.cssText = `display: flex; align-items: center; padding: 10px; border-top: 1px solid #eee;`;
 
 	const userArea = document.createElement("div");
 	userArea.className = "chat-user";
-	username.href = chat.userLink;
-	userArea.style.cssText = `width: 100px; display: flex; flex-direction: column; align-items: center; margin-right: 15px;`;
+	userArea.href = chat.userLink;
+	userArea.style.cssText = `width: ${size}; display: flex; flex-direction: column; align-items: center; margin-right: 15px;`;
 
 	const avatar = document.createElement("img");
 	avatar.className = "user-avatar";
 	avatar.src = chat.avatar;
-	avatar.style.cssText = `width: 100px; height: 100px; object-fit: cover; border-radius: 25px;`;
+	avatar.style.cssText = `width: ${size}; height: ${size}; object-fit: cover; border-radius: 25px;`;
 
 	const username = document.createElement("span");
 	username.className = "user-name";
 	username.textContent = chat.user;
-	username.style.cssText = `font-weight: bold; font-size: 14px; overflow: hidden; text-overflow: ellipsis; width: 100px; text-align: center;`;
+	username.style.cssText = `font-weight: bold; font-size: 14px; overflow: hidden; text-overflow: ellipsis; width: ${size}; text-align: center; padding-top: 10px;`;
 
 	const msg = document.createElement("span");
 	msg.className = "chat-msg";
 	msg.innerHTML = chat.msg;
-	msg.style.cssText = `font-size: 14px; padding-left: 10px; border-left: 1px solid #ccf;`;
+	msg.style.cssText = `font-size: 14px; padding: 10px; border-left: 1px solid #ccf;`;
 
 	userArea.appendChild(avatar);
 	userArea.appendChild(username);
@@ -259,20 +268,31 @@ function buildChatRow(chat) {
 // Run the script
 async function run() {
 	const discussionArea = generateDiscussionArea();
-	document.querySelector(site.chatArea).prepend(discussionArea);
+	document.querySelector(site.chatArea).appendChild(discussionArea);
 
 	const loadingElement = document.createElement("img");
 	loadingElement.src = "https://flyclipart.com/thumb2/explosion-gif-transparent-transparent-gif-sticker-741584.png";
 	loadingElement.style.cssText = `width: 150px; margin-right: 30px;`;
 	discussionArea.appendChild(loadingElement);
 
-	const discussion = await service.getDiscussion(site.getAnimeTitle(), site.getEpNum());
-	discussion.forEach((chat) => {
-		discussionArea.querySelector("ul").appendChild(buildChatRow(chat));
-	});
+	try {
+		const discussion = await service.getDiscussion(site.getAnimeTitle(), site.getEpNum());
+		console.log(discussion);
+		discussion.chats.forEach((chat) => {
+			discussionArea.querySelector("ul").appendChild(buildChatRow(chat));
+		});
 
-	discussionArea.querySelector('.discussion-title').href = discussion.link;
-	loadingElement.remove();
+		discussionArea.querySelector(".discussion-title a").href = discussion.link;
+		discussionArea.querySelector(".discussion-title a").textContent = discussion.title;
+		loadingElement.remove();
+	} catch (error) {
+		console.error(`${error.code} : ${error.message}`);
+		const errorElement = document.createElement("span");
+		errorElement.className = "error-message";
+		errorElement.style.cssText = 'white-space: pre-wrap;';
+		errorElement.textContent = `AniCHAT:\n${error.code} : ${error.message}\nCheck the console logs for more detail.`;
+		discussionArea.appendChild(errorElement);
+	}
 }
 
 run();
