@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.1.0
+// @version     1.1.1
 // @description Get discussions from popular sites like MAL and AL for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -66,7 +66,7 @@ const services = [
 			await new Promise(resolve => setTimeout(resolve, 1000));
 
 			// get the chats from the discussion
-			url = PROXYURL + `https://api.myanimelist.net/v2/forum/topic/${topic.id}`;
+			url = PROXYURL + `https://api.myanimelist.net/v2/forum/topic/${topic.id}?limit=100`;
 			response = await axios.get(url, {
 				headers: {
 					"X-MAL-CLIENT-ID": this.clientId,
@@ -81,7 +81,8 @@ const services = [
 				const userLink = "https://myanimelist.net/profile/" + user;
 				const avatar = post.created_by.forum_avator;
 				const msg = post.body;
-				chats.push(new Chat(user, userLink, avatar, msg));
+				const timestamp = new Date(post.created_at).getTime();
+				chats.push(new Chat(user, userLink, avatar, msg, timestamp));
 			});
 
 			const discussion = new Discussion(topic.title, "https://myanimelist.net/forum/?topicid=" + topic.id, chats);
@@ -105,11 +106,41 @@ class UserSettings {
 
 // Class to hold each row of a discussion
 class Chat {
-	constructor(user, userLink, avatar, msg) {
+	constructor(user, userLink, avatar, msg, timestamp) {
 		this.user = user;
 		this.userLink = userLink;
 		this.avatar = avatar;
 		this.msg = msg;
+		this.timestamp = timestamp;
+	}
+
+	getRelativeTime() {
+		const now = new Date().getTime();
+		const diff = now - this.timestamp;
+
+		const seconds = Math.floor(diff / 1000);
+		const minutes = Math.floor(seconds / 60);
+		const hours = Math.floor(minutes / 60);
+		const days = Math.floor(hours / 24);
+		const weeks = Math.floor(days / 7);
+		const months = Math.floor(days / 30);
+		const years = Math.floor(days / 365);
+
+		if (years > 0) {
+			return `${years} ${years === 1 ? 'year' : 'years'} ago`;
+		} else if (months > 0) {
+			return `${months} ${months === 1 ? 'month' : 'months'} ago`;
+		} else if (weeks > 0) {
+			return `${weeks} ${weeks === 1 ? 'week' : 'weeks'} ago`;
+		} else if (days > 0) {
+			return `${days} ${days === 1 ? 'day' : 'days'} ago`;
+		} else if (hours > 0) {
+			return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+		} else if (minutes > 0) {
+			return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'} ago`;
+		} else {
+			return `${seconds} ${seconds === 1 ? 'second' : 'seconds'} ago`;
+		}
 	}
 }
 
@@ -159,26 +190,39 @@ function buildChatRow(chat) {
 	const chatRow = document.createElement("li");
 	chatRow.className = "chat-row";
 
-	const userArea = document.createElement("div");
-	userArea.className = "chat-user";
-	userArea.href = chat.userLink;
+	const userAvatar = document.createElement("div");
+	userAvatar.className = "user-avatar";
+	userAvatar.innerHTML = `<img src="${chat.avatar}" alt="${chat.user}">`;
 
-	const avatar = document.createElement("img");
-	avatar.className = "user-avatar";
-	avatar.src = chat.avatar;
+	const userMsg = document.createElement("div");
+	userMsg.className = "user-msg";
 
-	const username = document.createElement("span");
-	username.className = "user-name";
-	username.textContent = chat.user;
+	const name = document.createElement("span");
+	name.className = "chat-name";
+	name.textContent = chat.user;
+
+	const time = document.createElement("span");
+	time.className = "chat-time";
+	time.textContent = chat.getRelativeTime();
+	time.title = new Date(chat.timestamp).toLocaleString(undefined, {
+		weekday: 'long',
+		year: 'numeric',
+		month: 'long',
+		day: 'numeric',
+		hour: 'numeric',
+		minute: 'numeric',
+		hour12: true
+	});
 
 	const msg = document.createElement("span");
 	msg.className = "chat-msg";
 	msg.innerHTML = bbcodeToHtml(chat.msg);
 
-	userArea.appendChild(avatar);
-	userArea.appendChild(username);
-	chatRow.appendChild(userArea);
-	chatRow.appendChild(msg);
+	userMsg.appendChild(name);
+	userMsg.appendChild(time);
+	userMsg.appendChild(msg);
+	chatRow.appendChild(userAvatar);
+	chatRow.appendChild(userMsg);
 
 	return chatRow;
 }
@@ -221,7 +265,7 @@ function generateTimeoutProgressBar() {
 const styles = `
 	.discussion-area {
 		border-radius: 10px;
-		padding: 20px;
+		padding: 10px;
 	}
 
 	.discussion-title {
@@ -236,40 +280,46 @@ const styles = `
 
 	.chat-row {
 		display: flex;
-		align-items: center;
-		padding: 10px;
+		padding: 10px 0;
 		border-top: 1px solid #eee;
 	}
 
-	.chat-user {
-		width: 90px;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		margin-right: 15px;
-	}
-
 	.user-avatar {
-		width: 90px;
-		height: 90px;
+		width: 55px;
+		height: 55px;
+		margin-right: 10px;
+	}
+	
+	.user-avatar > img {
+		width: 55px;
+		height: 55px;
 		object-fit: cover;
-		border-radius: 25px;
+		border-radius: 15px;
 	}
 
-	.user-name {
+	.user-msg {
+		display: flex;
+    	flex-direction: column;
+	}
+
+	.chat-name {
 		font-weight: bold;
-		font-size: 14px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		width: 90px;
-		text-align: center;
-		padding-top: 10px;
+		font-size: 15px;
+	}
+
+	.chat-time {
+		font-size: 12px;
+		font-weight: bold;
+		padding-top: 5px;
+		color: darkgrey;
 	}
 
 	.chat-msg {
-		font-size: 14px;
-		padding: 10px;
-		border-left: 1px solid #ccf;
+		padding: 10px 0;
+	}
+
+	.chat-msg .spoiler_content > img {
+		max-width: 100%;
 	}
 
 	.error-message {
@@ -367,6 +417,8 @@ function bbcodeToHtml(bbcode) {
 		{ bbcode: /\[list\](.*?)\[\/list\]/g, html: '<ul>$1</ul>' },
 		{ bbcode: /\[list=(.*?)\](.*?)\[\/list\]/g, html: '<ol start="$1">$2</ol>' },
 		{ bbcode: /\[\*\](.*?)\[\/\*\]/g, html: '<li>$1</li>' },
+		{ bbcode: /\[spoiler\](.*?)\[\/spoiler\]/g, html: '<div class="spoiler"><input type="button" onclick="this.nextSibling.style.display=\'inline-block\';this.style.display=\'none\';" value="Show spoiler" style="display: inline-block;"><span class="spoiler_content" style="display: none;"><input type="button" onclick="this.parentNode.style.display=\'none\';this.parentNode.parentNode.childNodes[0].style.display=\'inline-block\';" value="Hide spoiler">$1</span></div>' },
+		{ bbcode: /\[spoiler=(.*?)\](.*?)\[\/spoiler\]/g, html: '<div class="spoiler"><input type="button" onclick="this.nextSibling.style.display=\'inline-block\';this.style.display=\'none\';" value="Show $1" style="display: inline-block;"><span class="spoiler_content" style="display: none;"><input type="button" onclick="this.parentNode.style.display=\'none\';this.parentNode.parentNode.childNodes[0].style.display=\'inline-block\';" value="Hide $1">$2</span></div>' },
 	];
 	// Replace each BBCode with its corresponding HTML
 	let html = bbcode;
