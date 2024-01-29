@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.0.10
+// @version     1.1.0
 // @description Get discussions from popular sites like MAL and AL for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -20,7 +20,7 @@
 // key to store the user settings in the GM storage
 const userSettingsKey = "userSettings";
 // seconds to wait before loading the discussions (to avoid spamming the service)
-const TIMEOUT = 15000;
+const TIMEOUT = 30000;
 // proxy to bypass the cors restriction on services like MAL
 const PROXYURL = "https://proxy.cors.sh/"; //"https://test.cors.workers.dev/?"; //'https://corsproxy.io/?';
 
@@ -154,7 +154,7 @@ function generateDiscussionArea() {
 	return discussionArea;
 }
 
-// build a row for a single chat with the avatar in the left (with the username below it) and the message in the right
+// build a row for a single chat in the discussion
 function buildChatRow(chat) {
 	const chatRow = document.createElement("li");
 	chatRow.className = "chat-row";
@@ -173,7 +173,7 @@ function buildChatRow(chat) {
 
 	const msg = document.createElement("span");
 	msg.className = "chat-msg";
-	msg.innerHTML = chat.msg;
+	msg.innerHTML = bbcodeToHtml(chat.msg);
 
 	userArea.appendChild(avatar);
 	userArea.appendChild(username);
@@ -347,6 +347,34 @@ function chooseService(ch) {
 function getCurrentSite() {
 	const currentUrl = window.location.href.toLowerCase();
 	return animeSites.find((website) => website.url.some((site) => currentUrl.includes(site)));
+}
+
+// Convert BBCode to HTML
+function bbcodeToHtml(bbcode) {
+	// Define the BBCode to HTML mappings
+	const mappings = [
+		{ bbcode: /\[b\](.*?)\[\/b\]/g, html: '<strong>$1</strong>' },
+		{ bbcode: /\[i\](.*?)\[\/i\]/g, html: '<em>$1</em>' },
+		{ bbcode: /\[u\](.*?)\[\/u\]/g, html: '<u>$1</u>' },
+		{ bbcode: /\[s\](.*?)\[\/s\]/g, html: '<s>$1</s>' },
+		{ bbcode: /\[url=(.*?)\](.*?)\[\/url\]/g, html: '<a href="$1">$2</a>' },
+		{ bbcode: /\[img\](.*?)\[\/img\]/g, html: '<img src="$1" alt="">' },
+		{ bbcode: /\[code\](.*?)\[\/code\]/g, html: '<code>$1</code>' },
+		{ bbcode: /\[quote\](.*?)\[\/quote\]/g, html: '<blockquote>$1</blockquote>' },
+		{ bbcode: /\[color=(.*?)\](.*?)\[\/color\]/g, html: '<span style="color: $1;">$2</span>' },
+		{ bbcode: /\[size=(.*?)\](.*?)\[\/size\]/g, html: '<span style="font-size: $1;">$2</span>' },
+		{ bbcode: /\[center\](.*?)\[\/center\]/g, html: '<div style="text-align: center;">$1</div>' },
+		{ bbcode: /\[list\](.*?)\[\/list\]/g, html: '<ul>$1</ul>' },
+		{ bbcode: /\[list=(.*?)\](.*?)\[\/list\]/g, html: '<ol start="$1">$2</ol>' },
+		{ bbcode: /\[\*\](.*?)\[\/\*\]/g, html: '<li>$1</li>' },
+	];
+	// Replace each BBCode with its corresponding HTML
+	let html = bbcode;
+	for (const mapping of mappings) {
+		html = html.replace(mapping.bbcode, mapping.html);
+	}
+
+	return html;
 }
 
 // Run the script
