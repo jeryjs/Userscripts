@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.1.2
+// @version     1.1.3
 // @description Get discussions from popular sites like MAL and AL for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -17,10 +17,8 @@
 /**************************
  * CONSTANTS
  ***************************/
-// key to store the user settings in the GM storage
-const userSettingsKey = "userSettings";
 // seconds to wait before loading the discussions (to avoid spamming the service)
-const TIMEOUT = 30000;
+const TIMEOUT = 30000; // in milliseconds
 // proxy to bypass the cors restriction on services like MAL
 const PROXYURL = "https://proxy.cors.sh/"; //"https://test.cors.workers.dev/?"; //'https://corsproxy.io/?';
 
@@ -60,10 +58,12 @@ const services = [
 					"x-cors-api-key": this.proxyKey,
 				},
 			});
-			const topic = response.data.data.find((topic) => topic.title.toLowerCase().includes(animeTitle.toLowerCase()) && topic.title.toLowerCase().includes(epNum.toLowerCase()));
-			
+			const topic = response.data.data.find(
+				(topic) => topic.title.toLowerCase().includes(animeTitle.toLowerCase()) && topic.title.toLowerCase().includes(epNum.toLowerCase())
+			);
+
 			// 1 secound pause to avoid being rate-limited
-			await new Promise(resolve => setTimeout(resolve, 1000));
+			await new Promise((resolve) => setTimeout(resolve, 1000));
 
 			// get the chats from the discussion
 			url = PROXYURL + `https://api.myanimelist.net/v2/forum/topic/${topic.id}?limit=100`;
@@ -100,7 +100,7 @@ class UserSettings {
 		this.usernames = usernames;
 	}
 	static load() {
-		return GM_getValue(userSettingsKey, new UserSettings());
+		return GM_getValue("userSettings", new UserSettings());
 	}
 }
 
@@ -127,19 +127,19 @@ class Chat {
 		const years = Math.floor(days / 365);
 
 		if (years > 0) {
-			return `${years} ${years === 1 ? 'year' : 'years'} ago`;
+			return `${years} ${years === 1 ? "year" : "years"} ago`;
 		} else if (months > 0) {
-			return `${months} ${months === 1 ? 'month' : 'months'} ago`;
+			return `${months} ${months === 1 ? "month" : "months"} ago`;
 		} else if (weeks > 0) {
-			return `${weeks} ${weeks === 1 ? 'week' : 'weeks'} ago`;
+			return `${weeks} ${weeks === 1 ? "week" : "weeks"} ago`;
 		} else if (days > 0) {
-			return `${days} ${days === 1 ? 'day' : 'days'} ago`;
+			return `${days} ${days === 1 ? "day" : "days"} ago`;
 		} else if (hours > 0) {
-			return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+			return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
 		} else if (minutes > 0) {
-			return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'} ago`;
+			return `${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`;
 		} else {
-			return `${seconds} ${seconds === 1 ? 'second' : 'seconds'} ago`;
+			return `${seconds} ${seconds === 1 ? "second" : "seconds"} ago`;
 		}
 	}
 }
@@ -166,13 +166,13 @@ function generateDiscussionArea() {
 
 	const discussionTitleText = document.createElement("a");
 	discussionTitleText.textContent = `${site.getAnimeTitle()} Episode ${site.getEpNum()} Discussion`;
-	discussionTitleText.title = 'Click to view the original discussion';
+	discussionTitleText.title = "Click to view the original discussion";
 	discussionTitleText.target = "_blank";
 	discussionTitle.appendChild(discussionTitleText);
 
 	const serviceIcon = document.createElement("img");
 	serviceIcon.className = "service-icon";
-	serviceIcon.title = 'Powered by ' + service.name
+	serviceIcon.title = "Powered by " + service.name;
 	serviceIcon.src = service.icon;
 	discussionTitle.appendChild(serviceIcon);
 
@@ -205,13 +205,13 @@ function buildChatRow(chat) {
 	time.className = "chat-time";
 	time.textContent = chat.getRelativeTime();
 	time.title = new Date(chat.timestamp).toLocaleString(undefined, {
-		weekday: 'long',
-		year: 'numeric',
-		month: 'long',
-		day: 'numeric',
-		hour: 'numeric',
-		minute: 'numeric',
-		hour12: true
+		weekday: "long",
+		year: "numeric",
+		month: "long",
+		day: "numeric",
+		hour: "numeric",
+		minute: "numeric",
+		hour12: true,
 	});
 
 	const msg = document.createElement("span");
@@ -228,37 +228,49 @@ function buildChatRow(chat) {
 }
 
 // Countdown to show before load the discussions
-function generateTimeoutProgressBar() {
+function setLoadingTimeout() {
 	let countdown = TIMEOUT;
+
+	const loadingArea = document.createElement("div");
+	loadingArea.className = "loading-discussion";
+
+	const loadingElement = document.createElement("div");
+	loadingElement.innerHTML = `<img src="https://flyclipart.com/thumb2/explosion-gif-transparent-transparent-gif-sticker-741584.png" style="width: 150px; margin-right: 10px;">`;
+	loadingElement.style.cssText = `display: flex; align-items: center;`;
+
 	const progressBar = document.createElement("div");
 	progressBar.className = "progress-bar";
-	progressBar.style.width = "100%";
-	progressBar.style.height = "10px";
-	progressBar.style.backgroundColor = "#ccc";
-	progressBar.style.position = "relative";
-	
+	progressBar.style.cssText = `width: "100%"; height: 10px; background-color: #ccc; position: relative;`;
+
 	const progressFill = document.createElement("div");
 	progressFill.className = "progress-fill";
-	progressFill.style.width = "0%";
-	progressFill.style.height = "100%";
-	progressFill.style.backgroundColor = "#4CAF50";
-	progressFill.style.position = "absolute";
-	progressFill.style.top = "0";
-	progressFill.style.left = "0";
-	
+	progressFill.style.cssText = `width: 0%; height: 100%; background-color: #4CAF50; position: absolute; top: 0; left: 0;`;
+
+	const message = document.createElement("span");
+	message.textContent = `This ${
+		TIMEOUT / 1000
+	} secs timeout is set to reduce the load on the service and you can configure the TIMEOUT by editing the script (line 21)`;
+	message.style.cssText = "font-size: 14px; color: darkgrey;";
+
 	progressBar.appendChild(progressFill);
-	// document.querySelector(site.chatArea).appendChild(progressBar);
+	loadingElement.appendChild(message);
+	loadingArea.appendChild(loadingElement);
+	loadingArea.appendChild(progressBar);
+
 	console.log("Countdown started: " + countdown + "ms");
-	
+
 	const countdownInterval = setInterval(() => {
-		countdown-=100;
+		countdown -= 100;
 		const progressWidth = 100 - (countdown / TIMEOUT) * 100;
 		progressFill.style.width = `${progressWidth}%`;
 		if (countdown == 0) {
+			message.remove();
+			loadingElement.remove();
 			clearInterval(countdownInterval);
 		}
 	}, 100);
-	return progressBar;
+
+	return loadingArea;
 }
 
 // Add CSS styles to the page
@@ -318,7 +330,7 @@ const styles = `
 		padding: 10px 0;
 	}
 
-	.chat-msg .spoiler_content > img {
+	.chat-msg img {
 		max-width: 100%;
 	}
 
@@ -397,22 +409,28 @@ function chooseService(ch) {
 function bbcodeToHtml(bbcode) {
 	// Define the BBCode to HTML mappings
 	const mappings = [
-		{ bbcode: /\[b\](.*?)\[\/b\]/g, html: '<strong>$1</strong>' },
-		{ bbcode: /\[i\](.*?)\[\/i\]/g, html: '<em>$1</em>' },
-		{ bbcode: /\[u\](.*?)\[\/u\]/g, html: '<u>$1</u>' },
-		{ bbcode: /\[s\](.*?)\[\/s\]/g, html: '<s>$1</s>' },
+		{ bbcode: /\[b\](.*?)\[\/b\]/g, html: "<strong>$1</strong>" },
+		{ bbcode: /\[i\](.*?)\[\/i\]/g, html: "<em>$1</em>" },
+		{ bbcode: /\[u\](.*?)\[\/u\]/g, html: "<u>$1</u>" },
+		{ bbcode: /\[s\](.*?)\[\/s\]/g, html: "<s>$1</s>" },
 		{ bbcode: /\[url=(.*?)\](.*?)\[\/url\]/g, html: '<a href="$1">$2</a>' },
 		{ bbcode: /\[img\](.*?)\[\/img\]/g, html: '<img src="$1" alt="">' },
-		{ bbcode: /\[code\](.*?)\[\/code\]/g, html: '<code>$1</code>' },
-		{ bbcode: /\[quote\](.*?)\[\/quote\]/g, html: '<blockquote>$1</blockquote>' },
+		{ bbcode: /\[code\](.*?)\[\/code\]/g, html: "<code>$1</code>" },
+		{ bbcode: /\[quote\](.*?)\[\/quote\]/g, html: "<blockquote>$1</blockquote>" },
 		{ bbcode: /\[color=(.*?)\](.*?)\[\/color\]/g, html: '<span style="color: $1;">$2</span>' },
 		{ bbcode: /\[size=(.*?)\](.*?)\[\/size\]/g, html: '<span style="font-size: $1;">$2</span>' },
 		{ bbcode: /\[center\](.*?)\[\/center\]/g, html: '<div style="text-align: center;">$1</div>' },
-		{ bbcode: /\[list\](.*?)\[\/list\]/g, html: '<ul>$1</ul>' },
+		{ bbcode: /\[list\](.*?)\[\/list\]/g, html: "<ul>$1</ul>" },
 		{ bbcode: /\[list=(.*?)\](.*?)\[\/list\]/g, html: '<ol start="$1">$2</ol>' },
-		{ bbcode: /\[\*\](.*?)\[\/\*\]/g, html: '<li>$1</li>' },
-		{ bbcode: /\[spoiler\](.*?)\[\/spoiler\]/g, html: '<div class="spoiler"><input type="button" onclick="this.nextSibling.style.display=\'inline-block\';this.style.display=\'none\';" value="Show spoiler" style="display: inline-block;"><span class="spoiler_content" style="display: none;"><input type="button" onclick="this.parentNode.style.display=\'none\';this.parentNode.parentNode.childNodes[0].style.display=\'inline-block\';" value="Hide spoiler">$1</span></div>' },
-		{ bbcode: /\[spoiler=(.*?)\](.*?)\[\/spoiler\]/g, html: '<div class="spoiler"><input type="button" onclick="this.nextSibling.style.display=\'inline-block\';this.style.display=\'none\';" value="Show $1" style="display: inline-block;"><span class="spoiler_content" style="display: none;"><input type="button" onclick="this.parentNode.style.display=\'none\';this.parentNode.parentNode.childNodes[0].style.display=\'inline-block\';" value="Hide $1">$2</span></div>' },
+		{ bbcode: /\[\*\](.*?)\[\/\*\]/g, html: "<li>$1</li>" },
+		{
+			bbcode: /\[spoiler\](.*?)\[\/spoiler\]/g,
+			html: '<div class="spoiler"><input type="button" onclick="this.nextSibling.style.display=\'inline-block\';this.style.display=\'none\';" value="Show spoiler" style="display: inline-block;"><span class="spoiler_content" style="display: none;"><input type="button" onclick="this.parentNode.style.display=\'none\';this.parentNode.parentNode.childNodes[0].style.display=\'inline-block\';" value="Hide spoiler">$1</span></div>',
+		},
+		{
+			bbcode: /\[spoiler=(.*?)\](.*?)\[\/spoiler\]/g,
+			html: '<div class="spoiler"><input type="button" onclick="this.nextSibling.style.display=\'inline-block\';this.style.display=\'none\';" value="Show $1" style="display: inline-block;"><span class="spoiler_content" style="display: none;"><input type="button" onclick="this.parentNode.style.display=\'none\';this.parentNode.parentNode.childNodes[0].style.display=\'inline-block\';" value="Hide $1">$2</span></div>',
+		},
 	];
 	// Replace each BBCode with its corresponding HTML
 	let html = bbcode;
@@ -438,14 +456,10 @@ async function run() {
 	styleElement.textContent = styles;
 	discussionArea.append(styleElement);
 
-	const loadingElement = document.createElement("img");
-	loadingElement.src = "https://flyclipart.com/thumb2/explosion-gif-transparent-transparent-gif-sticker-741584.png";
-	loadingElement.style.cssText = `width: 150px; margin-right: 30px;`;
-	discussionArea.appendChild(loadingElement);
-	discussionArea.appendChild(generateTimeoutProgressBar());
+	discussionArea.appendChild(setLoadingTimeout());
 
-	try {
-		setTimeout(async () => {
+	setTimeout(async () => {
+		try {
 			const discussion = await service.getDiscussion(site.getAnimeTitle(), site.getEpNum());
 			console.log(discussion);
 			discussion.chats.forEach((chat) => {
@@ -454,15 +468,14 @@ async function run() {
 
 			discussionArea.querySelector(".discussion-title a").href = discussion.link;
 			discussionArea.querySelector(".discussion-title a").textContent = discussion.title;
-			loadingElement.remove();
-		}, TIMEOUT);
-	} catch (error) {
-		console.error(`${error.code} : ${error.message}`);
-		const errorElement = document.createElement("span");
-		errorElement.className = "error-message";
-		errorElement.textContent = `AniCHAT:\n${error.code} : ${error.message}\nCheck the console logs for more detail.`;
-		discussionArea.appendChild(errorElement);
-	}
+		} catch (error) {
+			console.error(`${error.code} : ${error.message}\n\n${error.stack}`);
+			const errorElement = document.createElement("span");
+			errorElement.className = "error-message";
+			errorElement.textContent = `AniCHAT:\n${error.code} : ${error.message}\n\n${error.stack}\n\nCheck the console logs for more detail.`;
+			discussionArea.appendChild(errorElement);
+		}
+	}, TIMEOUT);
 }
 
 run();
