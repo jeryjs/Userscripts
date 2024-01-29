@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.1.1
+// @version     1.1.2
 // @description Get discussions from popular sites like MAL and AL for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -80,7 +80,7 @@ const services = [
 				const user = post.created_by.name;
 				const userLink = "https://myanimelist.net/profile/" + user;
 				const avatar = post.created_by.forum_avator;
-				const msg = post.body;
+				const msg = bbcodeToHtml(post.body);
 				const timestamp = new Date(post.created_at).getTime();
 				chats.push(new Chat(user, userLink, avatar, msg, timestamp));
 			});
@@ -216,7 +216,7 @@ function buildChatRow(chat) {
 
 	const msg = document.createElement("span");
 	msg.className = "chat-msg";
-	msg.innerHTML = bbcodeToHtml(chat.msg);
+	msg.innerHTML = chat.msg;
 
 	userMsg.appendChild(name);
 	userMsg.appendChild(time);
@@ -393,12 +393,6 @@ function chooseService(ch) {
 	return service;
 }
 
-// Get the current website based on the URL
-function getCurrentSite() {
-	const currentUrl = window.location.href.toLowerCase();
-	return animeSites.find((website) => website.url.some((site) => currentUrl.includes(site)));
-}
-
 // Convert BBCode to HTML
 function bbcodeToHtml(bbcode) {
 	// Define the BBCode to HTML mappings
@@ -427,6 +421,12 @@ function bbcodeToHtml(bbcode) {
 	}
 
 	return html;
+}
+
+// Get the current website based on the URL
+function getCurrentSite() {
+	const currentUrl = window.location.href.toLowerCase();
+	return animeSites.find((website) => website.url.some((site) => currentUrl.includes(site)));
 }
 
 // Run the script
