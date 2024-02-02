@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.1.3
+// @version     1.1.4
 // @description Get discussions from popular sites like MAL and AL for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -414,9 +414,10 @@ function bbcodeToHtml(bbcode) {
 		{ bbcode: /\[u\](.*?)\[\/u\]/g, html: "<u>$1</u>" },
 		{ bbcode: /\[s\](.*?)\[\/s\]/g, html: "<s>$1</s>" },
 		{ bbcode: /\[url=(.*?)\](.*?)\[\/url\]/g, html: '<a href="$1">$2</a>' },
-		{ bbcode: /\[img\](.*?)\[\/img\]/g, html: '<img src="$1" alt="">' },
-		{ bbcode: /\[code\](.*?)\[\/code\]/g, html: "<code>$1</code>" },
-		{ bbcode: /\[quote\](.*?)\[\/quote\]/g, html: "<blockquote>$1</blockquote>" },
+		{ bbcode: /\[img.*?\](.*?)\[\/img\]/g, html: '<img src="$1" alt="">' },
+		{ bbcode: /\[code\]([\s\S]*?)\[\/code\]/g, html: "<code>$1</code>" },
+		{ bbcode: /\[quote\]([\s\S]*?)\[\/quote\]/g, html: '<blockquote class="quote" style="font-size: 90%; border: 1px solid; padding: 5px;">$1</blockquote>' },
+		{ bbcode: /\[quote=(.*?)\s*(message=\d+)?\]([\s\S]*?)\[\/quote\]/g, html: '<blockquote class="quote" style="font-size: 90%; border: 1px solid; padding: 5px;"><h4>$1 Said:</h4>$3</blockquote>' },
 		{ bbcode: /\[color=(.*?)\](.*?)\[\/color\]/g, html: '<span style="color: $1;">$2</span>' },
 		{ bbcode: /\[size=(.*?)\](.*?)\[\/size\]/g, html: '<span style="font-size: $1;">$2</span>' },
 		{ bbcode: /\[center\](.*?)\[\/center\]/g, html: '<div style="text-align: center;">$1</div>' },
@@ -436,6 +437,7 @@ function bbcodeToHtml(bbcode) {
 	let html = bbcode;
 	for (const mapping of mappings) {
 		html = html.replace(mapping.bbcode, mapping.html);
+		if (bbcode.includes('[quote]')) console.log(html);
 	}
 
 	return html;
