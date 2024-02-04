@@ -8,6 +8,10 @@
 // @license     MIT
 // @match       https://yugenanime.*/*
 // @match       https://yugenanime.tv/*
+// @match       https://animepahe.*/*
+// @match       https://animepahe.com/*/
+// @match       https://kayoanime.*/*
+// @match       https://kayoanime.com/*
 // @grant       GM_getValue
 // @grant       GM_setValue
 // @grant       GM_notification
@@ -33,7 +37,22 @@ const animeSites = [
 		getAnimeTitle: () => document.querySelector(".ani-info-ep a > h1").textContent,
 		getEpTitle: () => document.querySelector("h1.text-semi-bold.m-5-b").textContent,
 		getEpNum: () => window.location.href.split("/")[6],
-		timeout: 0,
+	},
+	{
+		name: "animepahe",
+		url: ["animepahe.ru", "animepahe.com"],
+		chatArea: ".theatre",
+		getAnimeTitle: () => document.querySelector(".theatre-info > h1 > a").textContent.split(' - ')[0],
+		getEpTitle: () => document.querySelector(".theatre-info > h1 > a").textContent.split(' - ')[0],
+		getEpNum: () =>  document.querySelector(".theatre-info > h1 > a").textContent.split(' - ')[1],
+	},
+	{
+		name: "kayoanime",
+		url: ["kayoanime.com"],
+		chatArea: "#the-post",
+		getAnimeTitle: () => document.querySelector("h1.entry-title").textContent.split(/Episode \d+ English.+/)[0].trim(),
+		getEpTitle: () => document.querySelector(".toggle-head").textContent.trim(),
+		getEpNum: () => document.querySelector("h1.entry-title").textContent.split(/Episode (\d+) English.+/)[1],
 	},
 ];
 
