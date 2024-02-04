@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.1.4
+// @version     1.2.0
 // @description Get discussions from popular sites like MAL and AL for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -46,35 +46,20 @@ const services = [
 		proxyKey: "temp_2ed7d641dd52613591687200e7f7958b",
 		async getDiscussion(animeTitle, epNum) {
 			// get the discussion
-			let url = PROXYURL + `https://api.myanimelist.net/v2/forum/topics`;
-			let query = `${animeTitle} Episode ${epNum} Discussion`;
-			let response = await axios.get(url, {
-				params: {
-					q: query,
-					limit: 15,
-				},
-				headers: {
-					"X-MAL-CLIENT-ID": this.clientId,
-					"x-cors-api-key": this.proxyKey,
-				},
-			});
-			const topic = response.data.data.find(
-				(topic) => topic.title.toLowerCase().includes(animeTitle.toLowerCase()) && topic.title.toLowerCase().includes(epNum.toLowerCase())
-			);
+			let url = PROXYURL + `https://api.myanimelist.net/v2/anime?q=${animeTitle}&limit=1`;
+			let response = await axios.get(url, {headers: {"X-MAL-CLIENT-ID": this.clientId, "x-cors-api-key": this.proxyKey}});
+			const anime = response.data.data[0].node;
 
-			// 1 secound pause to avoid being rate-limited
-			await new Promise((resolve) => setTimeout(resolve, 1000));
+			// get the discussion url from the anime
+			url = PROXYURL + `https://api.jikan.moe/v4/anime/${anime.id}/forum`;
+			response = await axios.get(url, {headers: {"x-cors-api-key": this.proxyKey}});
+			const topic = response.data.data.find(it => it.title.includes(`Episode ${epNum} Discussion`));
 
-			// get the chats from the discussion
-			url = PROXYURL + `https://api.myanimelist.net/v2/forum/topic/${topic.id}?limit=100`;
-			response = await axios.get(url, {
-				headers: {
-					"X-MAL-CLIENT-ID": this.clientId,
-					"x-cors-api-key": this.proxyKey,
-				},
-			});
-
+			// get the forum page
+			url = PROXYURL + `https://api.myanimelist.net/v2/forum/topic/${topic.mal_id}?limit=100`;
+			response = await axios.get(url, {headers: {"X-MAL-CLIENT-ID": this.clientId, "x-cors-api-key": this.proxyKey}});
 			const data = response.data.data;
+
 			let chats = [];
 			data.posts.forEach((post) => {
 				const user = post.created_by.name;
@@ -85,7 +70,7 @@ const services = [
 				chats.push(new Chat(user, userLink, avatar, msg, timestamp));
 			});
 
-			const discussion = new Discussion(topic.title, "https://myanimelist.net/forum/?topicid=" + topic.id, chats);
+			const discussion = new Discussion(topic.textContent, topic.href, chats);
 			return discussion;
 		},
 	},
@@ -424,20 +409,13 @@ function bbcodeToHtml(bbcode) {
 		{ bbcode: /\[list\](.*?)\[\/list\]/g, html: "<ul>$1</ul>" },
 		{ bbcode: /\[list=(.*?)\](.*?)\[\/list\]/g, html: '<ol start="$1">$2</ol>' },
 		{ bbcode: /\[\*\](.*?)\[\/\*\]/g, html: "<li>$1</li>" },
-		{
-			bbcode: /\[spoiler\](.*?)\[\/spoiler\]/g,
-			html: '<div class="spoiler"><input type="button" onclick="this.nextSibling.style.display=\'inline-block\';this.style.display=\'none\';" value="Show spoiler" style="display: inline-block;"><span class="spoiler_content" style="display: none;"><input type="button" onclick="this.parentNode.style.display=\'none\';this.parentNode.parentNode.childNodes[0].style.display=\'inline-block\';" value="Hide spoiler">$1</span></div>',
-		},
-		{
-			bbcode: /\[spoiler=(.*?)\](.*?)\[\/spoiler\]/g,
-			html: '<div class="spoiler"><input type="button" onclick="this.nextSibling.style.display=\'inline-block\';this.style.display=\'none\';" value="Show $1" style="display: inline-block;"><span class="spoiler_content" style="display: none;"><input type="button" onclick="this.parentNode.style.display=\'none\';this.parentNode.parentNode.childNodes[0].style.display=\'inline-block\';" value="Hide $1">$2</span></div>',
-		},
+		{ bbcode: /\[spoiler\](.*?)\[\/spoiler\]/g, html: '<div class="spoiler"><input type="button" onclick="this.nextSibling.style.display=\'inline-block\';this.style.display=\'none\';" value="Show spoiler" style="display: inline-block;"><span class="spoiler_content" style="display: none;"><input type="button" onclick="this.parentNode.style.display=\'none\';this.parentNode.parentNode.childNodes[0].style.display=\'inline-block\';" value="Hide spoiler">$1</span></div>' },
+		{ bbcode: /\[spoiler=(.*?)\](.*?)\[\/spoiler\]/g, html: '<div class="spoiler"><input type="button" onclick="this.nextSibling.style.display=\'inline-block\';this.style.display=\'none\';" value="Show $1" style="display: inline-block;"><span class="spoiler_content" style="display: none;"><input type="button" onclick="this.parentNode.style.display=\'none\';this.parentNode.parentNode.childNodes[0].style.display=\'inline-block\';" value="Hide $1">$2</span></div>' },
 	];
 	// Replace each BBCode with its corresponding HTML
 	let html = bbcode;
 	for (const mapping of mappings) {
 		html = html.replace(mapping.bbcode, mapping.html);
-		if (bbcode.includes('[quote]')) console.log(html);
 	}
 
 	return html;
