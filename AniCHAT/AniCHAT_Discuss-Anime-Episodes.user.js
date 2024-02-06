@@ -61,22 +61,22 @@ const services = [
 		name: "MyAnimeList",
 		icon: "https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ",
 		url: "https://myanimelist.net/",
-		clientId: "dbe5cec5a2f33fdda148a6014384b984",
-		proxyKey: "temp_2ed7d641dd52613591687200e7f7958b",
+		_clientId: "dbe5cec5a2f33fdda148a6014384b984",
+		_proxyKey: "temp_2ed7d641dd52613591687200e7f7958b",
 		async getDiscussion(animeTitle, epNum) {
 			// get the discussion
 			let url = PROXYURL + `https://api.myanimelist.net/v2/anime?q=${animeTitle}&limit=1`;
-			let response = await axios.get(url, {headers: {"X-MAL-CLIENT-ID": this.clientId, "x-cors-api-key": this.proxyKey}});
+			let response = await axios.get(url, {headers: {"X-MAL-CLIENT-ID": this._clientId, "x-cors-api-key": this._proxyKey}});
 			const anime = response.data.data[0].node;
 
 			// get the discussion url from the anime
 			url = PROXYURL + `https://api.jikan.moe/v4/anime/${anime.id}/forum`;
-			response = await axios.get(url, {headers: {"x-cors-api-key": this.proxyKey}});
+			response = await axios.get(url, {headers: {"x-cors-api-key": this._proxyKey}});
 			const topic = response.data.data.find(it => it.title.includes(`Episode ${epNum} Discussion`));
 
 			// get the forum page
 			url = PROXYURL + `https://api.myanimelist.net/v2/forum/topic/${topic.mal_id}?limit=100`;
-			response = await axios.get(url, {headers: {"X-MAL-CLIENT-ID": this.clientId, "x-cors-api-key": this.proxyKey}});
+			response = await axios.get(url, {headers: {"X-MAL-CLIENT-ID": this._clientId, "x-cors-api-key": this._proxyKey}});
 			const data = response.data.data;
 
 			let chats = [];
@@ -93,6 +93,29 @@ const services = [
 			return discussion;
 		},
 	},
+	{
+		name: "Reddit",
+		icon: "https://www.redditstatic.com/desktop2x/img/favicon/apple-icon-57x57.png",
+		url: "https://www.reddit.com/",
+		async getDiscussion(animeTitle, epNum) {
+			const url = `https://api.reddit.com/r/anime/search.json?q=${animeTitle}+episode+${epNum}+discussion&restrict_sr=on&sort=relevance&limit=1`;
+			const response = await axios.get(url);
+			const data = response.data.data.children[0].data;
+
+			let chats = [];
+			data.comments.forEach((comment) => {
+				const user = comment.author;
+				const userLink = "https://www.reddit.com/user/" + user;
+				const avatar = "https://www.redditstatic.com/desktop2x/img/favicon/apple-icon-57x57.png";
+				const msg = bbcodeToHtml(comment.body);
+				const timestamp = comment.created_utc * 1000;
+				chats.push(new Chat(user, userLink, avatar, msg, timestamp));
+			});
+
+			const discussion = new Discussion(data.title, data.url, chats);
+			return discussion;
+		}
+	}
 ];
 
 /***************************************************************
