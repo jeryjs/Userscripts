@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name        AniLINK: GoGoAnime
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     3.0.1
+// @version     3.0.3
 // @description Stream or download your favorite anime series effortlessly with AniLINK for GoGoAnime! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
-// @icon        https://www.google.com/s2/favicons?domain=gogoanimehd.io
+// @icon        https://www.google.com/s2/favicons?domain=anitaku.to
 // @author      Jery
 // @license     MIT
-// @match       https://gogoanimehd.io/*
-// @match       https://gogoanimehd.*/*
-// @match       https://gogoanime3.net/*
+// @match       https://anitaku.to/*
+// @match       https://anitaku.*/*
+// @match       https://gogoanime3.co/*
 // @match       https://gogoanime3.*/*
 // @match       https://gogoanime.*/*
 // @grant       GM_registerMenuCommand
@@ -27,7 +27,7 @@ class Episode {
 const websites = [
     {
         name: 'GoGoAnime',
-        url: ['gogoanimehd.io/', 'gogoanime3.net/', 'gogoanime.to/'],
+        url: ['anitaku.to/', 'gogoanime3.co/', 'gogoanime3', 'anitaku', 'gogoanime'],
         epLinks: '#episode_related > li > a',
         epTitle: '.title_name > h2',
         linkElems: '.cf-download > a',
