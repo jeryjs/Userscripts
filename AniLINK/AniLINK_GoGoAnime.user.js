@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK: GoGoAnime
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     3.0.3
+// @version     3.1.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK for GoGoAnime! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=anitaku.to
 // @author      Jery
@@ -32,6 +32,21 @@ const websites = [
         epTitle: '.title_name > h2',
         linkElems: '.cf-download > a',
         thumbnail: '.headnav_left > a > img',
+        addStartButton: function() {
+            const button = document.createElement('a');
+            button.id = "AniLINK_startBtn";
+            button.style.cssText = `cursor: pointer; background-color: #145132;`;
+            button.innerHTML = '<i class="icongec-dowload"></i> Generate Download Links';
+            button.addEventListener('click', extractEpisodes);
+
+            // Add the button to the page if user is logged in otherwise show placeholder
+            if (document.querySelector('.cf-download')) {
+                document.querySelector('.cf-download').appendChild(button);
+            } else {
+                const loginMessage = document.querySelector('.list_dowload > div > span');
+                loginMessage.innerHTML = `<b style="color:#FFC119;">AniLINK:</b> Please <a href="/login.html" title="login"><u>log in</u></a> to be able to batch download animes.`;
+            }
+        },
         extractEpisodes: async function (status) {
             status.textContent = 'Starting...';
             let episodes = {};
@@ -66,6 +81,12 @@ async function fetchHtml(url) {
 
 GM_registerMenuCommand('Extract Episodes', extractEpisodes);
 
+// initialize
+console.log('Initializing AniLINK...');
+const site = websites.find(site => site.url.some(url => window.location.href.includes(url)));
+
+// attach button to page
+site.addStartButton();
 
 // This function creates an overlay on the page and displays a list of episodes extracted from a website.
 // The function is triggered by a user command registered with `GM_registerMenuCommand`.
@@ -98,8 +119,7 @@ async function extractEpisodes() {
     linksContainer.appendChild(statusBar);
 
     // Extract episodes
-    const website = websites.find(site => site.url.some(url => window.location.href.includes(url)));
-    const episodes = await website.extractEpisodes(statusBar);
+    const episodes = await site.extractEpisodes(statusBar);
 
     console.log(episodes);
 
