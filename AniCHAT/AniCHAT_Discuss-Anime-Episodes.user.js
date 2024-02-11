@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.3.0
+// @version     1.4.0
 // @description Get discussions from popular sites like MAL and AL for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -67,12 +67,13 @@ const services = [
 			// get the anime id
 			let url = PROXYURL + `https://api.myanimelist.net/v2/anime?q=${animeTitle}&limit=1`;
 			let response = await axios.get(url, {headers: {"X-MAL-CLIENT-ID": this._clientId, "x-cors-api-key": this._proxyKey}});
-			const animeId = response.data.data[0].node.id;
+			let animeId = 0; if (response.data.data.length>0) animeId = response.data.data[0].node.id; else throw new Error("Couldn't find the anime id. Try reloading the page or switching to another service.");
 
 			// get the discussion url from the anime
 			url = PROXYURL + `https://api.jikan.moe/v4/anime/${animeId}/forum`;
 			response = await axios.get(url, {headers: {"x-cors-api-key": this._proxyKey}});
 			const topic = response.data.data.find(it => it.title.includes(`Episode ${epNum} Discussion`));
+			if (topic) console.log(topic); else throw new Error("No discussion found. Try reloading the page after a while or switching to another service.");
 
 			// get the forum page
 			url = PROXYURL + `https://api.myanimelist.net/v2/forum/topic/${topic.mal_id}?limit=100`;
@@ -86,7 +87,7 @@ const services = [
 				const avatar = post.created_by.forum_avator;
 				const msg = bbcodeToHtml(post.body);
 				const timestamp = new Date(post.created_at).getTime();
-				chats.push(new Chat(user, userLink, avatar, msg, timestamp));
+				chats.push(new Chat(user, userLink, avatar, msg, timestamp, null));
 			});
 
 			const discussion = new Discussion(topic.title, topic.url, chats);
@@ -101,26 +102,23 @@ const services = [
 		_proxyKey: "temp_2ed7d641dd52613591687200e7f7958b",
 		async getDiscussion(animeTitle, epNum) {
 			// get the anime's MAL id
-			// let url = PROXYURL + `https://api.jikan.moe/v4/anime?q=${animeTitle}&limit=1`;
-			// let response = await axios.get(url, {headers: {"x-cors-api-key": this._proxyKey}});
-			// const animeId = response.data.data[0].mal_id;
-			let url = PROXYURL + `https://api.myanimelist.net/v2/anime?q=${animeTitle.substring(0, 50)}&limit=1`;
-			let response = await axios.get(url, {headers: {"X-MAL-CLIENT-ID": this._clientId, "x-cors-api-key": this._proxyKey}});
-			const animeId = response.data.data[0].node.id;
-
+			let url = PROXYURL + `https://api.jikan.moe/v4/anime?q=${animeTitle}&limit=1`;
+			let response = await axios.get(url, {headers: {"x-cors-api-key": this._proxyKey}});
+			let animeId = ''; if (response.data.data.length>0) animeId = response.data.data[0].mal_id;
+			
+			// Get the discussion
 			url = `https://api.reddit.com/r/anime/search.json?q=${animeTitle}+-+Episode+${epNum}+discussion+author:AutoLovepon&restrict_sr=on&include_over_18=on&sort=relevance&limit=50`;
 			response = await axios.get(url);
-			const topic = response.data.data.children.find(it => it.data.title.includes(` - Episode ${epNum} discussion`) && it.data.selftext.includes(`[MyAnimeList](https://myanimelist.net/anime/${animeId?animeId:''})`)).data;
-			console.log(topic);
+			const topic = response.data.data.children.find(it => it.data.title.includes(` - Episode ${epNum} discussion`) && it.data.selftext.includes(`[MyAnimeList](https://myanimelist.net/anime/${animeId}`))?.data;
 
+			// get the comments in the discussion
 			url = topic.url.replace('www.reddit.com', 'api.reddit.com');
 			response = await axios.get(url);
 			const posts = response.data[1].data.children;
-			if (posts[0].data.author == "AutoModerator") posts.shift();
+			if (posts[0].data.author == "AutoModerator") posts.shift();	// skip the first bot post
 
 			let chats = [];
-			for (let post of posts)
-				chats.push(this._processPost(post));
+			for (let post of posts) chats.push(this._processPost(post));
 
 			const discussion = new Discussion(topic.title, topic.url, chats);
 			return discussion;
@@ -221,11 +219,8 @@ function generateDiscussionArea() {
 	discussionTitleText.target = "_blank";
 	discussionTitle.appendChild(discussionTitleText);
 
-	const serviceIcon = document.createElement("img");
-	serviceIcon.className = "service-icon";
-	serviceIcon.title = "Powered by " + service.name;
-	serviceIcon.src = service.icon;
-	discussionTitle.appendChild(serviceIcon);
+	const serviceSwitcher = buildServiceSwitcher();
+	discussionTitle.appendChild(serviceSwitcher);
 
 	const discussionList = document.createElement("ul");
 	discussionList.className = "discussion-list";
@@ -234,6 +229,29 @@ function generateDiscussionArea() {
 	discussionArea.appendChild(discussionList);
 
 	return discussionArea;
+}
+
+function buildServiceSwitcher() {
+	const servicesArea = document.createElement('div');
+	servicesArea.id = 'service-switcher';
+	servicesArea.style.cssText = `width: 50px; transition: width 0.3s ease-in-out; overflow: hidden; display: flex;`;
+	servicesArea.innerHTML = `<img class="service-icon selected" title="Powered by ${service.name}" src="${service.icon}"><a style="padding-right:5px">▶</a>`;
+	services.forEach(it => {
+		servicesArea.innerHTML += `<img class="service-icon other" data-opt="${services.indexOf(it)}" title="Switch to ${it.name}" src="${it.icon}" style="cursor:pointer;">`;
+	});
+	servicesArea.addEventListener('mouseenter', () => servicesArea.style.width = 50+35*services.length + 'px');
+	servicesArea.addEventListener('mouseleave', () => servicesArea.style.width = '50px');
+	servicesArea.querySelectorAll('.other').forEach(it => {
+		it.addEventListener('click', () =>{
+			const serviceOpt = parseInt(it.getAttribute('data-opt'));
+			console.log(serviceOpt);
+			GM_setValue("service", serviceOpt);
+			service = services[serviceOpt];
+			document.querySelector('.discussion-area').remove();
+			run(0);
+		});
+	});
+	return servicesArea;
 }
 
 // build a row for a single chat in the discussion
@@ -248,7 +266,7 @@ async function buildChatRow(chat) {
 	if (chat.avatar instanceof Promise)
         chat.avatar.then(avatarUrl => userAvatar.firstChild.src = avatarUrl);
     else
-        avatarImg.src = chat.avatar;
+		userAvatar.firstChild.src = chat.avatar;
 
 	const userMsg = document.createElement("div");
 	userMsg.className = "user-msg";
@@ -284,8 +302,8 @@ async function buildChatRow(chat) {
 }
 
 // Countdown to show before load the discussions
-function setLoadingTimeout() {
-	let countdown = TIMEOUT;
+function setLoadingTimeout(timeout) {
+	let countdown = timeout;
 
 	const loadingArea = document.createElement("div");
 	loadingArea.className = "loading-discussion";
@@ -304,7 +322,7 @@ function setLoadingTimeout() {
 
 	const message = document.createElement("span");
 	message.textContent = `This ${
-		TIMEOUT / 1000
+		timeout / 1000
 	} secs timeout is set to reduce the load on the service and you can configure the TIMEOUT by editing the script (line 21)`;
 	message.style.cssText = "font-size: 14px; color: darkgrey;";
 
@@ -317,9 +335,9 @@ function setLoadingTimeout() {
 
 	const countdownInterval = setInterval(() => {
 		countdown -= 100;
-		const progressWidth = 100 - (countdown / TIMEOUT) * 100;
+		const progressWidth = 100 - (countdown / timeout) * 100;
 		progressFill.style.width = `${progressWidth}%`;
-		if (countdown == 0) {
+		if (countdown <= 0) {
 			message.remove();
 			loadingElement.remove();
 			clearInterval(countdownInterval);
@@ -343,7 +361,8 @@ const styles = `
 	}
 
 	.service-icon {
-		height: 20px;
+		height: 25px;
+		padding-right: 10px;
 	}
 
 	.chat-row {
@@ -406,7 +425,7 @@ let userSettings = UserSettings.load();
 let site = getCurrentSite();
 
 // Service instance
-let service = services[1];
+let service = services[GM_getValue("service", 0)];
 // chooseService(parseInt(GM_getValue("service", 1)));
 
 // Register menu commands
@@ -501,7 +520,7 @@ function getCurrentSite() {
 }
 
 // Run the script
-async function run() {
+async function run(timeout=TIMEOUT) {
 	const discussionArea = generateDiscussionArea();
 	document.querySelector(site.chatArea).appendChild(discussionArea);
 
@@ -509,7 +528,7 @@ async function run() {
 	styleElement.textContent = styles;
 	discussionArea.append(styleElement);
 
-	discussionArea.appendChild(setLoadingTimeout());
+	discussionArea.appendChild(setLoadingTimeout(timeout));
 
 	setTimeout(async () => {
 		try {
@@ -528,7 +547,7 @@ async function run() {
 			errorElement.textContent = `AniCHAT:\n${error.code} : ${error.message}\n\n${error.stack}\n\nCheck the console logs for more detail.`;
 			discussionArea.appendChild(errorElement);
 		}
-	}, TIMEOUT);
+	}, timeout);
 }
 
 run();
