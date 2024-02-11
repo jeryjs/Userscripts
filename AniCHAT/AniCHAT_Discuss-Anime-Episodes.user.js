@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.4.0
-// @description Get discussions from popular sites like MAL and AL for the anime you are watching right below your episode
+// @version     2.0.0
+// @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
 // @license     MIT
@@ -85,7 +85,7 @@ const services = [
 				const user = post.created_by.name;
 				const userLink = "https://myanimelist.net/profile/" + user;
 				const avatar = post.created_by.forum_avator;
-				const msg = bbcodeToHtml(post.body);
+				const msg = this._parseBBCode(post.body);
 				const timestamp = new Date(post.created_at).getTime();
 				chats.push(new Chat(user, userLink, avatar, msg, timestamp, null));
 			});
@@ -93,6 +93,32 @@ const services = [
 			const discussion = new Discussion(topic.title, topic.url, chats);
 			return discussion;
 		},
+		_parseBBCode(bbcode) {
+			const mappings = [
+				{ bbcode: /\[b\](.*?)\[\/b\]/g, html: "<strong>$1</strong>" },
+				{ bbcode: /\[i\](.*?)\[\/i\]/g, html: "<em>$1</em>" },
+				{ bbcode: /\[u\](.*?)\[\/u\]/g, html: "<u>$1</u>" },
+				{ bbcode: /\[s\](.*?)\[\/s\]/g, html: "<s>$1</s>" },
+				{ bbcode: /\[url=(.*?)\](.*?)\[\/url\]/g, html: '<a href="$1">$2</a>' },
+				{ bbcode: /\[img.*?\](.*?)\[\/img\]/g, html: '<img src="$1" alt="">' },
+				{ bbcode: /\[code\]([\s\S]*?)\[\/code\]/g, html: "<code>$1</code>" },
+				{ bbcode: /\[quote\]/g, html: '<blockquote class="quote" style="font-size: 90%; border: 1px solid; padding: 5px;">' },
+				{ bbcode: /\[quote=(.*?)\s*(message=\d+)?\]/g, html: '<blockquote class="quote" style="font-size: 90%; border: 1px solid; padding: 5px;"><h4>$1 Said:</h4>' },
+				{ bbcode: /\[\/quote\]/g, html: '</blockquote>' },
+				{ bbcode: /\[color=(.*?)\](.*?)\[\/color\]/g, html: '<span style="color: $1;">$2</span>' },
+				{ bbcode: /\[size=(.*?)\](.*?)\[\/size\]/g, html: '<span style="font-size: $1;">$2</span>' },
+				{ bbcode: /\[center\](.*?)\[\/center\]/g, html: '<div style="text-align: center;">$1</div>' },
+				{ bbcode: /\[list\](.*?)\[\/list\]/g, html: "<ul>$1</ul>" },
+				{ bbcode: /\[list=(.*?)\](.*?)\[\/list\]/g, html: '<ol start="$1">$2</ol>' },
+				{ bbcode: /\[\*\](.*?)\[\/\*\]/g, html: "<li>$1</li>" },
+				{ bbcode: /\[spoiler\]([\s\S]*?)\[\/spoiler\]/g, html: '<div class="spoiler"><input type="button" onclick="this.nextSibling.style.display=\'inline-block\';this.style.display=\'none\';" value="Show spoiler" style="display: inline-block;"><span class="spoiler_content" style="display: none;"><input type="button" onclick="this.parentNode.style.display=\'none\';this.parentNode.parentNode.childNodes[0].style.display=\'inline-block\';" value="Hide spoiler">$1</span></div>' },
+				{ bbcode: /\[spoiler=(.*?)\]([\s\S]*?)\[\/spoiler\]/g, html: '<div class="spoiler"><input type="button" onclick="this.nextSibling.style.display=\'inline-block\';this.style.display=\'none\';" value="Show $1" style="display: inline-block;"><span class="spoiler_content" style="display: none;"><input type="button" onclick="this.parentNode.style.display=\'none\';this.parentNode.parentNode.childNodes[0].style.display=\'inline-block\';" value="Hide $1">$2</span></div>' },
+				{ bbcode: /@(\S+)/g, html: '<a href="https://myanimelist.net/profile/$1" target="_blank">@$1</a>' },
+			];
+			let html = bbcode;
+			for (const mapping of mappings) { html = html.replace(mapping.bbcode, mapping.html); }
+			return html;
+		}
 	},
 	{
 		name: "Reddit",
@@ -259,14 +285,14 @@ async function buildChatRow(chat) {
 	const chatRow = document.createElement("li");
 	chatRow.className = "chat-row";
 
+	const chatContent = document.createElement("div");
+	chatContent.className = "chat-content";
+
 	const userAvatar = document.createElement("div");
 	userAvatar.className = "user-avatar";
 	userAvatar.innerHTML = `<img src="${service.icon}" alt="${chat.user}">`;
-
-	if (chat.avatar instanceof Promise)
-        chat.avatar.then(avatarUrl => userAvatar.firstChild.src = avatarUrl);
-    else
-		userAvatar.firstChild.src = chat.avatar;
+	if (chat.avatar instanceof Promise) chat.avatar.then(avatarUrl => userAvatar.firstChild.src = avatarUrl);
+    else userAvatar.firstChild.src = chat.avatar;
 
 	const userMsg = document.createElement("div");
 	userMsg.className = "user-msg";
@@ -295,8 +321,19 @@ async function buildChatRow(chat) {
 	userMsg.appendChild(name);
 	userMsg.appendChild(time);
 	userMsg.appendChild(msg);
-	chatRow.appendChild(userAvatar);
-	chatRow.appendChild(userMsg);
+	chatContent.appendChild(userAvatar);
+	chatContent.appendChild(userMsg);
+	chatRow.appendChild(chatContent);
+
+	if (chat.replies && chat.replies.length > 0) {
+		const repliesDiv = document.createElement("div");
+		repliesDiv.className = "reply";
+		for (let reply of chat.replies) {
+			const replyRow = await buildChatRow(reply);
+			repliesDiv.appendChild(replyRow);
+		}
+		chatRow.appendChild(repliesDiv);
+	}
 
 	return chatRow;
 }
@@ -367,8 +404,21 @@ const styles = `
 
 	.chat-row {
 		display: flex;
+		flex-direction: column;
 		padding: 10px 0;
 		border-top: 1px solid #eee;
+	}
+
+	.chat-content {
+		display: flex;
+		flex-direction: row;
+	}
+
+	.chat-row > .reply {
+		display: flex;
+		flex-direction: column;
+		padding-left: 55px;
+		border-left: 0.7px solid #eee;
 	}
 
 	.user-avatar {
@@ -426,93 +476,10 @@ let site = getCurrentSite();
 
 // Service instance
 let service = services[GM_getValue("service", 0)];
-// chooseService(parseInt(GM_getValue("service", 1)));
-
-// Register menu commands
-// GM_registerMenuCommand("Show Options", showOptions);
 
 /***************************************************************
  * Functions for working of the script
  ***************************************************************/
-// Show menu options as a prompt
-function showOptions() {
-	let options = {
-		"Choose Service": chooseService,
-	};
-	let opt = prompt(
-		`${GM_info.script.name}\n\nChoose an option:\n${Object.keys(options)
-			.map((key, i) => `${i + 1}. ${key}`)
-			.join("\n")}`,
-		"1"
-	);
-	if (opt !== null) {
-		let index = parseInt(opt) - 1;
-		let selectedOption = Object.values(options)[index];
-		selectedOption();
-	}
-}
-
-// Prompt the user to choose a service
-function chooseService(ch) {
-	let choice = typeof ch == "number" ? ch : parseInt(GM_getValue("service", 1));
-
-	if (typeof ch !== "number") {
-		const msg = `${GM_info.script.name}\n\nChoose a service:\n${services.map((s, i) => `${i + 1}. ${s.name}`).join("\n")}`;
-		choice = prompt(msg, choice);
-	}
-	if (choice == null) {
-		return;
-	} else choice = parseInt(choice);
-	let newService = services[choice - 1];
-
-	if (!newService) {
-		console.log("Invalid choice. Switch to a different service for now.");
-		return chooseService(parseInt(GM_getValue("service", 1)));
-	} else service = newService;
-
-	GM_setValue("service", choice);
-
-	if (typeof ch !== "number") {
-		GM_notification(`Switched to ${service.name} service.`, GM_info.script.name, service.icon);
-	}
-
-	console.log(`Switched to ${service.name} service.`);
-	return service;
-}
-
-// Convert BBCode to HTML
-function bbcodeToHtml(bbcode) {
-	// Define the BBCode to HTML mappings
-	const mappings = [
-		{ bbcode: /\[b\](.*?)\[\/b\]/g, html: "<strong>$1</strong>" },
-		{ bbcode: /\[i\](.*?)\[\/i\]/g, html: "<em>$1</em>" },
-		{ bbcode: /\[u\](.*?)\[\/u\]/g, html: "<u>$1</u>" },
-		{ bbcode: /\[s\](.*?)\[\/s\]/g, html: "<s>$1</s>" },
-		{ bbcode: /\[url=(.*?)\](.*?)\[\/url\]/g, html: '<a href="$1">$2</a>' },
-		{ bbcode: /\[img.*?\](.*?)\[\/img\]/g, html: '<img src="$1" alt="">' },
-		{ bbcode: /\[code\]([\s\S]*?)\[\/code\]/g, html: "<code>$1</code>" },
-		{ bbcode: /\[quote\]/g, html: '<blockquote class="quote" style="font-size: 90%; border: 1px solid; padding: 5px;">' },
-		{ bbcode: /\[quote=(.*?)\s*(message=\d+)?\]/g, html: '<blockquote class="quote" style="font-size: 90%; border: 1px solid; padding: 5px;"><h4>$1 Said:</h4>' },
-		{ bbcode: /\[\/quote\]/g, html: '</blockquote>' },
-		{ bbcode: /\[color=(.*?)\](.*?)\[\/color\]/g, html: '<span style="color: $1;">$2</span>' },
-		{ bbcode: /\[size=(.*?)\](.*?)\[\/size\]/g, html: '<span style="font-size: $1;">$2</span>' },
-		{ bbcode: /\[center\](.*?)\[\/center\]/g, html: '<div style="text-align: center;">$1</div>' },
-		{ bbcode: /\[list\](.*?)\[\/list\]/g, html: "<ul>$1</ul>" },
-		{ bbcode: /\[list=(.*?)\](.*?)\[\/list\]/g, html: '<ol start="$1">$2</ol>' },
-		{ bbcode: /\[\*\](.*?)\[\/\*\]/g, html: "<li>$1</li>" },
-		{ bbcode: /\[spoiler\]([\s\S]*?)\[\/spoiler\]/g, html: '<div class="spoiler"><input type="button" onclick="this.nextSibling.style.display=\'inline-block\';this.style.display=\'none\';" value="Show spoiler" style="display: inline-block;"><span class="spoiler_content" style="display: none;"><input type="button" onclick="this.parentNode.style.display=\'none\';this.parentNode.parentNode.childNodes[0].style.display=\'inline-block\';" value="Hide spoiler">$1</span></div>' },
-		{ bbcode: /\[spoiler=(.*?)\]([\s\S]*?)\[\/spoiler\]/g, html: '<div class="spoiler"><input type="button" onclick="this.nextSibling.style.display=\'inline-block\';this.style.display=\'none\';" value="Show $1" style="display: inline-block;"><span class="spoiler_content" style="display: none;"><input type="button" onclick="this.parentNode.style.display=\'none\';this.parentNode.parentNode.childNodes[0].style.display=\'inline-block\';" value="Hide $1">$2</span></div>' },
-		{ bbcode: /@(\S+)/g, html: '<a href="https://myanimelist.net/profile/$1" target="_blank">@$1</a>' },
-	];
-	// Replace each BBCode with its corresponding HTML
-	let html = bbcode;
-	for (const mapping of mappings) {
-		html = html.replace(mapping.bbcode, mapping.html);
-	}
-
-	return html;
-}
-
 // Get the current website based on the URL
 function getCurrentSite() {
 	const currentUrl = window.location.href.toLowerCase();
