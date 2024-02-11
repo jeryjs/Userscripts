@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.2.2
+// @version     1.3.0
 // @description Get discussions from popular sites like MAL and AL for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -64,13 +64,13 @@ const services = [
 		_clientId: "dbe5cec5a2f33fdda148a6014384b984",
 		_proxyKey: "temp_2ed7d641dd52613591687200e7f7958b",
 		async getDiscussion(animeTitle, epNum) {
-			// get the discussion
+			// get the anime id
 			let url = PROXYURL + `https://api.myanimelist.net/v2/anime?q=${animeTitle}&limit=1`;
 			let response = await axios.get(url, {headers: {"X-MAL-CLIENT-ID": this._clientId, "x-cors-api-key": this._proxyKey}});
-			const anime = response.data.data[0].node;
+			const animeId = response.data.data[0].node.id;
 
 			// get the discussion url from the anime
-			url = PROXYURL + `https://api.jikan.moe/v4/anime/${anime.id}/forum`;
+			url = PROXYURL + `https://api.jikan.moe/v4/anime/${animeId}/forum`;
 			response = await axios.get(url, {headers: {"x-cors-api-key": this._proxyKey}});
 			const topic = response.data.data.find(it => it.title.includes(`Episode ${epNum} Discussion`));
 
@@ -97,25 +97,48 @@ const services = [
 		name: "Reddit",
 		icon: "https://www.redditstatic.com/desktop2x/img/favicon/apple-icon-57x57.png",
 		url: "https://www.reddit.com/",
+		_clientId: "dbe5cec5a2f33fdda148a6014384b984",
+		_proxyKey: "temp_2ed7d641dd52613591687200e7f7958b",
 		async getDiscussion(animeTitle, epNum) {
-			const url = `https://api.reddit.com/r/anime/search.json?q=${animeTitle}+episode+${epNum}+discussion&restrict_sr=on&sort=relevance&limit=1`;
-			const response = await axios.get(url);
-			const data = response.data.data.children[0].data;
+			// get the anime's MAL id
+			// let url = PROXYURL + `https://api.jikan.moe/v4/anime?q=${animeTitle}&limit=1`;
+			// let response = await axios.get(url, {headers: {"x-cors-api-key": this._proxyKey}});
+			// const animeId = response.data.data[0].mal_id;
+			let url = PROXYURL + `https://api.myanimelist.net/v2/anime?q=${animeTitle.substring(0, 50)}&limit=1`;
+			let response = await axios.get(url, {headers: {"X-MAL-CLIENT-ID": this._clientId, "x-cors-api-key": this._proxyKey}});
+			const animeId = response.data.data[0].node.id;
+
+			url = `https://api.reddit.com/r/anime/search.json?q=${animeTitle}+-+Episode+${epNum}+discussion+author:AutoLovepon&restrict_sr=on&include_over_18=on&sort=relevance&limit=50`;
+			response = await axios.get(url);
+			const topic = response.data.data.children.find(it => it.data.title.includes(` - Episode ${epNum} discussion`) && it.data.selftext.includes(`[MyAnimeList](https://myanimelist.net/anime/${animeId?animeId:''})`)).data;
+			console.log(topic);
+
+			url = topic.url.replace('www.reddit.com', 'api.reddit.com');
+			response = await axios.get(url);
+			const posts = response.data[1].data.children;
+			if (posts[0].data.author == "AutoModerator") posts.shift();
 
 			let chats = [];
-			data.comments.forEach((comment) => {
-				const user = comment.author;
-				const userLink = "https://www.reddit.com/user/" + user;
-				const avatar = "https://www.redditstatic.com/desktop2x/img/favicon/apple-icon-57x57.png";
-				const msg = bbcodeToHtml(comment.body);
-				const timestamp = comment.created_utc * 1000;
-				chats.push(new Chat(user, userLink, avatar, msg, timestamp));
-			});
+			for (let post of posts)
+				chats.push(this._processPost(post));
 
-			const discussion = new Discussion(data.title, data.url, chats);
+			const discussion = new Discussion(topic.title, topic.url, chats);
 			return discussion;
+		},
+		_processPost(post) {
+			const user = post.data.author;
+			const userLink = "https://www.reddit.com/user/" + user;
+			// const about = axios.get(`https://api.reddit.com/user/${user}/about`);
+			const avatar = axios.get(`https://api.reddit.com/user/${user}/about`).then(r=>r.data.data.icon_img.split('?')[0]);
+			const msg = ((el) => { el.innerHTML = post.data.body_html; return el.value; })(document.createElement('textarea'));
+			const timestamp = post.data.created_utc * 1000;
+			let replies = [];
+			if (post.data.replies && post.data.replies.data)
+				for (let reply of post.data.replies.data.children)
+					replies.push(this._processPost(reply));
+			return new Chat(user, userLink, avatar, msg, timestamp, replies);
 		}
-	}
+	},
 ];
 
 /***************************************************************
@@ -133,12 +156,13 @@ class UserSettings {
 
 // Class to hold each row of a discussion
 class Chat {
-	constructor(user, userLink, avatar, msg, timestamp) {
+	constructor(user, userLink, avatar, msg, timestamp, replies) {
 		this.user = user;
 		this.userLink = userLink;
 		this.avatar = avatar;
 		this.msg = msg;
 		this.timestamp = timestamp;
+		this.replies = replies;
 	}
 
 	getRelativeTime() {
@@ -213,13 +237,18 @@ function generateDiscussionArea() {
 }
 
 // build a row for a single chat in the discussion
-function buildChatRow(chat) {
+async function buildChatRow(chat) {
 	const chatRow = document.createElement("li");
 	chatRow.className = "chat-row";
 
 	const userAvatar = document.createElement("div");
 	userAvatar.className = "user-avatar";
-	userAvatar.innerHTML = `<img src="${chat.avatar}" alt="${chat.user}">`;
+	userAvatar.innerHTML = `<img src="${service.icon}" alt="${chat.user}">`;
+
+	if (chat.avatar instanceof Promise)
+        chat.avatar.then(avatarUrl => userAvatar.firstChild.src = avatarUrl);
+    else
+        avatarImg.src = chat.avatar;
 
 	const userMsg = document.createElement("div");
 	userMsg.className = "user-msg";
@@ -377,8 +406,8 @@ let userSettings = UserSettings.load();
 let site = getCurrentSite();
 
 // Service instance
-let service = services[0];
-chooseService(parseInt(GM_getValue("service", 1)));
+let service = services[1];
+// chooseService(parseInt(GM_getValue("service", 1)));
 
 // Register menu commands
 // GM_registerMenuCommand("Show Options", showOptions);
@@ -486,8 +515,8 @@ async function run() {
 		try {
 			const discussion = await service.getDiscussion(site.getAnimeTitle(), site.getEpNum());
 			console.log(discussion);
-			discussion.chats.forEach((chat) => {
-				discussionArea.querySelector("ul").appendChild(buildChatRow(chat));
+			discussion.chats.forEach(async (chat) => {
+				discussionArea.querySelector("ul").appendChild(await buildChatRow(chat));
 			});
 
 			discussionArea.querySelector(".discussion-title a").href = discussion.link;
