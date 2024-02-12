@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.0.0
+// @version     2.0.1
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -16,6 +16,8 @@
 // @grant       GM_setValue
 // @grant       GM_notification
 // @require     https://unpkg.com/axios/dist/axios.min.js
+// @downloadURL https://update.greasyfork.org/scripts/485793/AniCHAT%20-%20Discuss%20Anime%20Episodes.user.js
+// @updateURL https://update.greasyfork.org/scripts/485793/AniCHAT%20-%20Discuss%20Anime%20Episodes.meta.js
 // ==/UserScript==
 
 /**************************
@@ -65,7 +67,7 @@ const services = [
 		_proxyKey: "temp_2ed7d641dd52613591687200e7f7958b",
 		async getDiscussion(animeTitle, epNum) {
 			// get the anime id
-			let url = PROXYURL + `https://api.myanimelist.net/v2/anime?q=${animeTitle}&limit=1`;
+			let url = PROXYURL + `https://api.myanimelist.net/v2/anime?q=${animeTitle.substring(0,50)}&limit=1`;
 			let response = await axios.get(url, {headers: {"X-MAL-CLIENT-ID": this._clientId, "x-cors-api-key": this._proxyKey}});
 			let animeId = 0; if (response.data.data.length>0) animeId = response.data.data[0].node.id; else throw new Error("Couldn't find the anime id. Try reloading the page or switching to another service.");
 
@@ -260,13 +262,10 @@ function generateDiscussionArea() {
 function buildServiceSwitcher() {
 	const servicesArea = document.createElement('div');
 	servicesArea.id = 'service-switcher';
-	servicesArea.style.cssText = `width: 50px; transition: width 0.3s ease-in-out; overflow: hidden; display: flex;`;
 	servicesArea.innerHTML = `<img class="service-icon selected" title="Powered by ${service.name}" src="${service.icon}"><a style="padding-right:5px">▶</a>`;
 	services.forEach(it => {
 		servicesArea.innerHTML += `<img class="service-icon other" data-opt="${services.indexOf(it)}" title="Switch to ${it.name}" src="${it.icon}" style="cursor:pointer;">`;
 	});
-	servicesArea.addEventListener('mouseenter', () => servicesArea.style.width = 50+35*services.length + 'px');
-	servicesArea.addEventListener('mouseleave', () => servicesArea.style.width = '50px');
 	servicesArea.querySelectorAll('.other').forEach(it => {
 		it.addEventListener('click', () =>{
 			const serviceOpt = parseInt(it.getAttribute('data-opt'));
@@ -397,9 +396,24 @@ const styles = `
 		margin-bottom: 20px;
 	}
 
+	.discussion-title > a {
+		margin-right: 20px;
+	}
+
 	.service-icon {
 		height: 25px;
 		padding-right: 10px;
+	}
+
+	#service-switcher {
+		width: 50px;
+		transition: width 0.3s ease-in-out;
+		overflow: hidden;
+		display: flex;
+	}
+	#service-switcher:hover {
+		width: ${50+35*services.length}px;
+		overflow: visible;
 	}
 
 	.chat-row {
