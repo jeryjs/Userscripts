@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.0.0
+// @version     2.0.1
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -38,7 +38,8 @@ if (GM_getValue("version") != GM_info.script.version) {
         ${GM_info.script.name}:\n
         This scipt has been updated!!\n
         What's new:
-         -Support for alternative titles (Improved detection)
+         -Support for alternative titles [Improved detection]
+         -Now skips unhiding manually added animes if they are in animelist [fix]
     `
     alert(msg);
 }
@@ -205,6 +206,7 @@ class UserSettings {
 class AnimeEntry {
     constructor(titles) {
         this.titles = titles;
+        this.skip = false;
     }
 }
 
@@ -219,7 +221,7 @@ class AnimeList {
     }
 
     removeEntry(entry) {
-        this.entries = this.entries.filter(e => !e.titles.includes(entry.titles[0]));
+        this.entries = this.entries.filter(e => !entry.titles.some(title => e.titles.includes(title)));
     }
 
     addEntry(entry) {
@@ -255,7 +257,7 @@ class AnimeList {
                     }
                 }
                 const sim = (mtc / n + mtc / m + (mtc - tr / 2) / mtc) / 3;
-                if (sim >= 0.7) console.log(`jaro-winkler: ${b} - ${a} = ${sim}`);
+                // if (sim >= threshold) console.log(`jaro-winkler: ${b} - ${a} = ${sim}`);
                 return sim >= threshold;
             });
         });
@@ -410,10 +412,11 @@ function modifyManualAnime() {
         const animeEntry = new AnimeEntry([animeTitle]);
         if (manualList.isEntryExist(animeTitle)) {
             manualList.removeEntry(animeEntry);
-            alert(`Anime Removed Successfully (reload page to see changes):\n\n${animeEntry.titles}`);
+            alert(`Anime Removed Successfully:\n\n${animeEntry.titles}`);
         } else {
+            animeEntry.skip = animeList.isEntryExist(animeTitle); // Mark to be skipped if already present in the animeList
             manualList.addEntry(animeEntry);
-            alert(`Anime Added Successfully:\n\n${animeEntry.titles}`);
+            alert(`Anime Added Successfully:\n\n${animeEntry.titles[0]}`);
         }
         GM_setValue(manualListKey, manualList.entries);
         undarkenRelatedEps();
@@ -456,6 +459,7 @@ function undarkenRelatedEps() {
     setTimeout(() => {
         const entriesList = Object.create(animeList);
         entriesList.entries = animeList.entries.concat(manualList.entries);
+        manualList.entries.forEach(e => {if (e.skip) entriesList.removeEntry(e)});
         console.log('entriesList', entriesList);
         if (!animeSite) console.error('No matching website found.');
         else thisSite.undarkenRelatedEps(entriesList);
