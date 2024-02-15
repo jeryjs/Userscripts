@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.3.9
+// @version     2.0.0
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -38,7 +38,7 @@ if (GM_getValue("version") != GM_info.script.version) {
         ${GM_info.script.name}:\n
         This scipt has been updated!!\n
         What's new:
-         -Fixed CORS Proxy issue with MAL [fix]
+         -Support for alternative titles (Improved detection)
     `
     alert(msg);
 }
@@ -57,7 +57,6 @@ What's new:
 const userSettingsKey = 'userSettings';
 const animeListKey = 'animeList';
 const manualListKey = 'manualList';
-const MALClientId = 'cfdd50f8037e9e8cf489992df497c761';
 
 
 /***************************************************************
@@ -123,18 +122,21 @@ const services = [
         icon: "https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ",
         statuses: ['watching', 'plan_to_watch', 'on_hold', 'dropped', 'completed', ''],
         apiBaseUrl: 'https://api.myanimelist.net/v2/users',
-        clientId: MALClientId,
+        _clientId: "cfdd50f8037e9e8cf489992df497c761",
         async getAnimeList(username, status) {
             const proxyUrl = 'https://test.cors.workers.dev/?'; //'https://corsproxy.io/?';
-            const url = `${proxyUrl}${this.apiBaseUrl}/${username}/animelist?status=${status}&limit=1000`;
+            const url = `${proxyUrl}${this.apiBaseUrl}/${username}/animelist?fields="alternative_titles"&status=${status}&limit=1000`;
             const config = {
                 headers: {
-                    'X-MAL-CLIENT-ID': this.clientId
+                    'X-MAL-CLIENT-ID': this._clientId
                 }
             };
             const response = await axios.get(url, config);
             const data = response.data;
-            return data.data.map(entry => new AnimeEntry(entry.node.title));
+            return data.data.map(entry => {
+                const titles = [entry.node.title, ...Object.values(entry.node.alternative_titles).flat()].filter(title => title != '')
+                return new AnimeEntry(titles)
+            });
         }
     },
     {
@@ -150,7 +152,7 @@ const services = [
                         Page(page:${page}, perPage:50) {
                             pageInfo { hasNextPage, currentPage },
                             mediaList(userName:"${username}", type:ANIME, status:${status}) {
-                                media { title { romaji } }
+                                media { title { romaji, english, native, userPreferred } }
                             }
                         }
                     }
@@ -161,7 +163,10 @@ const services = [
                 hasNextPage = data.pageInfo.hasNextPage;
                 page = data.pageInfo.currentPage + 1;
             }
-            return entries.map(entry => new AnimeEntry(entry.media.title.romaji));
+            return entries.map(entry => {
+                const titles = Object.values(entry.media.title).filter(title => title != null)
+                return new AnimeEntry(titles)
+            });
         }
     },
     {
@@ -174,7 +179,7 @@ const services = [
             const response = await axios.get(url);
             const doc = new DOMParser().parseFromString(response.data.query, 'text/html');
             const list = Array.from(doc.querySelectorAll('.list-entry-row'), row => {
-                return new AnimeEntry(row.querySelector('.list-entry-title a').textContent.trim());
+                return new AnimeEntry([row.querySelector('.list-entry-title a').textContent.trim()]);
             });
             return list;
         }
@@ -198,8 +203,8 @@ class UserSettings {
 
 // Anime entry
 class AnimeEntry {
-    constructor(title) {
-        this.title = title;
+    constructor(titles) {
+        this.titles = titles;
     }
 }
 
@@ -214,7 +219,7 @@ class AnimeList {
     }
 
     removeEntry(entry) {
-        this.entries = this.entries.filter(e => e.title !== entry.title);
+        this.entries = this.entries.filter(e => !e.titles.includes(entry.titles[0]));
     }
 
     addEntry(entry) {
@@ -226,31 +231,33 @@ class AnimeList {
         const threshold = 0.8;
         const a = title.toLowerCase();
         return this.entries.some(e => {
-            const b = e.title.toLowerCase(), m = a.length, n = b.length;
-            if (n === 0 || m === 0) return false;
-            const max = Math.floor(Math.max(n, m) / 2) - 1, ma = Array(n).fill(false), mb = Array(m).fill(false);
-            let mtc = 0;
-            for (let i = 0; i < n; i++) {
-                const s = Math.max(0, i - max), e = Math.min(m, i + max + 1);
-                for (let j = s; j < e; j++) {
-                    if (!mb[j] && b[i] === a[j]) {
-                        ma[i] = true, mb[j] = true, mtc++;
-                        break;
+            return e.titles.some(t => {
+                const b = t.toLowerCase(), m = a.length, n = b.length;
+                if (n == 0 || m == 0) return false;
+                const max = Math.floor(Math.max(n, m) / 2) - 1, ma = Array(n).fill(false), mb = Array(m).fill(false);
+                let mtc = 0;
+                for (let i = 0; i < n; i++) {
+                    const s = Math.max(0, i - max), e = Math.min(m, i + max + 1);
+                    for (let j = s; j < e; j++) {
+                        if (!mb[j] && b[i] == a[j]) {
+                            ma[i] = true, mb[j] = true, mtc++;
+                            break;
+                        }
                     }
                 }
-            }
-            if (mtc === 0) return false;
-            let tr = 0, k = 0;
-            for (let i = 0; i < n; i++) {
-                if (ma[i]) {
-                    while (!mb[k]) k++;
-                    if (b[i] !== a[k]) tr++;
-                    k++;
+                if (mtc == 0) return false;
+                let tr = 0, k = 0;
+                for (let i = 0; i < n; i++) {
+                    if (ma[i]) {
+                        while (!mb[k]) k++;
+                        if (b[i] !== a[k]) tr++;
+                        k++;
+                    }
                 }
-            }
-            const sim = (mtc / n + mtc / m + (mtc - tr / 2) / mtc) / 3;
-            if (sim >= 0.7) console.log(`jaro-winkler: ${b} - ${a} = ${sim}`);
-            return sim >= threshold;
+                const sim = (mtc / n + mtc / m + (mtc - tr / 2) / mtc) / 3;
+                if (sim >= 0.7) console.log(`jaro-winkler: ${b} - ${a} = ${sim}`);
+                return sim >= threshold;
+            });
         });
     }
 }
@@ -343,6 +350,7 @@ function showOptions() {
 
 // Refresh the anime list from MAL and store it using GM_setValue
 async function refreshList() {
+    GM_setValue('lastRefreshTime', currentTime);
     try {
         const username = userSettings.usernames[service.name]
         if (!username) {
@@ -350,7 +358,6 @@ async function refreshList() {
             changeUsername();
             return;
         }
-        console.log(service);
 
         GM_notification("Refreshing your list...", GM_info.script.name, service.icon)
 
@@ -358,12 +365,13 @@ async function refreshList() {
         const entriesPlanned = await service.getAnimeList(username, service.statuses[1]);
         const entriesManual = manualList.entries;
 
-        const oldAnimeList = animeList.entries.map(entry => entry.title);
+        const oldAnimeList = animeList.entries.map(entry => entry.titles);
         animeList.clear();
         entriesWatching.forEach(entry => animeList.addEntry(entry));
         entriesPlanned.forEach(entry => animeList.addEntry(entry));
         entriesManual.forEach(entry => manualList.addEntry(entry));
-        const newAnimeList = animeList.entries.map(entry => entry.title);
+        console.log('animeList', animeList.entries);
+        const newAnimeList = animeList.entries.map(entry => entry.titles);
 
         GM_setValue(animeListKey, animeList.entries);
 
@@ -371,12 +379,12 @@ async function refreshList() {
         const addedAnime = newAnimeList.filter(anime => !oldAnimeList.includes(anime));
         const unchangedAnime = newAnimeList.filter(anime => oldAnimeList.includes(anime));
 
-        let output = '';
-        if (removedAnime.length > 0) output += `-${removedAnime.join('\n-')}\n`;
-        if (addedAnime.length > 0) output += `+${addedAnime.join('\n+')}\n`;
-        output += `${unchangedAnime.join('\n')}`;
+        let msg = '';
+        if (removedAnime.length > 0) msg += `-${removedAnime.map(a=>a[0]).join('\n-')}\n`;
+        if (addedAnime.length > 0) msg += `+${addedAnime.map(a=>a[0]).join('\n+')}\n`;
+        msg += `${unchangedAnime.map(a=>a[0]).join('\n')}`;
 
-        alert(`Anime list refreshed (${newAnimeList.length - oldAnimeList.length}/${newAnimeList.length}):\n\n${output}`);
+        alert(`Anime list refreshed (${newAnimeList.length - oldAnimeList.length}/${newAnimeList.length}):\n\n${msg}`);
         undarkenRelatedEps();
     } catch (error) {
         console.error('An error occurred while refreshing the anime list:', error);
@@ -399,13 +407,13 @@ function modifyManualAnime() {
     const animeTitle = prompt('This is a fallback mechanism to be used when the anime is not available on any service.\nFor both- Adding and Removing an anime, just enter the anime name.\n\nWith exact spelling, Enter the anime title:').trim();
     if (animeTitle == 'clear') { manualList.clear(); GM_setValue(manualListKey, manualList.entries); alert('Manual List Cleared'); return; }
     if (animeTitle) {
-        const animeEntry = new AnimeEntry(animeTitle);
+        const animeEntry = new AnimeEntry([animeTitle]);
         if (manualList.isEntryExist(animeTitle)) {
             manualList.removeEntry(animeEntry);
-            alert(`Anime Removed Successfully (reload page to see changes):\n\n${animeEntry.title}`);
+            alert(`Anime Removed Successfully (reload page to see changes):\n\n${animeEntry.titles}`);
         } else {
             manualList.addEntry(animeEntry);
-            alert(`Anime Added Successfully:\n\n${animeEntry.title}`);
+            alert(`Anime Added Successfully:\n\n${animeEntry.titles}`);
         }
         GM_setValue(manualListKey, manualList.entries);
         undarkenRelatedEps();
@@ -467,7 +475,6 @@ undarkenRelatedEps();
 const lastRefreshTime = GM_getValue('lastRefreshTime', 0);
 const currentTime = new Date().getTime();
 const refreshInterval = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
-if (currentTime - lastRefreshTime > refreshInterval) {
+if (currentTime - lastRefreshTime > refreshInterval || GM_getValue("version") != GM_info.script.version) {
     refreshList();
-    GM_setValue('lastRefreshTime', currentTime);
 }
