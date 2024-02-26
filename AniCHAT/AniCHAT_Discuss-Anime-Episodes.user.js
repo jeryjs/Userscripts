@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.0.1
+// @version     2.1.0
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -10,8 +10,33 @@
 // @match       https://yugenanime.tv/*
 // @match       https://animepahe.*/*
 // @match       https://animepahe.com/*/
+// @match       https://anitaku.*/*
+// @match       https://anitaku.to/*
+// @match       https://gogoanime.*/*
+// @match       https://gogoanime.to/*
+// @match       https://gogoanime3.*/*
+// @match       https://gogoanime3.co/*
+// @match       https://aniwave.*/watch/*
+// @match       https://aniwave.to/watch/*
+// @match       https://aniwave.vc/watch/*
+// @match       https://aniwave.ti/watch/*
+// @match       https://aniwatch.to/watch/*
 // @match       https://kayoanime.*/*
 // @match       https://kayoanime.com/*
+// @match       https://kaas.*/*/*
+// @match       https://kaas.to/*/*
+// @match       https://kickassanimes.*/*/*
+// @match       https://kickassanimes.io/*/*
+// @match       https://*.kickassanime.*/*/*
+// @match       https://*.kickassanime.mx/*/*
+// @match       https://anix.*/*/*/*
+// @match       https://anix.to/*/*/*
+// @match       https://anix.ac/*/*/*
+// @match       https://anix.vc/*/*/*
+// @match       https://animeflix.*/watch/*
+// @match       https://animeflix.live/watch/*
+// @match       https://animehub.*/watch/*
+// @match       https://animehub.ac/watch/*
 // @grant       GM_getValue
 // @grant       GM_setValue
 // @grant       GM_notification
@@ -49,12 +74,68 @@ const animeSites = [
 		getEpNum: () =>  document.querySelector(".theatre-info > h1 > a").textContent.split(' - ')[1],
 	},
 	{
+		name: "gogoanime",
+		url: ['gogoanime3', 'gogoanimehd', 'gogoanime', 'anitaku'],
+		chatArea: ".anime_video_body_comment_center",
+		getAnimeTitle: () => document.querySelector(".anime-info > a").textContent,
+		getEpTitle: () => document.querySelector(".anime-info > a").textContent,
+		getEpNum: () => window.location.href.split("-episode-")[1],
+	},
+	{
+		name: "aniwave",
+		url: ['aniwave', 'lite.aniwave'],
+		chatArea: "#comments",
+		getAnimeTitle: () => document.querySelector(".name .title").textContent,
+		getEpTitle: () => document.querySelector(".name .title").textContent,
+		getEpNum: () => window.location.href.split("/ep-")[1],
+	},
+	{
+		name: "aniwatch",
+		url: ["aniwatch.to"],
+		chatArea: ".show-comments",
+		getAnimeTitle: () => document.querySelector("h2.film-name > a").textContent,
+		getEpTitle: () => document.querySelector("div.ssli-detail > .ep-name").textContent,
+		getEpNum: () => document.querySelector(".ssl-item.ep-item.active > .ssli-order").textContent,
+	},
+	{
 		name: "kayoanime",
 		url: ["kayoanime.com"],
 		chatArea: "#the-post",
 		getAnimeTitle: () => document.querySelector("h1.entry-title").textContent.split(/Episode \d+ English.+/)[0].trim(),
 		getEpTitle: () => document.querySelector(".toggle-head").textContent.trim(),
 		getEpNum: () => document.querySelector("h1.entry-title").textContent.split(/Episode (\d+) English.+/)[1],
+	},
+	{
+		name: "kickassanime",
+		url: ["kaas", "kickassanimes", "kickassanime"],
+		chatArea: () => document.querySelector("#disqus_thread").parentElement,
+		getAnimeTitle: () => document.querySelector(".text-h6").textContent,
+		getEpTitle: () => document.querySelector(".text-h6").textContent,
+		getEpNum: () => document.querySelector(".d-block .text-overline").textContent.split("Episode")[1].trim(),
+	},
+	{
+		name: "anix",
+		url: ["anix"],
+		chatArea: () => document.querySelector("#disqus_thread").parentElement,
+		getAnimeTitle: () => document.querySelector(".ani-name").textContent,
+		getEpTitle: () => document.querySelector(".ani-name").textContent,
+		getEpNum: () => window.location.href.split("/ep-")[1],
+	},
+	{
+		name: "animeflix",
+		url: ["animeflix"],
+		chatArea: 'main',
+		getAnimeTitle: () => document.querySelector(".details .title").textContent,
+		getEpTitle: () => document.querySelector(".details .title").textContent,
+		getEpNum: () => window.location.href.split("-episode-")[1],
+	},
+	{
+		name: "animehub",
+		url: ["animehub"],
+		chatArea: 'mawdawin',
+		getAnimeTitle: () => document.querySelector(".dc-title").textContent,
+		getEpTitle: () => document.querySelector(".dc-title").textContent,
+		getEpNum: () => document.querySelector("#current_episode_name").textContent.split("Episode")[1].trim(),
 	},
 ];
 
@@ -67,9 +148,14 @@ const services = [
 		_proxyKey: "temp_2ed7d641dd52613591687200e7f7958b",
 		async getDiscussion(animeTitle, epNum) {
 			// get the anime id
-			let url = PROXYURL + `https://api.myanimelist.net/v2/anime?q=${animeTitle.substring(0,50)}&limit=1`;
-			let response = await axios.get(url, {headers: {"X-MAL-CLIENT-ID": this._clientId, "x-cors-api-key": this._proxyKey}});
-			let animeId = 0; if (response.data.data.length>0) animeId = response.data.data[0].node.id; else throw new Error("Couldn't find the anime id. Try reloading the page or switching to another service.");
+			// let url = PROXYURL + `https://api.myanimelist.net/v2/anime?q=${animeTitle.substring(0,50)}&limit=1`;
+			// let response = await axios.get(url, {headers: {"X-MAL-CLIENT-ID": this._clientId, "x-cors-api-key": this._proxyKey}});
+			// let animeId = 0; if (response.data.data.length>0) animeId = response.data.data[0].node.id; else throw new Error("Couldn't find the anime id. Try reloading the page or switching to another service.");
+
+			// get the anime's MAL id using Jikan API
+			let url = PROXYURL + `https://api.jikan.moe/v4/anime?q=${animeTitle}&limit=1`;
+			let response = await axios.get(url, {headers: {"x-cors-api-key": this._proxyKey}});
+			let animeId = 0; if (response.data.data.length>0) animeId = response.data.data[0].mal_id;
 
 			// get the discussion url from the anime
 			url = PROXYURL + `https://api.jikan.moe/v4/anime/${animeId}/forum`;
@@ -503,7 +589,28 @@ function getCurrentSite() {
 // Run the script
 async function run(timeout=TIMEOUT) {
 	const discussionArea = generateDiscussionArea();
-	document.querySelector(site.chatArea).appendChild(discussionArea);
+
+	// Fallback techniques to use when chatArea cant be detected
+	const selectors = [
+		{ selector: () => site.chatArea && typeof site.chatArea === "string" ? document.querySelector(site.chatArea) : site.chatArea(), prepend: false },
+		{ selector: () => document.querySelector('#main > .container'), prepend: false },
+		{ selector: () => document.querySelector('#footer'), prepend: true },
+		{ selector: () => document.querySelector('footer'), prepend: true },
+		{ selector: () => document.body, prepend: false },
+	];
+	for (let i = 0; i < selectors.length; i++) {
+		try {
+			const element = selectors[i].selector();
+			if (selectors[i].prepend) {
+				element.prepend(discussionArea);
+			} else {
+				element.appendChild(discussionArea);
+			}
+			break;
+		} catch (error) {
+			continue;
+		}
+	}
 
 	const styleElement = document.createElement("style");
 	styleElement.textContent = styles;
