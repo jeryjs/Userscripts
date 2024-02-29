@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.1.1
+// @version     2.1.2
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -64,7 +64,7 @@ const animeSites = [
 		getAnimeTitle: () => document.querySelector(".ani-info-ep a > h1").textContent,
 		getEpTitle: () => document.querySelector("h1.text-semi-bold.m-5-b").textContent,
 		getEpNum: () => window.location.href.split("/")[6],
-	},
+			},
 	{
 		name: "animepahe",
 		url: ["animepahe.ru", "animepahe.com"],
@@ -72,7 +72,7 @@ const animeSites = [
 		getAnimeTitle: () => document.querySelector(".theatre-info > h1 > a").textContent.split(' - ')[0],
 		getEpTitle: () => document.querySelector(".theatre-info > h1 > a").textContent.split(' - ')[0],
 		getEpNum: () =>  document.querySelector(".dropup.episode-menu > button").innerText.split("Episode ")[1],
-	},
+			},
 	{
 		name: "gogoanime",
 		url: ['gogoanime3', 'gogoanimehd', 'gogoanime', 'anitaku'],
@@ -147,26 +147,37 @@ const services = [
 		_clientId: "dbe5cec5a2f33fdda148a6014384b984",
 		_proxyKey: "temp_2ed7d641dd52613591687200e7f7958b",
 		async getDiscussion(animeTitle, epNum) {
-			// get the anime id
-			// let url = PROXYURL + `https://api.myanimelist.net/v2/anime?q=${animeTitle.substring(0,50)}&limit=1`;
-			// let response = await axios.get(url, {headers: {"X-MAL-CLIENT-ID": this._clientId, "x-cors-api-key": this._proxyKey}});
-			// let animeId = 0; if (response.data.data.length>0) animeId = response.data.data[0].node.id; else throw new Error("Couldn't find the anime id. Try reloading the page or switching to another service.");
-
-			// get the anime's MAL id using Jikan API
-			let url = PROXYURL + `https://api.jikan.moe/v4/anime?q=${animeTitle}&limit=1`;
-			let response = await axios.get(url, {headers: {"x-cors-api-key": this._proxyKey}});
-			let animeId = 0; if (response.data.data.length>0) animeId = response.data.data[0].mal_id;
-
+			let animeId, topic, url, response, data;
+			// get the anime's MAL id using MAL API (or use Jikan API if title is too long)
+			try {
+				if (animeTitle.length > 50) {
+					url = PROXYURL + `https://api.myanimelist.net/v2/anime?q=${animeTitle.substring(0,50)}&limit=1`;
+					response = await axios.get(url, {headers: {"X-MAL-CLIENT-ID": this._clientId, "x-cors-api-key": this._proxyKey}});
+					animeId = response.data.data[0].node.id;
+				} else {
+					url = PROXYURL + `https://api.jikan.moe/v4/anime?q=${animeTitle}&limit=1`;
+					response = await axios.get(url, {headers: {"x-cors-api-key": this._proxyKey}});
+					animeId = response.data.data[0].mal_id;
+				}
+			} catch (e) {
+				throw new Error(`Couldn't find the anime id. Retry after a while or switch to another service.\n${e.code} : ${e.message}`);
+			}
 			// get the discussion url from the anime
-			url = PROXYURL + `https://api.jikan.moe/v4/anime/${animeId}/forum`;
-			response = await axios.get(url, {headers: {"x-cors-api-key": this._proxyKey}});
-			const topic = response.data.data.find(it => it.title.includes(`Episode ${epNum} Discussion`));
-			if (topic) console.log(topic); else throw new Error("No discussion found. Try reloading the page after a while or switching to another service.");
-
+			try {
+				url = PROXYURL + `https://api.jikan.moe/v4/anime/${animeId}/forum`;
+				response = await axios.get(url, {headers: {"x-cors-api-key": this._proxyKey}});
+				topic = response.data.data.find(it => it.title.includes(`Episode ${epNum} Discussion`));
+			} catch (e) {
+				throw new Error(`No discussion found. Retry after a while or switch to another service.\n${e.code} : ${e.message}`);
+			}
 			// get the forum page
-			url = PROXYURL + `https://api.myanimelist.net/v2/forum/topic/${topic.mal_id}?limit=100`;
-			response = await axios.get(url, {headers: {"X-MAL-CLIENT-ID": this._clientId, "x-cors-api-key": this._proxyKey}});
-			const data = response.data.data;
+			try {
+				url = PROXYURL + `https://api.myanimelist.net/v2/forum/topic/${topic.mal_id}?limit=100`;
+				response = await axios.get(url, {headers: {"X-MAL-CLIENT-ID": this._clientId, "x-cors-api-key": this._proxyKey}});
+				data = response.data.data;
+			} catch (e) {
+				throw new Error(`Error getting the discusssion. Retry after a while or switch to another service.\n${e.code} : ${e.message}`);
+			}			
 
 			let chats = [];
 			data.posts.forEach((post) => {
@@ -215,21 +226,32 @@ const services = [
 		_clientId: "dbe5cec5a2f33fdda148a6014384b984",
 		_proxyKey: "temp_2ed7d641dd52613591687200e7f7958b",
 		async getDiscussion(animeTitle, epNum) {
+			let animeId, topic, url, response, posts;
 			// get the anime's MAL id
-			let url = PROXYURL + `https://api.jikan.moe/v4/anime?q=${animeTitle}&limit=1`;
-			let response = await axios.get(url, {headers: {"x-cors-api-key": this._proxyKey}});
-			let animeId = ''; if (response.data.data.length>0) animeId = response.data.data[0].mal_id;
-			
+			try {
+				url = PROXYURL + `https://api.jikan.moe/v4/anime?q=${animeTitle}&limit=1`;
+				response = await axios.get(url, {headers: {"x-cors-api-key": this._proxyKey}});
+				animeId = ''; if (response.data.data.length>0) animeId = response.data.data[0].mal_id;
+			} catch (e) {
+				throw new Error(`Couldn't find the anime id. Retry after a while or switch to another service.\n${e.code} : ${e.message}`);
+			}
 			// Get the discussion
-			url = `https://api.reddit.com/r/anime/search.json?q=${animeTitle}+-+Episode+${epNum}+discussion+author:AutoLovepon&restrict_sr=on&include_over_18=on&sort=relevance&limit=50`;
-			response = await axios.get(url);
-			const topic = response.data.data.children.find(it => it.data.title.includes(` - Episode ${epNum} discussion`) && it.data.selftext.includes(`[MyAnimeList](https://myanimelist.net/anime/${animeId}`))?.data;
-
+			try {
+				url = `https://api.reddit.com/r/anime/search.json?q=${animeTitle}+-+Episode+${epNum}+discussion+author:AutoLovepon&restrict_sr=on&include_over_18=on&sort=relevance&limit=50`;
+				response = await axios.get(url);
+				topic = response.data.data.children.find(it => it.data.title.includes(` - Episode ${epNum} discussion`) && it.data.selftext.includes(`[MyAnimeList](https://myanimelist.net/anime/${animeId}`))?.data;
+			} catch (e) {
+				throw new Error(`No discussion found. Retry after a while or switch to another service.\n${e.code} : ${e.message}`);
+			}
 			// get the comments in the discussion
-			url = topic.url.replace('www.reddit.com', 'api.reddit.com');
-			response = await axios.get(url);
-			const posts = response.data[1].data.children;
-			if (posts[0].data.author == "AutoModerator") posts.shift();	// skip the first bot post
+			try {
+				url = topic.url.replace('www.reddit.com', 'api.reddit.com');
+				response = await axios.get(url);
+				posts = response.data[1].data.children;
+				if (posts[0].data.author == "AutoModerator") posts.shift();	// skip the first bot post
+			} catch (e) {
+				throw new Error(`Error getting the discusssion. Retry after a while or switch to another service.\n${e.code} : ${e.message}`);
+			}			
 
 			let chats = [];
 			for (let post of posts) chats.push(this._processPost(post));
@@ -629,10 +651,10 @@ async function run(timeout=TIMEOUT) {
 			discussionArea.querySelector(".discussion-title a").href = discussion.link;
 			discussionArea.querySelector(".discussion-title a").textContent = discussion.title;
 		} catch (error) {
-			console.error(`${error.code} : ${error.message}\n\n${error.stack}`);
+			console.error(`${error.message}\n\n${error.stack}`);
 			const errorElement = document.createElement("span");
 			errorElement.className = "error-message";
-			errorElement.textContent = `AniCHAT:\n${error.code} : ${error.message}\n\n${error.stack}\n\nCheck the console logs for more detail.`;
+			errorElement.textContent = `AniCHAT:\n${error.message}\n\n${error.stack}\n\nCheck the console logs for more detail.`;
 			discussionArea.appendChild(errorElement);
 		}
 	}, timeout);
