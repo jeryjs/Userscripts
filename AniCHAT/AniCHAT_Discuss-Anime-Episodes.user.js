@@ -64,7 +64,8 @@ const animeSites = [
 		getAnimeTitle: () => document.querySelector(".ani-info-ep a > h1").textContent,
 		getEpTitle: () => document.querySelector("h1.text-semi-bold.m-5-b").textContent,
 		getEpNum: () => window.location.href.split("/")[6],
-			},
+		styles: null,
+	},
 	{
 		name: "animepahe",
 		url: ["animepahe.ru", "animepahe.com"],
@@ -72,7 +73,8 @@ const animeSites = [
 		getAnimeTitle: () => document.querySelector(".theatre-info > h1 > a").textContent.split(' - ')[0],
 		getEpTitle: () => document.querySelector(".theatre-info > h1 > a").textContent.split(' - ')[0],
 		getEpNum: () =>  document.querySelector(".dropup.episode-menu > button").innerText.split("Episode ")[1],
-			},
+		styles: '.discussion-area {max-width:1100px; margin:15px auto 0;}',
+	},
 	{
 		name: "gogoanime",
 		url: ['gogoanime3', 'gogoanimehd', 'gogoanime', 'anitaku'],
@@ -610,6 +612,7 @@ function getCurrentSite() {
 
 // Run the script
 async function run(timeout=TIMEOUT) {
+	// initialize the discussionArea
 	const discussionArea = generateDiscussionArea();
 
 	// Fallback techniques to use when chatArea cant be detected
@@ -634,12 +637,15 @@ async function run(timeout=TIMEOUT) {
 		}
 	}
 
+	// Add custom css styles to the page
 	const styleElement = document.createElement("style");
-	styleElement.textContent = styles;
+	styleElement.textContent = styles + (site.styles || '');
 	discussionArea.append(styleElement);
 
+	// Attach the loading element to the page
 	discussionArea.appendChild(setLoadingTimeout(timeout));
 
+	// Load the discussion after a set timeout
 	setTimeout(async () => {
 		try {
 			const discussion = await service.getDiscussion(site.getAnimeTitle(), site.getEpNum());
