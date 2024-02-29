@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.1.0
+// @version     2.1.1
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -71,7 +71,7 @@ const animeSites = [
 		chatArea: ".theatre",
 		getAnimeTitle: () => document.querySelector(".theatre-info > h1 > a").textContent.split(' - ')[0],
 		getEpTitle: () => document.querySelector(".theatre-info > h1 > a").textContent.split(' - ')[0],
-		getEpNum: () =>  document.querySelector(".theatre-info > h1 > a").textContent.split(' - ')[1],
+		getEpNum: () =>  document.querySelector(".dropup.episode-menu > button").innerText.split("Episode ")[1],
 	},
 	{
 		name: "gogoanime",
