@@ -82,6 +82,7 @@ const animeSites = [
 		getAnimeTitle: () => document.querySelector(".anime-info > a").textContent,
 		getEpTitle: () => document.querySelector(".anime-info > a").textContent,
 		getEpNum: () => window.location.href.split("-episode-")[1],
+		styles: `.chat-msg { color: white; font-size: 14px; } .discussion-title > a { font-size: 24px; color: goldenrod; }`
 	},
 	{
 		name: "aniwave",
@@ -516,14 +517,13 @@ const styles = `
 	}
 
 	#service-switcher {
-		width: 50px;
+		width: 7%;
 		transition: width 0.3s ease-in-out;
 		overflow: hidden;
 		display: flex;
 	}
 	#service-switcher:hover {
-		width: ${50+35*services.length}px;
-		overflow: visible;
+		width: ${8+5*services.length}%;
 	}
 
 	.chat-row {
