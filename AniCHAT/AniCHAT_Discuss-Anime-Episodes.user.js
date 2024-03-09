@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.1.4
+// @version     2.1.5
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -160,8 +160,12 @@ const services = [
 					animeId = response.data.data[0].node.id;
 				} else {
 					url = PROXYURL + `https://api.jikan.moe/v4/anime?q=${animeTitle}&limit=1`;
-					response = await axios.get(url, headers);
-					animeId = response.data.data[0].mal_id;
+					animeId = GM_getValue('cachedId_'+url, null);
+					if (!animeId) {
+						response = await axios.get(url, headers);
+						animeId = response.data.data[0].mal_id;
+						GM_setValue('cachedId_'+url, animeId);
+					}
 				}
 			} catch (e) {
 				throw new Error(`Couldn't find the anime id. Retry after a while or switch to another service.\n${e.code} : ${e}`);
@@ -235,8 +239,14 @@ const services = [
 			// get the anime's MAL id
 			try {
 				url = PROXYURL + `https://api.jikan.moe/v4/anime?q=${animeTitle}&limit=1`;
-				response = await axios.get(url, headers);
-				animeId = ''; if (response.data.data.length>0) animeId = response.data.data[0].mal_id;
+				animeId = GM_getValue('cachedId_'+url, '');
+				if (animeId == '') {
+					response = await axios.get(url, headers);
+					if (response.data.data.length>0) {
+						animeId = response.data.data[0].mal_id;
+						GM_setValue('cachedId_'+url, animeId);
+					}
+				}
 			} catch (e) {
 				throw new Error(`Couldn't find the anime id. Retry after a while or switch to another service.\n${e.code} : ${e.message}`);
 			}
