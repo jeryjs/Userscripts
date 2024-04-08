@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.1.6
+// @version     2.1.7
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -101,7 +101,8 @@ const animeSites = [
 		chatArea: ".show-comments",
 		getAnimeTitle: () => document.querySelector("h2.film-name > a").textContent,
 		getEpTitle: () => document.querySelector("div.ssli-detail > .ep-name").textContent,
-		getEpNum: () => document.querySelector(".ssl-item.ep-item.active > .ssli-order").textContent,
+		getEpNum: () => waitForElm(".ssl-item.ep-item.active > .ssli-order").then(elm => elm.textContent),
+		styles: `.chat-row .user-avatar { width: auto; overflow: visible; }`
 	},
 	{
 		name: "kayoanime",
@@ -170,6 +171,7 @@ const services = [
 						GM_setValue('cachedId_'+url, animeId);
 					}
 				}
+				console.log(`animeId: ${animeId}`);
 			} catch (e) {
 				throw new Error(`Couldn't find the anime id. Retry after a while or switch to another service.\n${e.code} : ${e}`);
 			}
@@ -178,6 +180,7 @@ const services = [
 				url = PROXYURL + `https://api.jikan.moe/v4/anime/${animeId}/forum`;
 				response = await axios.get(url, headers);
 				topic = response.data.data.find(it => it.title.includes(`Episode ${epNum} Discussion`));
+				console.log(`topic: ${topic}`);
 			} catch (e) {
 				throw new Error(`No discussion found. Retry after a while or switch to another service.\n${e.code} : ${e}`);
 			}
@@ -186,8 +189,9 @@ const services = [
 				url = PROXYURL + `https://api.myanimelist.net/v2/forum/topic/${topic.mal_id}?limit=100`;
 				response = await axios.get(url, headers);
 				data = response.data.data;
+				console.log(`data: ${data}`);
 			} catch (e) {
-				throw new Error(`Error getting the discusssion. Retry after a while or switch to another service.\n${e.code} : ${e}`);
+				throw new Error(`Error getting the discusssion (${topic}). Retry after a while or switch to another service.\n${e.code} : ${e}`);
 			}
 
 			let chats = [];
@@ -360,7 +364,7 @@ class Discussion {
  * The UI elements
  ***************************************************************/
 // generate the discussion area
-function generateDiscussionArea() {
+async function generateDiscussionArea() {
 	const discussionArea = document.createElement("div");
 	discussionArea.className = "discussion-area";
 
@@ -368,7 +372,7 @@ function generateDiscussionArea() {
 	discussionTitle.className = "discussion-title";
 
 	const discussionTitleText = document.createElement("a");
-	discussionTitleText.textContent = `${site.getAnimeTitle()} Episode ${site.getEpNum()} Discussion`;
+	discussionTitleText.textContent = `${await site.getAnimeTitle()} Episode ${await site.getEpNum()} Discussion`;
 	discussionTitleText.title = "Click to view the original discussion";
 	discussionTitleText.target = "_blank";
 	discussionTitle.appendChild(discussionTitleText);
@@ -619,6 +623,31 @@ let service = services[GM_getValue("service", 0)];
 /***************************************************************
  * Functions for working of the script
  ***************************************************************/
+// Returns a promise of the given element. Resolves when the element is found in the DOM.
+function waitForElm(selector) {
+    return new Promise(resolve => {
+        if (document.querySelector(selector)) {
+			let elm = document.querySelector(selector);
+			// console.log(`Element Found!!: ${elm.textContent}`);
+            return resolve(elm);
+        }
+
+        const observer = new MutationObserver(mutations => {
+            if (document.querySelector(selector)) {
+				let elm = document.querySelector(selector);
+              	// console.log(`Element Detected!: ${elm.textContent}`);
+                resolve(elm);
+                observer.disconnect();
+            }
+        });
+
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+    });
+}
+
 // Get the current website based on the URL
 function getCurrentSite() {
 	const currentUrl = window.location.href.toLowerCase();
@@ -628,7 +657,7 @@ function getCurrentSite() {
 // Run the script
 async function run(timeout=TIMEOUT) {
 	// initialize the discussionArea
-	const discussionArea = generateDiscussionArea();
+	const discussionArea = await generateDiscussionArea();
 
 	// Fallback techniques to use when chatArea cant be detected
 	const selectors = [
@@ -663,7 +692,7 @@ async function run(timeout=TIMEOUT) {
 	// Load the discussion after a set timeout
 	setTimeout(async () => {
 		try {
-			const discussion = await service.getDiscussion(site.getAnimeTitle(), site.getEpNum());
+			const discussion = await service.getDiscussion(await site.getAnimeTitle(), await site.getEpNum());
 			console.log(discussion);
 			discussion.chats.forEach(async (chat) => {
 				discussionArea.querySelector("ul").appendChild(await buildChatRow(chat));
@@ -681,4 +710,8 @@ async function run(timeout=TIMEOUT) {
 	}, timeout);
 }
 
-run();
+try {
+	run();
+} catch (e) {
+	console.error(`${e.message}\n\n${e.stack}`);
+}
