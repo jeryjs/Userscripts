@@ -1,4 +1,8 @@
+# AniLINK: GoGoAnime
+
 Stream or download your favorite anime series effortlessly with AniLINK for GoGoAnime! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
+
+[![Install AniLINK](https://img.shields.io/badge/Install-Now-brightgreen)](https://greasyfork.org/en/scripts/465970-anilink-gogoanime)
 
 ## Supercharged Features
 
@@ -18,7 +22,7 @@ Stream or download your favorite anime series effortlessly with AniLINK for GoGo
 
 1️⃣ Simple Installation: Install a userscript manager extension like [TamperMonkey](https://www.tampermonkey.net/) or [ViolentMonkey](https://violentmonkey.github.io/get-it/) for your browser.
 
-2️⃣ One-Click Installation: Visit the script page and click the "Install script" button. AniLINK will be seamlessly integrated into your browsing experience.
+2️⃣ One-Click Installation: Visit the [AniLINK: GoGoAnime](https://greasyfork.org/en/scripts/465970-anilink-gogoanime) script page on greasyfork and click the "Install script" button.
 
 3️⃣ Ready, Set, Anime!: Visit the page of the anime you want to download from on GoGoAnime.
 

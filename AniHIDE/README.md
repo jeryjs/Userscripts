@@ -4,6 +4,8 @@
 
 Are you tired of scrolling through endless unrelated episodes while trying to find your favorite anime? Say goodbye to the frustration and level up your anime watching experience with **AniHIDE - Hide Unrelated Episodes**!
 
+[![Install AniHIDE](https://img.shields.io/badge/Install-Now-brightgreen)](https://greasyfork.org/en/scripts/470233-anihide-hide-unrelated-episodes)
+
 ## Features:
 
 - **Intelligent Filtering**: Automatically hides unrelated episodes using your MAL or AniList, so you can focus on the anime you love.
@@ -20,7 +22,7 @@ No more wasting precious time on those pesky unrelated anime episodes... Finally
 ## Easy Setup:
 
 1. Install a userscript manager like [TamperMonkey](https://www.tampermonkey.net/) or [ViolentMonkey](https://violentmonkey.github.io/get-it/) for your browser.
-2. Install the [AniHIDE - Hide Unrelated Episodes](https://greasyfork.org/en/users/781076-jery-js) script from Greasy Fork.
+2. Install the [AniHIDE - Hide Unrelated Episodes](https://greasyfork.org/en/scripts/470233-anihide-hide-unrelated-episodes) script from Greasy Fork.
 3. Set your MAL username and refresh your anime list from the script's menu.
 4. Start enjoying a clutter-free anime watching experience!
 
