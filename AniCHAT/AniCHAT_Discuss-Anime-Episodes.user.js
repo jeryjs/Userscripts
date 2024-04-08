@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.1.8
+// @version     2.1.9
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -21,7 +21,8 @@
 // @match       https://aniwave.to/watch/*
 // @match       https://aniwave.vc/watch/*
 // @match       https://aniwave.ti/watch/*
-// @match       https://aniwatch.to/watch/*
+// @match       https://aniwatchtv.*/watch/*
+// @match       https://aniwatchtv.to/watch/*
 // @match       https://hianime.*/watch/*
 // @match       https://hianime.to/watch/*
 // @match       https://kayoanime.*/*
@@ -96,8 +97,8 @@ const animeSites = [
 		getEpNum: () => window.location.href.split("/ep-")[1],
 	},
 	{
-		name: "aniwatch",
-		url: ["aniwatch.to", "hianime.to", "hianime.nz", "hianime.mm", "hianime.sx", "hianime"],
+		name: "hianime",
+		url: ["aniwatchtv", "hianime.to", "hianime.nz", "hianime.mm", "hianime.sx", "hianime"],
 		chatArea: ".show-comments",
 		getAnimeTitle: () => document.querySelector("h2.film-name > a").textContent,
 		getEpTitle: () => document.querySelector("div.ssli-detail > .ep-name").textContent,
