@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.1.5
+// @version     2.1.6
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
 // @license     MIT
 // @match       https://yugenanime.*/*
 // @match       https://yugenanime.tv/*
+// @match       https://yugenanime.sx/*
 // @match       https://animepahe.*/*
 // @match       https://animepahe.com/*/
 // @match       https://anitaku.*/*
@@ -21,6 +22,8 @@
 // @match       https://aniwave.vc/watch/*
 // @match       https://aniwave.ti/watch/*
 // @match       https://aniwatch.to/watch/*
+// @match       https://hianime.*/watch/*
+// @match       https://hianime.to/watch/*
 // @match       https://kayoanime.*/*
 // @match       https://kayoanime.com/*
 // @match       https://kaas.*/*/*
@@ -59,7 +62,7 @@ const PROXYURL = "https://proxy.cors.sh/"; //"https://test.cors.workers.dev/?"; 
 const animeSites = [
 	{
 		name: "yugenanime",
-		url: ["yugenanime.tv"],
+		url: ["yugenanime.tv", "yugenanime.sx"],
 		chatArea: ".box.m-10-t.m-25-b.p-15",
 		getAnimeTitle: () => document.querySelector(".ani-info-ep a > h1").textContent,
 		getEpTitle: () => document.querySelector("h1.text-semi-bold.m-5-b").textContent,
@@ -94,7 +97,7 @@ const animeSites = [
 	},
 	{
 		name: "aniwatch",
-		url: ["aniwatch.to"],
+		url: ["aniwatch.to", "hianime.to", "hianime.nz", "hianime.mm", "hianime.sx", "hianime"],
 		chatArea: ".show-comments",
 		getAnimeTitle: () => document.querySelector("h2.film-name > a").textContent,
 		getEpTitle: () => document.querySelector("div.ssli-detail > .ep-name").textContent,

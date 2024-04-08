@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.0.3
+// @version     2.0.4
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
 // @license     MIT
 // @match       https://yugenanime.*/*
 // @match       https://yugenanime.tv/*
+// @match       https://yugenanime.sx/*
 // @match       https://anitaku.*/*
 // @match       https://anitaku.to/*
 // @match       https://gogoanime.*/*
@@ -71,7 +72,7 @@ const manualListKey = 'manualList';
 const animeSites = [
     {
         name: 'yugenanime',
-        url: ['yugenanime.tv'],
+        url: ['yugenanime.tv', 'yugenanime.sx', 'yugenanime'],
         item: '.ep-grid > li',
         title: '.ep-origin-name',
         thumbnail: '.ep-thumbnail > img',
