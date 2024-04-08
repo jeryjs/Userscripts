@@ -8,6 +8,7 @@
 // @license     MIT
 // @match       https://yugenanime.*/*
 // @match       https://yugenanime.tv/*
+// @match       https://yugenanime.sx/*
 // @match       https://anitaku.*/*
 // @match       https://anitaku.to/*
 // @match       https://gogoanime.*/*
@@ -71,7 +72,7 @@ const manualListKey = 'manualList';
 const animeSites = [
     {
         name: 'yugenanime',
-        url: ['yugenanime.tv'],
+        url: ['yugenanime.tv', 'yugenanime.sx', 'yugenanime'],
         item: '.ep-grid > li',
         title: '.ep-origin-name',
         thumbnail: '.ep-thumbnail > img',
