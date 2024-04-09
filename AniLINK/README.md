@@ -1,6 +1,6 @@
-# AniLINK: GoGoAnime
+# AniLINK - Episode Link Extractor
 
-Stream or download your favorite anime series effortlessly with AniLINK for GoGoAnime! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
+Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 
 [![Install AniLINK](https://img.shields.io/badge/Install-Now-brightgreen)](https://greasyfork.org/en/scripts/465970-anilink-gogoanime)
 
@@ -14,7 +14,7 @@ Stream or download your favorite anime series effortlessly with AniLINK for GoGo
 
 ## Requirements:
 
-1️⃣ You need to have a <u>gogoanime</u> account and be signed into it for the script to work.
+1️⃣ <u>For GoGoAnime</u>: You need to have a <u>gogoanime</u> account and be signed into it for the script to work.
 
 2️⃣ There is no other requirement ^^!!
 
@@ -22,7 +22,7 @@ Stream or download your favorite anime series effortlessly with AniLINK for GoGo
 
 1️⃣ Simple Installation: Install a userscript manager extension like [TamperMonkey](https://www.tampermonkey.net/) or [ViolentMonkey](https://violentmonkey.github.io/get-it/) for your browser.
 
-2️⃣ One-Click Installation: Visit the [AniLINK: GoGoAnime](https://greasyfork.org/en/scripts/465970-anilink-gogoanime) script page on greasyfork and click the "Install script" button.
+2️⃣ One-Click Installation: Visit the [AniLINK - Episode Link Extractor](https://greasyfork.org/en/scripts/465970-anilink-gogoanime) script page on greasyfork and click the "Install script" button.
 
 3️⃣ Ready, Set, Anime!: Visit the page of the anime you want to download from on GoGoAnime.
 
@@ -37,11 +37,12 @@ Stream or download your favorite anime series effortlessly with AniLINK for GoGo
 <span>
 <a><video src="https://i.imgur.com/IUBT2tP.mp4" width=49.5%></a>
 <a><video src="https://i.imgur.com/cjcD2s6.mp4" width=49.5%></a>
+<a><video src="https://i.imgur.com/4DNZr1f.mp4" width=49.5%></a>
 </span>
 
 ## Compatibility and Legal Disclaimer
 
-AniLINK is designed to work seamlessly on all modern browsers with a userscript manager extension installed. It has been extensively tested on Tampermonkey for Google Chrome, ensuring maximum compatibility.
+AniLINK is designed to work seamlessly on all modern browsers with a userscript manager extension installed. It has been tested with Violentmonkey on Opera GX & Edge Browser, ensuring maximum compatibility.
 
 Please note that this script is for personal use only. Downloading copyrighted material may be illegal in your country. Use AniLINK responsibly and at your own risk.
 
