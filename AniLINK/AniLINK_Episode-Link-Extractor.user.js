@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     4.0.0
+// @version     4.1.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
 // @license     MIT
 // @match       https://anitaku.*/*
-// @match       https://anitaku.to/*
+// @match       https://anitaku.so/*
 // @match       https://gogoanime.*/*
 // @match       https://gogoanime3.co/*
 // @match       https://gogoanime3.*/*
@@ -19,10 +19,11 @@
 // ==/UserScript==
 
 class Episode {
-    constructor(number, title, links, thumbnail) {
+    constructor(number, title, links, type, thumbnail) {
         this.number = number;
         this.title = title;
         this.links = links;
+        this.type = type;
         this.thumbnail = thumbnail;
         this.name = `${this.title} - ${this.number}`;
     }
@@ -64,7 +65,7 @@ const websites = [
                 const links = [...page.querySelectorAll(this.linkElems)].reduce((obj, elem) => ({ ...obj, [elem.textContent.trim()]: elem.href }), {});
                 status.textContent = `Extracting ${epTitle} - ${epNumber.padStart(3, '0')}...`;
 
-                episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, thumbnail);
+                episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, 'mp4', thumbnail);
             });
             await Promise.all(episodePromises);
             return episodes;
@@ -100,7 +101,7 @@ const websites = [
                     links[elm.textContent] = await getVideoUrl(elm.getAttribute('data-src'));
                 }
 
-                episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, thumbnail);
+                episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, 'm3u8', thumbnail);
             });
             await Promise.all(episodePromises);
             console.log(episodes);
@@ -181,7 +182,7 @@ async function extractEpisodes() {
             return `<li id="EpisodeLink" style="list-style-type: none;">
                       <span style="user-select:none; color:cyan;">
                       Ep ${ep.number.replace(/^0+/, '')}: </span>
-                      <a title="${ep.title.replace(/[<>:"/\\|?*]/g, '')}" download="${encodeURI(ep.name)}.mp4" href="${ep.links[quality]}" style="color:#FFC119;">
+                      <a title="${ep.title.replace(/[<>:"/\\|?*]/g, '')}" download="${encodeURI(ep.name)}.${ep.type}" href="${ep.links[quality]}" style="color:#FFC119;">
                       ${ep.links[quality]}</a>
                   </li>`;
         }).join("");
