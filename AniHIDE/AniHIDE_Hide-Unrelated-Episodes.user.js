@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.0.4
+// @version     2.1.0
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -10,7 +10,7 @@
 // @match       https://yugenanime.tv/*
 // @match       https://yugenanime.sx/*
 // @match       https://anitaku.*/*
-// @match       https://anitaku.to/*
+// @match       https://anitaku.so/*
 // @match       https://gogoanime.*/*
 // @match       https://gogoanime.to/*
 // @match       https://gogoanime3.*/*
@@ -380,9 +380,9 @@ async function refreshList() {
 
         GM_setValue(animeListKey, animeList.entries);
 
-        const removedAnime = oldAnimeList.filter(anime => !newAnimeList.includes(anime));
-        const addedAnime = newAnimeList.filter(anime => !oldAnimeList.includes(anime));
-        const unchangedAnime = newAnimeList.filter(anime => oldAnimeList.includes(anime));
+		const removedAnime = oldAnimeList.filter(oldAnime => !newAnimeList.some(newAnime => oldAnime[0] === newAnime[0]));
+		const addedAnime = newAnimeList.filter(newAnime => !oldAnimeList.some(oldAnime => newAnime[0] === oldAnime[0]));
+		const unchangedAnime = newAnimeList.filter(newAnime => oldAnimeList.some(oldAnime => newAnime[0] === oldAnime[0]));
 
         let msg = '';
         if (removedAnime.length > 0) msg += `-${removedAnime.map(a=>a[0]).join('\n-')}\n`;
