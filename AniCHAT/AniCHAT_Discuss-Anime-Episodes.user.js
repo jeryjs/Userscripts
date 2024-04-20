@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.1.10
+// @version     2.2.0
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -41,6 +41,8 @@
 // @match       https://animeflix.live/watch/*
 // @match       https://animehub.*/watch/*
 // @match       https://animehub.ac/watch/*
+// @match       https://animesuge.*/anime/*
+// @match       https://animesuge.to/anime/*
 // @grant       GM_getValue
 // @grant       GM_setValue
 // @grant       GM_notification
@@ -145,6 +147,14 @@ const animeSites = [
 		getEpTitle: () => document.querySelector(".dc-title").textContent,
 		getEpNum: () => document.querySelector("#current_episode_name").textContent.split("Episode")[1].trim(),
 	},
+	{
+		name: "animesuge",
+		url: ["animesuge.to", "animesuge"],
+        chatArea: '#comment',
+        getAnimeTitle: () => document.querySelector("#media-info .maindata > h1").textContent,
+        getEpTitle: () => document.querySelector("#media-info .maindata > h1").textContent,
+        getEpNum: () => window.location.href.split("/ep-")[1],
+	}
 ];
 
 const services = [
