@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.1.9
+// @version     2.1.10
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -12,7 +12,7 @@
 // @match       https://animepahe.*/*
 // @match       https://animepahe.com/*/
 // @match       https://anitaku.*/*
-// @match       https://anitaku.to/*
+// @match       https://anitaku.so/*
 // @match       https://gogoanime.*/*
 // @match       https://gogoanime.to/*
 // @match       https://gogoanime3.*/*
