@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Automatically search bing with random words.
 // @namespace    https://github.com/jeryjs/
-// @version      2.4.0
+// @version      2.5.0
 // @description  Automatically find random words from current search and search bing with it.
 // @author       Jery
 // @match        https://www.bing.com/*
@@ -92,10 +92,10 @@ function waitForElement(selector, callback) {
     }
 }
 
-waitForElement(".points-container", function () {
+waitForElement("#id_rc", function () {
 	if (searches.length > 0 && window.location.href.includes("&qs=ds&form=QBRE")) {
 		updateIcon(searches.length);
-		let targetNode = document.querySelector(".points-container");
+		let targetNode = document.querySelector("#id_rc");
 
 		let observerOptions = {
 			characterData: true,
