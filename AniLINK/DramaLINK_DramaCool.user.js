@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        DramaLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.0.0
+// @version     1.1.0
 // @description Stream or download your favorite drama effortlessly with DramaLINK! Unlock the power to play any drama directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. DramaLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your drama-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=asianc.to
 // @author      Jery
@@ -45,6 +45,7 @@ const websites = [
                 loginMessage.innerHTML = `<b style="color:#FFC119;">DramaLINK:</b> Please <a href="/login.html" title="login"><u>log in</u></a> to be able to batch download the series.`;
             }
         },
+		_proxyKey: "temp_2ed7d641dd52613591687200e7f7958b",
         extractEpisodes: async function (status) {
             status.textContent = 'Starting...';
             let episodes = {};
@@ -55,7 +56,18 @@ const websites = [
                 const [, epTitle, epNumber] = page.querySelector(this.epTitle).textContent.match(/(.+?) Episode (\d+)(?:.+)$/);
                 const episodeTitle = `${epNumber.padStart(3, '0')} - ${epTitle}`;
                 const thumbnail = page.querySelector(this.thumbnail).src;
-                const links = [...page.querySelectorAll(this.linkElems)].reduce((obj, elem) => ({ ...obj, [elem.textContent.trim()]: elem.href }), {});
+                const linkElems = [...page.querySelectorAll(this.linkElems)];
+                let links = {};
+                for (const elem of linkElems) {
+                    try {
+                        const html = await (await fetch('https://proxy.cors.sh/'+elem.href, {headers: {"x-cors-api-key": this._proxyKey}} )).text();
+                        const directLink = html.match(/window\.location="([^"]+)";/)[1];
+                        links[elem.textContent.trim()] = directLink;
+                    } catch (error) {
+                        console.error(`Failed to fetch ${elem.href}: ${error}`);
+                        status.textContent += `Failed to fetch ${elem.href}: ${error}`;
+                    }
+                }
                 status.textContent = `Extracting ${epTitle} - ${epNumber.padStart(3, '0')}...`;
 
                 episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, 'mp4', thumbnail);
