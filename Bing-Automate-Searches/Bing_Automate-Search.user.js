@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Automatically search bing with random words.
 // @namespace    https://github.com/jeryjs/
-// @version      3.0.0
+// @version      3.0.1
 // @description  This user script automatically finds random words from the current search results and searches Bing with them.
 // @author       Jery
 // @match        https://www.bing.com/search*
@@ -115,7 +115,7 @@ if (isSearchPage) {
  */
 function waitForElements(selectors, callback) {
 	for (let selector of selectors) {
-		if (document.querySelector(selector)) {
+		if (document.querySelector(selector) || isMobile) {
 			callback(selector);
 			return;
 		}
