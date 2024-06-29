@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      4.1.1
+// @version      4.1.2
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -18,7 +18,7 @@ var MAX_SEARCHES = localStorage.getItem("max-searches") || 33; // Maximum number
 var TIMEOUT = localStorage.getItem("timeout") || 4000; // Timeout between searches
 var UNDER_COOLDOWN = localStorage.getItem("under-cooldown") == "true" || false;	// Workaround for cooldown restriction
 var OPEN_RANDOM_LINKS = localStorage.getItem("open-random-links") == "true" || false;	// Simulate real human searcg by opening links
-var COLLECT_DAILY_ACTIVITY = localStorage.getItem("collect-daily-activity") == "true" || true;	// Automatically collect daily activity points from bingo rewards dashboard page
+var COLLECT_DAILY_ACTIVITY = localStorage.getItem("collect-daily-activity") == "true" || false;	// Automatically collect daily activity points from bingo rewards dashboard page
 
 // Configuration options for the user script
 const configurations = [
@@ -57,7 +57,7 @@ const configurations = [
 		name: "Daily Activity Points",
 		value: COLLECT_DAILY_ACTIVITY,
 		type: "checkbox",
-		description: "Open rewards page and auto-collect daily activity points from the Bing rewards dashboard page. This option loads the activities into an iframe to earn the points.<br>Default: True",
+		description: "Open rewards page and auto-collect daily activity points from the Bing rewards dashboard page. This option loads the activities into an iframe to earn the points.<br>Default: False",
 	}
 ];
 
