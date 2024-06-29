@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      4.1.4
+// @version      4.1.5
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -215,7 +215,7 @@ function startSearch() {
 	localStorage.setItem("searches", JSON.stringify(searches));
 	
 	if (COLLECT_DAILY_ACTIVITY) window.open(`https://rewards.bing.com/`, "_blank");
-	window.open(`https://www.bing.com/search?q=${searches.pop()}&form=QBLH&qs=n`, "_self");
+	window.open(`https://www.bing.com/search?q=${searches.pop()}&qs=ds&form=QBRE`, "_self");
 	localStorage.setItem("searches", JSON.stringify(searches));
 }
 
@@ -283,12 +283,12 @@ if (isSearchPage) {
 			startSearch();
 		}
 		/**
-		 * If the current URL contains the "&form=QBLH&qs=n" parameter (which I've noticed that bing sets for all searches),
+		 * If the current URL contains the "&qs=ds&form=QBRE" parameter (which I've noticed that bing sets for all searches),
 		 * and the [searches] array is not empty, the script automatically waits
 		 * for a few secs (on mobile, it waits fixed time and on desktop it waits until points element is updated),
 		 * and then proceeds to the next search in the current tab.
 		 */
-		else if (searches.length > 0 && window.location.href.includes("&form=QBLH&qs=n")) {
+		else if (searches.length > 0 && window.location.href.includes("&qs=ds&form=QBRE")) {
 			updateIcon(`${searches.length} left`);
 			let targetNode = document.querySelector(pointsElem);
 			const observerTimeout = 5000;
@@ -346,9 +346,9 @@ if (isSearchPage) {
 					}
 				}
 				setTimeout(() => {
-					// window.open(`https://www.bing.com/search?q=${searches.pop()}&form=QBLH&qs=n`, "_self");
-					document.querySelector("textarea.b_searchbox").value = searches.pop();
-					document.querySelector("input.b_searchboxSubmit").click();
+					window.open(`https://www.bing.com/search?go=Search&q=${searches.pop()}&qs=ds&form=QBRE`, "_self");
+					// document.querySelector("textarea.b_searchbox").value = searches.pop();
+					// document.querySelector("input.b_searchboxSubmit").click();
 					localStorage.setItem("searches", JSON.stringify(searches));
 				}, TIMEOUT);
 			}
