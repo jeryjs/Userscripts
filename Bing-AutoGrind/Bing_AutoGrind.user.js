@@ -329,17 +329,21 @@ if (isSearchPage) {
 			function gotoNextSearch() {
 				countdownTimer(TIMEOUT / 1000);
 				if (OPEN_RANDOM_LINKS) {
-					let searchLinks = isMobile
-						? document.querySelectorAll(".b_algoheader > a")
-						: document.querySelectorAll("li.b_algo > h2 > a");
-					let randLink = searchLinks[Math.floor(Math.random() * searchLinks.length)];
-					let iframe = document.createElement("iframe");
-					iframe.name = "randLinkFrame";
-					iframe.style.width = "100%";
-					iframe.style.height = "600px";
-					randLink.parentElement.appendChild(iframe);
-					randLink.target = "randLinkFrame";
-					randLink.click();
+					try {
+						let searchLinks = isMobile
+							? document.querySelectorAll(".b_algoheader > a")
+							: document.querySelectorAll("li.b_algo h2 a");
+						let randLink = searchLinks[Math.floor(Math.random() * searchLinks.length)];
+						let iframe = document.createElement("iframe");
+						iframe.name = "randLinkFrame";
+						iframe.style.width = "100%";
+						iframe.style.height = "600px";
+						randLink.parentElement.appendChild(iframe);
+						randLink.target = "randLinkFrame";
+						randLink.click();
+					} catch (e) {
+						console.error(e);
+					}
 				}
 				setTimeout(() => {
 					window.open(`https://www.bing.com/search?q=${searches.pop()}&form=QBLH&qs=n`, "_self");
