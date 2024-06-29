@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      4.1.0
+// @version      4.1.1
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -375,13 +375,13 @@ if (isRewardPage) {
 	if (COLLECT_DAILY_ACTIVITY) {
 		// Wait for the page to load the point cards first
 		waitForElements(["a.ds-card-sec"], function (_) {
-			document.querySelectorAll("a.ds-card-sec").forEach((card) => {
-				let iframe = document.createElement("iframe");
-				iframe.name = "pointClaimFrame";
-				iframe.style.width = "100%";
-				iframe.style.height = "130px";
-				card.appendChild(iframe);
-				card.target = "pointClaimFrame";
+			document.querySelectorAll("a.ds-card-sec:has(span.mee-icon-AddMedium)").forEach((card) => {
+				// let iframe = document.createElement("iframe");
+				// iframe.name = "pointClaimFrame";
+				// iframe.style.width = "100%";
+				// iframe.style.height = "130px";
+				// card.appendChild(iframe);
+				// card.target = "pointClaimFrame";
 				card.click();
 			});
 		});
