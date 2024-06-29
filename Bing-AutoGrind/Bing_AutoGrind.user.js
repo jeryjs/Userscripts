@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      4.0.3
+// @version      4.1.0
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -18,6 +18,7 @@ var MAX_SEARCHES = localStorage.getItem("max-searches") || 33; // Maximum number
 var TIMEOUT = localStorage.getItem("timeout") || 4000; // Timeout between searches
 var UNDER_COOLDOWN = localStorage.getItem("under-cooldown") == "true" || false;	// Workaround for cooldown restriction
 var OPEN_RANDOM_LINKS = localStorage.getItem("open-random-links") == "true" || false;	// Simulate real human searcg by opening links
+var COLLECT_DAILY_ACTIVITY = localStorage.getItem("collect-daily-activity") == "true" || true;	// Automatically collect daily activity points from bingo rewards dashboard page
 
 // Configuration options for the user script
 const configurations = [
@@ -50,6 +51,13 @@ const configurations = [
 		value: OPEN_RANDOM_LINKS,
 		type: "checkbox",
 		description: "Enable this option to open any random link from the page in an iframe after every search. It has been observed that doing this removes the 15-point restriction after a while / reduces chances of getting the restriction.<br>Default: False",
+	},
+	{
+		id: "collect-daily-activity",
+		name: "Daily Activity Points",
+		value: COLLECT_DAILY_ACTIVITY,
+		type: "checkbox",
+		description: "Open rewards page and auto-collect daily activity points from the Bing rewards dashboard page. This option loads the activities into an iframe to earn the points.<br>Default: True",
 	}
 ];
 
@@ -183,8 +191,8 @@ function updateConfigVariable(name, value) {
  * This function finds all the result elements on the page and extracts random words from their text content.
  * The extracted words are stored in the searches array, which is then used to perform searches on Bing.
  * The number of searches is limited to [MAX_SEARCHES].
- * The icon's appearance is updated based on the number of searches.
- * The last search is opened in the current tab.
+ * If [COLLECT_DAILY_ACTIVITY] is enabled, the Bing rewards page is opened in a new tab to collect daily activity points.
+ * A search term is opened in the current tab to start the search process.
  */
 function startSearch() {
 	const resultElements = document.querySelectorAll(".b_caption p");
@@ -205,9 +213,9 @@ function startSearch() {
 	console.log(searches);
 
 	localStorage.setItem("searches", JSON.stringify(searches));
-
-	// updateIcon(searches.length);
-	window.open(`https://www.bing.com/search?q=${searches.pop()}&qs=ds&form=QBRE`, "_self");
+	
+	if (COLLECT_DAILY_ACTIVITY) window.open(`https://rewards.bing.com/`, "_blank");
+	window.open(`https://www.bing.com/search?q=${searches.pop()}form=QBLH&qs=n`, "_self");
 	localStorage.setItem("searches", JSON.stringify(searches));
 }
 
@@ -224,7 +232,7 @@ function waitForElements(selectors, callback) {
 		return;
 	}
 	for (let selector of selectors) {
-		if (document.querySelector(selector) || isMobile) {
+		if (document.querySelector(selector)) {
 			callback(selector);
 			return;
 		}
@@ -275,12 +283,12 @@ if (isSearchPage) {
 			startSearch();
 		}
 		/**
-		 * If the current URL contains the "&form=QBRE" parameter,
+		 * If the current URL contains the "&form=QBLH" parameter (which I've noticed that bing sets for all searches),
 		 * and the [searches] array is not empty, the script automatically waits
 		 * for a few secs (on mobile, it waits fixed time and on desktop it waits until points element is updated),
 		 * and then proceeds to the next search in the current tab.
 		 */
-		else if (searches.length > 0 && window.location.href.includes("&qs=ds&form=QBRE")) {
+		else if (searches.length > 0 && window.location.href.includes("form=QBLH&qs=n")) {
 			updateIcon(`${searches.length} left`);
 			let targetNode = document.querySelector(pointsElem);
 			const observerTimeout = 5000;
@@ -334,7 +342,7 @@ if (isSearchPage) {
 					randLink.click();
 				}
 				setTimeout(() => {
-					window.open(`https://www.bing.com/search?q=${searches.pop()}&qs=ds&form=QBRE`, "_self");
+					window.open(`https://www.bing.com/search?q=${searches.pop()}form=QBLH&qs=n`, "_self");
 					localStorage.setItem("searches", JSON.stringify(searches));
 				}, TIMEOUT);
 			}
@@ -361,17 +369,23 @@ if (isSearchPage) {
 
 /**
  * If the current page is the Bing rewards page, the script automatically clicks the unclaimed daily points.
- * The script waits for the daily points button to appear and then clicks it.
- * As of v4.0.0, this functionality is still a work in progress, and is expected to be finished by next patch.
+ * To prevent opening new tabs, points are opened into an iframe inside each point card.
  */
 if (isRewardPage) {
-	// Automatically click the unclaimed daily points on the rewards dashboard
-	waitForElements(["#daily-sets"], function (dailySets) {
-		const dailySetsButton = document.querySelector(dailySets);
-		if (!dailySetsButton.textContent.includes("complete")) {
-			dailySetsButton.click();
-		}
-	});
+	if (COLLECT_DAILY_ACTIVITY) {
+		// Wait for the page to load the point cards first
+		waitForElements(["a.ds-card-sec"], function (_) {
+			document.querySelectorAll("a.ds-card-sec").forEach((card) => {
+				let iframe = document.createElement("iframe");
+				iframe.name = "pointClaimFrame";
+				iframe.style.width = "100%";
+				iframe.style.height = "130px";
+				card.appendChild(iframe);
+				card.target = "pointClaimFrame";
+				card.click();
+			});
+		});
+	}
 
 }
 
