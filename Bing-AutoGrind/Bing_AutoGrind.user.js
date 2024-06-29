@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      4.0.2
+// @version      4.0.3
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -42,14 +42,14 @@ const configurations = [
 		name: "Under Cooldown",
 		value: UNDER_COOLDOWN,
 		type: "checkbox",
-		description: "Enable this option if you are facing the 15 min cooldown restriction. For some accounts, Bing restricts the points earned to 9 points every 15 minutes. Enabling this option makes the script wait 15 mins after every 3 searches..<br>Default: False",
+		description: "Enable this option if you are facing the 15 min cooldown restriction. For some accounts, Bing restricts the points earned to 9-12 points every 15 minutes. Enabling this option makes the script wait 15 mins after every 4 searches..<br>Default: False",
 	},
 	{
 		id: "open-random-links",
 		name: "Open Random Links",
 		value: OPEN_RANDOM_LINKS,
 		type: "checkbox",
-		description: "Enable this option to open any random link from the page after every search. It has been observed that doing this removes the 15-point restriction after a while / reduces chances of getting the restriction.<br>Default: False",
+		description: "Enable this option to open any random link from the page in an iframe after every search. It has been observed that doing this removes the 15-point restriction after a while / reduces chances of getting the restriction.<br>Default: False",
 	}
 ];
 
@@ -219,6 +219,10 @@ function startSearch() {
  * @param {Function} callback - The callback function to execute when the selectors are found.
  */
 function waitForElements(selectors, callback) {
+	if (selectors == null) {
+		callback(null);
+		return;
+	}
 	for (let selector of selectors) {
 		if (document.querySelector(selector) || isMobile) {
 			callback(selector);
@@ -253,12 +257,13 @@ const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/
  * Bing seems to have 2 different selectors for the points element
  * based on which browser is being used, so the possible selectors are
  * put inside [pointsElem]
+ * In case of mobile, the script skips searching for the element.
  */
 if (isSearchPage) {
 	// Add the auto-search icons to the top left corner of the page
 	document.body.appendChild(autoSearchContainer);
 
-	let pointsElems = ["#id_rc", ".points-container"];
+	let pointsElems = isMobile ? null : ["#id_rc", ".points-container"];
 	waitForElements(pointsElems, function (pointsElem) {
 		/**
 		 * If the current URL contains the "&form=STARTSCRIPT" parameter,
@@ -278,11 +283,11 @@ if (isSearchPage) {
 		else if (searches.length > 0 && window.location.href.includes("&qs=ds&form=QBRE")) {
 			updateIcon(`${searches.length} left`);
 			let targetNode = document.querySelector(pointsElem);
+			const observerTimeout = 5000;
 
 			let observerOptions = {characterData: true, childList: true, subtree: true};
 
-			// Check if the user agent is not a Mobile
-			if (!isMobile) {
+			if (pointsElem != null) {
 				let oldTextContent = targetNode.textContent.trim();
 
 				let observer = new MutationObserver((mutationsList, observer) => {
@@ -292,6 +297,7 @@ if (isSearchPage) {
 							if (newTextContent != oldTextContent) {
 								gotoNextSearch();
 								observer.disconnect();
+								clearTimeout(timeoutId);
 								break;
 							}
 						}
@@ -301,27 +307,31 @@ if (isSearchPage) {
 				observer.observe(targetNode, observerOptions);
 			}
 
-			setTimeout(() => {
+			// Store the timeout ID so it can be cleared by the observer
+			let timeoutId = setTimeout(() => {
 				gotoNextSearch();
-			}, 5000);
+			}, observerTimeout);
 
 			/**
 			 * Go to the next search after a timeout.
 			 * This function updates the icon's appearance with a countdown timer.
 			 * After the timeout, it opens the next search in the current tab and updates the searches array in local storage.
-			 * If [OPEN_RANDOM_LINKS] is enabled, it also opens a random link from the search results.
+			 * If [OPEN_RANDOM_LINKS] is enabled, it also opens a random link from the search results in an iframe.
 			 */
 			function gotoNextSearch() {
 				countdownTimer(TIMEOUT / 1000);
 				if (OPEN_RANDOM_LINKS) {
-					try {
-						let searchLinks = document.querySelectorAll("li.b_algo > h2 > a");
-						let randLink = searchLinks[Math.floor(Math.random() * searchLinks.length)];
-						randLink.target = "_blank";
-						randLink.click();
-					} catch (e) {
-						console.error(`Ran into an error: ${e.message}`)
-					}
+					let searchLinks = isMobile
+						? document.querySelectorAll(".b_algoheader > a")
+						: document.querySelectorAll("li.b_algo > h2 > a");
+					let randLink = searchLinks[Math.floor(Math.random() * searchLinks.length)];
+					let iframe = document.createElement("iframe");
+					iframe.name = "randLinkFrame";
+					iframe.style.width = "100%";
+					iframe.style.height = "600px";
+					randLink.parentElement.appendChild(iframe);
+					randLink.target = "randLinkFrame";
+					randLink.click();
 				}
 				setTimeout(() => {
 					window.open(`https://www.bing.com/search?q=${searches.pop()}&qs=ds&form=QBRE`, "_self");
