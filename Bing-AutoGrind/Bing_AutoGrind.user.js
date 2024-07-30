@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      4.1.5
+// @version      4.1.6
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -325,15 +325,23 @@ if (isSearchPage) {
 			 * This function updates the icon's appearance with a countdown timer.
 			 * After the timeout, it opens the next search in the current tab and updates the searches array in local storage.
 			 * If [OPEN_RANDOM_LINKS] is enabled, it also opens a random link from the search results in an iframe.
+			 * It's been observed that some links like britannica.com refuse to open in an iframe and end up opening in current window.
+			 * As a workaround, such domains are excluded from being opened in an iframe.
 			 */
 			function gotoNextSearch() {
 				countdownTimer(TIMEOUT / 1000);
+
 				if (OPEN_RANDOM_LINKS) {
 					try {
 						let searchLinks = isMobile
-							? document.querySelectorAll(".b_algoheader > a")
-							: document.querySelectorAll("li.b_algo h2 a");
+						? document.querySelectorAll(".b_algoheader > a")
+						: document.querySelectorAll("li.b_algo h2 a");
+
+						// workaround for the britannica bug.
+						const excludeDomains = ["britannica.com"];
+						searchLinks = Array.from(searchLinks).filter(link => !excludeDomains.some(domain => link.href.includes(domain)));
 						let randLink = searchLinks[Math.floor(Math.random() * searchLinks.length)];
+						
 						let iframe = document.createElement("iframe");
 						iframe.name = "randLinkFrame";
 						iframe.style.width = "100%";
@@ -345,6 +353,7 @@ if (isSearchPage) {
 						console.error(e);
 					}
 				}
+
 				setTimeout(() => {
 					window.open(`https://www.bing.com/search?go=Search&q=${searches.pop()}&qs=ds&form=QBRE`, "_self");
 					// document.querySelector("textarea.b_searchbox").value = searches.pop();
