@@ -339,7 +339,7 @@ if (isSearchPage) {
 
 						// workaround for the britannica bug.
 						const excludeDomains = ["britannica.com"];
-						searchLinks = Array.from(searchLinks).filter(link => !excludeDomains.some(domain => link.href.includes(domain)));
+						searchLinks = Array.from(searchLinks).filter(link => !excludeDomains.some(domain => link.closest(".b_algo").querySelector(".b_tpcn div.tpmeta").innerText.includes(domain)));
 						let randLink = searchLinks[Math.floor(Math.random() * searchLinks.length)];
 						
 						let iframe = document.createElement("iframe");
