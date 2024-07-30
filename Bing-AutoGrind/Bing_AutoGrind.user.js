@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      4.1.7
+// @version      4.1.8
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -80,7 +80,6 @@ const isRewardPage = window.location.href.startsWith("https://rewards.bing.com")
 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
 
-if (isSearchPage) {
 /**
  * Create a container for the auto-search icon and settings icon.
  * The auto-search icon starts the search process, and the settings icon opens the settings overlay.
@@ -90,22 +89,16 @@ autoSearchContainer.classList.add("auto-search-container");
 
 const searchIcon = document.createElement("div");
 searchIcon.classList.add("search-icon");
-searchIcon.innerHTML = `<a style="font-size: 25px">🔍</a><span>Auto-Search</span>`;
+if(!isRewardPage) searchIcon.innerHTML = `<a style="font-size: 25px">🔍</a><span>Auto-Search</span>`;
 searchIcon.title = "Start Auto-Search!!";
 searchIcon.addEventListener("click", startSearch);
 
 const settingsIcon = document.createElement("div");
 settingsIcon.classList.add("settings-icon");
-settingsIcon.innerHTML = `<a style="font-size: 20px;">⚙️</a><span>Configure</span>`;
+if(!isRewardPage) settingsIcon.innerHTML = `<a style="font-size: 20px;">⚙️</a><span>Configure</span>`;
 
 autoSearchContainer.appendChild(searchIcon);
 autoSearchContainer.appendChild(settingsIcon);
-
-function updateIcon(content, classlist="searching") {
-  searchIcon.classList.add(classlist);
-  settingsIcon.classList.add(classlist);
-  searchIcon.querySelector("span").textContent = content;
-}
 
 setTimeout(() => {
     if (searchIcon.textContent.includes("Auto-Search")) searchIcon.classList.add("shrink")
@@ -185,11 +178,22 @@ settingsIcon.addEventListener("click", () => {
   settingsOverlay.style.display = "flex";
 });
 
+
+/**
+ * This function updates the icon's appearance with the specified content and classlist.
+ * @param {string} content - The content to display in the icon.
+ * @param {string} classlist - The classlist to apply to the icon.
+ */
+function updateIcon(content, classlist="searching") {
+  searchIcon.classList.add(classlist);
+  settingsIcon.classList.add(classlist);
+  searchIcon.querySelector("span").textContent = content;
+}
+
 /**
  * This function updates the configuration variables based on the user's input in the settings overlay.	
  * @param {string} name - The name of the configuration variable to update.
  * @param {string} value - The new value of the configuration variable.
- * @returns {void}
  * @example updateConfigVariable("max-searches", 50);
 */
 function updateConfigVariable(name, value) {
@@ -197,8 +201,6 @@ function updateConfigVariable(name, value) {
   else if (name === "timeout") TIMEOUT = parseInt(value);
   else if (name === "under-cooldown") UNDER_COOLDOWN = value == "true";
 }
-
-}	// End of `isSearchPage` check
 
 
 /*=============================================*\
@@ -504,4 +506,4 @@ const stylesheet = Object.assign(document.createElement("style"), {textContent: 
    		padding: 20px;
 	}
 `})
-if (isSearchPage) document.head.appendChild(stylesheet);
+if(!isRewardPage) document.head.appendChild(stylesheet);
