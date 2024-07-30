@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      4.1.6
+// @version      4.1.7
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -65,6 +65,22 @@ const configurations = [
 /*=============================================*\
 |*					MAIN UI					   *|
 \*=============================================*/
+// Load previous searches from local storage or initialize an empty array
+var searches = JSON.parse(localStorage.getItem("searches")) || [];
+
+// Adjust timeout if under cooldown and within search limit
+if (UNDER_COOLDOWN && searches.length % 4 == 0 && searches.length <= MAX_SEARCHES - 4) {
+	TIMEOUT = 900000; // 15 minutes
+}
+// Check if the current page is Bing search page
+const isSearchPage = window.location.href.startsWith("https://www.bing.com/search");
+// Check if the current page is Bing rewards page
+const isRewardPage = window.location.href.startsWith("https://rewards.bing.com");
+// Check whether current device is a mobile or not
+const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+
+if (isSearchPage) {
 /**
  * Create a container for the auto-search icon and settings icon.
  * The auto-search icon starts the search process, and the settings icon opens the settings overlay.
@@ -182,6 +198,8 @@ function updateConfigVariable(name, value) {
   else if (name === "under-cooldown") UNDER_COOLDOWN = value == "true";
 }
 
+}	// End of `isSearchPage` check
+
 
 /*=============================================*\
 |* 				HELPER FUNCTIONS			   *|
@@ -214,7 +232,7 @@ function startSearch() {
 
 	localStorage.setItem("searches", JSON.stringify(searches));
 	
-	if (COLLECT_DAILY_ACTIVITY) window.open(`https://rewards.bing.com/`, "_blank");
+	if (COLLECT_DAILY_ACTIVITY) window.open(`https://rewards.bing.com/?ref=rewardspanel`, "_blank");
 	window.open(`https://www.bing.com/search?q=${searches.pop()}&qs=ds&form=QBRE`, "_self");
 	localStorage.setItem("searches", JSON.stringify(searches));
 }
@@ -244,21 +262,6 @@ function waitForElements(selectors, callback) {
 /*=============================================*\
 |*                MAIN SCRIPT                 *|
 \*=============================================*/
-// Load previous searches from local storage or initialize an empty array
-var searches = JSON.parse(localStorage.getItem("searches")) || [];
-
-// Adjust timeout if under cooldown and within search limit
-if (UNDER_COOLDOWN && searches.length % 4 == 0 && searches.length <= MAX_SEARCHES - 4) {
-	TIMEOUT = 900000; // 15 minutes
-}
-// Check if the current page is Bing search page
-const isSearchPage = window.location.href.startsWith("https://www.bing.com/search");
-// Check if the current page is Bing rewards page
-const isRewardPage = window.location.href.startsWith("https://rewards.bing.com/");
-// Check whether current device is a mobile or not
-const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
-
 /**
  * Wait for the page to load the points element first.
  * For android, this step is skipped.
@@ -387,21 +390,10 @@ if (isSearchPage) {
  * To prevent opening new tabs, points are opened into an iframe inside each point card.
  */
 if (isRewardPage) {
-	if (COLLECT_DAILY_ACTIVITY) {
-		// Wait for the page to load the point cards first
-		waitForElements(["a.ds-card-sec"], function (_) {
-			document.querySelectorAll("a.ds-card-sec:has(span.mee-icon-AddMedium)").forEach((card) => {
-				// let iframe = document.createElement("iframe");
-				// iframe.name = "pointClaimFrame";
-				// iframe.style.width = "100%";
-				// iframe.style.height = "130px";
-				// card.appendChild(iframe);
-				// card.target = "pointClaimFrame";
-				card.click();
-			});
-		});
-	}
-
+	// Wait for the page to load the point cards first
+	window.onload = () => document.querySelectorAll("a.ds-card-sec:has(span.mee-icon-AddMedium)").forEach((card) => {
+        card.click();
+    });
 }
 
 /*=============================================*\
@@ -512,4 +504,4 @@ const stylesheet = Object.assign(document.createElement("style"), {textContent: 
    		padding: 20px;
 	}
 `})
-document.head.appendChild(stylesheet);
+if (isSearchPage) document.head.appendChild(stylesheet);
