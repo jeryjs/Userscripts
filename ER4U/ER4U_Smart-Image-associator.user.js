@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        ER4U - Smart Image Associator
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.1.0
+// @version     1.1.1
 // @description Automatically search for images for each product and let user select the best image to associate with the product
 // @icon        https://er4uenterpriseplus.in/er4u/jeshmargin/img/f.jpg
 // @author      Jery
@@ -45,11 +45,12 @@ if (window.location.href.includes("catalog_category_map.php?&comid=")) {
  * Initialize all buttons
  ***************************************************************/
 if (window.location.href.includes("combination_list.php")) {
-    const generateBtnArea = document.querySelector("#center-column > div.col-md-12 > div > div > table:nth-child(8) > thead:nth-child(1) > tr");
+    const generateBtnArea = document.querySelector("thead:nth-child(1) > tr");
     
     // Associate Images Button
     const associateImagesBtn = document.createElement("a");
     associateImagesBtn.textContent = "Associate Images";
+    associateImagesBtn.classList.add("text-primary");
     associateImagesBtn.style = "color: white; cursor: pointer;";
     associateImagesBtn.addEventListener("click", () => displayForm());
     generateBtnArea.appendChild(document.createElement("td")).appendChild(associateImagesBtn);
@@ -58,10 +59,11 @@ if (window.location.href.includes("combination_list.php")) {
     // Clear 0 qty Button
     const clearZeroQtyBtn = document.createElement("a");
     clearZeroQtyBtn.textContent = "Clear 0 Qty";
+    clearZeroQtyBtn.classList.add("text-primary");
     clearZeroQtyBtn.style = "color: white; cursor: pointer;";
     clearZeroQtyBtn.addEventListener("click", () => {
         console.log("Clearing 0 Qty");
-        const zeroQtyRows = document.querySelectorAll(`#item-list td:nth-child(29)`);
+        const zeroQtyRows = document.querySelectorAll(`#item-list td:nth-child(31)`);
         zeroQtyRows.forEach((row) => {
             if (row.textContent.trim() == "0") row.parentElement.remove();
         });
@@ -95,9 +97,9 @@ class ProductList {
         const productRows = document.querySelectorAll("#item-list > tr:not(:last-child)");
         productRows.forEach((row) => {
             const id = row.querySelector(".cus_edit").href.split("comid=")[1];
-            const name = row.querySelector("td:nth-child(5)").textContent;
-            const barcode = row.querySelector("td:nth-child(3)").textContent;
-            const hasImage = row.querySelector("td:nth-child(30) > a").textContent.trim() == "Y" ? true : false;
+            const name = row.querySelector("td:nth-child(6)").textContent;
+            const barcode = row.querySelector("td:nth-child(4)").textContent;
+            const hasImage = row.querySelector("td:nth-child(32) > a").textContent.trim() == "Y" ? true : false;
             this.addProduct(new Product(id, name, barcode, hasImage));
         });
         return this.products;
