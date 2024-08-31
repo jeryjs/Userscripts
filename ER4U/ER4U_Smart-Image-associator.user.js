@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        ER4U - Smart Image Associator
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.1.1
+// @version     1.1.2
 // @description Automatically search for images for each product and let user select the best image to associate with the product
 // @icon        https://er4uenterpriseplus.in/er4u/jeshmargin/img/f.jpg
 // @author      Jery
@@ -35,7 +35,9 @@ if (window.location.href.includes("catalog_category_map.php?&comid=")) {
             // click plus button
             document.querySelector("#add_row").click();
             // click save button
-            document.querySelector("#cForm button.btn-save-1").click();
+            setTimeout(() => {
+                document.querySelector("#cForm button.btn-save-1").click();
+            }, 1000);
         }, 1000);
     }
 }
@@ -178,24 +180,28 @@ const Services = [
                 }
             }
 
-            const api_key = localStorage.getItem("googleapi_key");
-            const params = `cx=364fea58938af485a&searchType=image&key=${api_key}&q=${query}`;
-            const url = this.apiUrl + params;
-            const response = await axios.get(url);
+            try {
+                const api_key = localStorage.getItem("googleapi_key");
+                const params = `cx=364fea58938af485a&searchType=image&key=${api_key}&q=${query}`;
+                const url = this.apiUrl + params;
+                const response = await axios.get(url);
 
-            console.log(response.data);
+                console.log(response.data);
 
-            const results = response.data['items'];
-            console.log(results);
-            results.forEach((result) => {
-                imageList.addImage(new Image(
-                    title = result["title"],
-                    original = result["link"],
-                    thumbnail = result["image"]["thumbnailLink"]
-                ));
-            });
+                const results = response.data['items'];
+                console.log(results);
+                results.forEach((result) => {
+                    imageList.addImage(new Image(
+                        title = result["title"],
+                        original = result["link"],
+                        thumbnail = result["image"]["thumbnailLink"]
+                    ));
+                });
 
-            return imageList.images;
+                return imageList.images;
+            } catch (error) {
+                alert("Error getting images for this item.\nTry manually, or goto next item.\n\n" + error);
+            }
         },
     }
 ];
@@ -419,12 +425,21 @@ function updateImageContainer(images, product) {
 }
 
 function setProductImage(id, imageLink) {
-    const url = `https://er4uenterpriseplus.in/er4u/jeshmargin/catalog_category_map.php?&comid=${id}&new_img_url=` + imageLink
+    let cleanedImageLink = imageLink.replace(/(\.jpeg|\.jpg|\.png).*/, '$1');
+    if (!/\.(jpeg|jpg|png)$/.test(cleanedImageLink)) {
+        alert("Invalid image URL. Please provide a URL ending with .jpeg, .jpg, or .png");
+        return;
+    }
+    const url = `https://er4uenterpriseplus.in/er4u/jeshmargin/catalog_category_map.php?&comid=${id}&new_img_url=` + cleanedImageLink
     // window.open(url, '_blank', 'noopener,noreferrer');
-    window.open(url,null,"height=10,width=10,status=yes,toolbar=no,scrollbars=yes,menubar=no,location=no")
+    let associationWindow = window.open(url,null,"height=10,width=10,status=yes,toolbar=no,scrollbars=yes,menubar=no,location=no")
 
     // Set the item's image state to 'Y' in the products list using id
     const productRow = document.querySelector(`[href="image_view.php?comid=${id}"]`);
     productRow.textContent = "Y ";
     productRow.style.color = "blue";
+
+    setTimeout(() => {
+        associationWindow.close();
+    }, 10000);
 }
