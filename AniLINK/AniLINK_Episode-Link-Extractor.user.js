@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     4.1.0
+// @version     4.2.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -16,6 +16,7 @@
 // @match       https://animepahe.com/play/*
 // @match       https://animepahe.org/play/*
 // @grant       GM_registerMenuCommand
+// @grant       GM_addStyle
 // ==/UserScript==
 
 class Episode {
@@ -42,7 +43,6 @@ const websites = [
             button.id = "AniLINK_startBtn";
             button.style.cssText = `cursor: pointer; background-color: #145132;`;
             button.innerHTML = '<i class="icongec-dowload"></i> Generate Download Links';
-            button.addEventListener('click', extractEpisodes);
 
             // Add the button to the page if user is logged in otherwise show placeholder
             if (document.querySelector('.cf-download')) {
@@ -51,6 +51,7 @@ const websites = [
                 const loginMessage = document.querySelector('.list_dowload > div > span');
                 loginMessage.innerHTML = `<b style="color:#FFC119;">AniLINK:</b> Please <a href="/login.html" title="login"><u>log in</u></a> to be able to batch download animes.`;
             }
+            return button;
         },
         extractEpisodes: async function (status) {
             status.textContent = 'Starting...';
@@ -78,7 +79,19 @@ const websites = [
         epTitle: '.theatre-info > h1',
         linkElems: '#resolutionMenu > button',
         thumbnail: '.theatre-info > a > img',
-        addStartButton: null,
+        addStartButton: function() {
+            GM_addStyle(`.theatre-settings .col-sm-3 { max-width: 20%; }`);
+            document.querySelector("div.theatre-settings > div.row").innerHTML += `
+                <div class="col-12 col-sm-3">
+                    <div class="dropup">
+                        <a class="btn btn-secondary btn-block" id="AniLINK_startBtn">
+                            Generate Download Links
+                        </a>
+                    </div>
+                </div>
+            `;
+            return document.getElementById("AniLINK_startBtn");
+        },
         extractEpisodes: async function (status) {
             status.textContent = 'Starting...';
             let episodes = {};
@@ -86,6 +99,7 @@ const websites = [
                 const response = await fetchHtml(epLink.href);
                 const page = (new DOMParser()).parseFromString(response, 'text/html');
                 
+                if (page.querySelector(this.epTitle) == null) return;
                 const [, epTitle, epNumber] = page.querySelector(this.epTitle).outerText.split(/Watch (.+) - (\d+) Online$/);
                 const episodeTitle = `${epNumber.padStart(3, '0')} - ${epTitle}`;
                 const thumbnail = page.querySelector(this.thumbnail).src;
@@ -128,7 +142,7 @@ console.log('Initializing AniLINK...');
 const site = websites.find(site => site.url.some(url => window.location.href.includes(url)));
 
 // attach button to page
-site.addStartButton();
+site.addStartButton().addEventListener('click', extractEpisodes);
 
 // append site specific css styles
 document.body.style.cssText += (site.styles || '');
