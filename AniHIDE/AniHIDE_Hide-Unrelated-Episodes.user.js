@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.1.1
+// @version     2.2.0
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -92,7 +92,8 @@ const animeSites = [
         item: '.episode-wrap > .episode',
         title: '.episode-title > a',
         thumbnail: '.episode-snapshot > img',
-        timeout: 500
+        timeout: 500,
+        pageSelector: '.page-item'    // Page selector for AnimePahe
     },
     {
         name: 'animesuge',
@@ -466,6 +467,13 @@ function undarkenRelatedEps() {
         console.log('entriesList', entriesList);
         if (!animeSite) console.error('No matching website found.');
         else thisSite.undarkenRelatedEps(entriesList);
+        
+        // Add event listeners to the pagination buttons if available
+        if (animeSite.pageSelector) {
+            document.querySelectorAll(animeSite.pageSelector).forEach(it => {
+                it.addEventListener('click', undarkenRelatedEps);
+            });
+        }
     }, animeSite.timeout);
 }
 
