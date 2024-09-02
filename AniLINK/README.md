@@ -35,9 +35,10 @@ Stream or download your favorite anime series effortlessly with AniLINK! Unlock 
 [Watch a short Demo clip
 ![AniLINK Demo](https://i.imgur.com/WI8nHac.png)](https://imgur.com/a/0Iz5I1J)
 <span>
-<a><video src="https://i.imgur.com/IUBT2tP.mp4" width=49.5%></a>
-<a><video src="https://i.imgur.com/cjcD2s6.mp4" width=49.5%></a>
-<a><video src="https://i.imgur.com/4DNZr1f.mp4" width=49.5%></a>
+<a><video controls src="https://i.imgur.com/IUBT2tP.mp4" width=49.5%></a>
+<a><video controls src="https://i.imgur.com/cjcD2s6.mp4" width=49.5%></a>
+<a><video controls src="https://i.imgur.com/4DNZr1f.mp4" width=49.5%></a>
+<a><video controls src="https://i.imgur.com/elFLBic.mp4" width=49.5%></a>
 </span>
 
 ## Compatibility and Legal Disclaimer
