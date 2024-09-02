@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     4.2.2
+// @version     4.3.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -15,6 +15,9 @@
 // @match       https://animepahe.ru/play/*
 // @match       https://animepahe.com/play/*
 // @match       https://animepahe.org/play/*
+// @match       https://yugenanime.*/anime/*/*/watch/
+// @match       https://yugenanime.tv/anime/*/*/watch/
+// @match       https://yugenanime.sx/anime/*/*/watch/
 // @grant       GM_registerMenuCommand
 // @grant       GM_addStyle
 // ==/UserScript==
@@ -56,19 +59,75 @@ const websites = [
         extractEpisodes: async function (status) {
             status.textContent = 'Starting...';
             let episodes = {};
-            const episodePromises = Array.from(document.querySelectorAll(this.epLinks)).map(async epLink => {
+            const episodePromises = Array.from(document.querySelectorAll(this.epLinks)).map(async epLink => { try {
                 const page = await fetchPage(epLink.href);
                 
-                const [, epTitle, epNumber] = page.querySelector(this.epTitle).textContent.match(/(.+?) Episode (\d+)(?:.+)$/);
+                const [, epTitle, epNumber] = page.querySelector(this.epTitle).textContent.match(/(.+?) Episode (\d+(?:\.\d+)?)/);
                 const episodeTitle = `${epNumber.padStart(3, '0')} - ${epTitle}`;
                 const thumbnail = page.querySelector(this.thumbnail).src;
                 const links = [...page.querySelectorAll(this.linkElems)].reduce((obj, elem) => ({ ...obj, [elem.textContent.trim()]: elem.href }), {});
                 status.textContent = `Extracting ${epTitle} - ${epNumber.padStart(3, '0')}...`;
 
                 episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, 'mp4', thumbnail);
-            });
+            } catch (e) { showToast(e) } });
             await Promise.all(episodePromises);
             return episodes;
+        }
+    },
+    {
+        name: 'YugenAnime',
+        url: ['yugenanime.tv', 'yugenanime.sx'],
+        epLinks: '.ep-card > a.ep-thumbnail',
+        animeTitle: '.ani-info-ep .link h1',
+        epTitle: 'div.col.col-w-65 > div.box > h1',
+        thumbnail: 'a.ep-thumbnail img',
+        addStartButton: function() {
+            return document.querySelector(".content .navigation").appendChild(Object.assign(document.createElement('a'), { id: "AniLINK_startBtn", className: "link p-15", textContent: "Generate Download Links" }));
+        },
+        extractEpisodes: async function (status) {
+            status.textContent = 'Getting list of episodes...';
+            let episodes = {};
+            const epLinks = Array.from(document.querySelectorAll(this.epLinks));
+            const throttleLimit = 6;    // Number of episodes to extract in parallel
+
+            for (let i = 0; i < epLinks.length; i += throttleLimit) {
+                const chunk = epLinks.slice(i, i + throttleLimit);
+                let episodePromises = chunk.map(async (epLink, index) => { try {
+                    status.textContent = `Loading ${epLink.pathname}`
+                    const page = await fetchPage(epLink.href); 
+
+                    const animeTitle = page.querySelector(this.animeTitle).textContent;
+                    const epNumber = epLink.href.match(/(\d+)\/?$/)[1];
+                    const epTitle = page.querySelector(this.epTitle).textContent.match(/^${epNumber} : (.+)$/) || animeTitle;
+                    const thumbnail = document.querySelectorAll(this.thumbnail)[index].src;
+                    const episodeTitle = `${epNumber.padStart(3, '0')} - ${animeTitle}` + (epTitle != animeTitle ? `- ${epTitle}` : '');
+                    status.textContent = `Extracting ${episodeTitle}...`;
+                    const links = await this._getVideoLinks(page, status, episodeTitle);
+
+                    episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, 'mp4', thumbnail);
+                } catch (e) { showToast(e) }});
+                await Promise.all(episodePromises);
+            }
+            return episodes;
+        },
+        // BASED ON N-SUDY's anime_scrapper [https://github.com/N-SUDY/anime_scrapper/blob/80a3c985923a32116fef621050c5de56884a4794/scrape.py#L20]
+        _getVideoLinks: async function (page, status, episodeTitle) {
+            const embedLinkId = page.body.innerHTML.match(new RegExp(`src="//${page.domain}/e/(.*?)/"`))[1];
+            const embedApiResponse = await fetch(`https://${page.domain}/api/embed/`, { method: 'POST', headers: {"X-Requested-With": "XMLHttpRequest"}, body: new URLSearchParams({ id: embedLinkId, ac: "0" }) });
+            const json = await embedApiResponse.json();
+            const m3u8GeneralLink = json.hls[0];
+            status.textContent = `Parsing ${episodeTitle}...`;
+            // Fetch the m3u8 file content
+            const m3u8Response = await fetch(m3u8GeneralLink);
+            const m3u8Text = await m3u8Response.text();
+            // Parse the m3u8 file to extract different qualities
+            const qualityMatches = m3u8Text.matchAll(/#EXT-X-STREAM-INF:.*RESOLUTION=\d+x\d+.*NAME="(\d+p)"\n(.*\.m3u8)/g);
+            const links = {};
+            for (const match of qualityMatches) {
+                const [_, quality, m3u8File] = match;
+                links[quality] = `${m3u8GeneralLink.slice(0, m3u8GeneralLink.lastIndexOf('/') + 1)}${m3u8File}`;
+            }
+            return links;
         }
     },
     {
@@ -94,11 +153,11 @@ const websites = [
         extractEpisodes: async function (status) {
             status.textContent = 'Starting...';
             let episodes = {};
-            const episodePromises = Array.from(document.querySelectorAll(this.epLinks)).map(async epLink => {
+            const episodePromises = Array.from(document.querySelectorAll(this.epLinks)).map(async epLink => { try {
                 const page = await fetchPage(epLink.href);
                 
                 if (page.querySelector(this.epTitle) == null) return;
-                const [, epTitle, epNumber] = page.querySelector(this.epTitle).outerText.split(/Watch (.+) - (\d+) Online$/);
+                const [, epTitle, epNumber] = page.querySelector(this.epTitle).outerText.split(/Watch (.+) - (\d+(?:\.\d+)?) Online$/);
                 const episodeTitle = `${epNumber.padStart(3, '0')} - ${epTitle}`;
                 const thumbnail = page.querySelector(this.thumbnail).src;
                 status.textContent = `Extracting ${epTitle} - ${epNumber.padStart(3, "0")}...`;
@@ -111,16 +170,18 @@ const websites = [
                 let links = {};
                 for (const elm of [...page.querySelectorAll(this.linkElems)]) {
                     links[elm.textContent] = await getVideoUrl(elm.getAttribute('data-src'));
+                    status.textContent = `Parsed ${episodeTitle}`;
                 }
 
                 episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, 'm3u8', thumbnail);
-            });
+            } catch (e) { showToast(e) } });
             await Promise.all(episodePromises);
             console.log(episodes);
             return episodes;
         },
         styles: `div#AniLINK_LinksContainer { font-size: 10px; } #Quality > b > div > ul {font-size: 16px;}`
-    }
+    },
+
 ];
 
 /**
@@ -136,8 +197,8 @@ async function fetchPage(url) {
         const page = (new DOMParser()).parseFromString(await response.text(), 'text/html');
         return page;
     } else {
-        alert(`Failed to fetch HTML for ${url}`);
-        throw new Error(`Failed to fetch HTML for ${url}`);
+        showToast(`Failed to fetch HTML for ${url} : ${response.status}`);
+        throw new Error(`Failed to fetch HTML for ${url} : ${response.status}`);
     }
 }
 
@@ -323,5 +384,63 @@ async function extractEpisodes() {
             onExportBtnClicked,
             onPlayBtnClicked
         };
+    }
+}
+
+/***************************************************************
+ * Display a simple toast message on the top right of the screen
+ ***************************************************************/
+let toasts = [];
+
+function showToast(message) {
+    const maxToastHeight = window.innerHeight * 0.5;
+    const toastHeight = 50; // Approximate height of each toast
+    const maxToasts = Math.floor(maxToastHeight / toastHeight);
+
+    console.log(message);
+
+    // Create the new toast element
+    const x = document.createElement("div");
+    x.innerHTML = message;
+    x.style.color = "#000";
+    x.style.backgroundColor = "#fdba2f";
+    x.style.borderRadius = "10px";
+    x.style.padding = "10px";
+    x.style.position = "fixed";
+    x.style.top = `${toasts.length * toastHeight}px`;
+    x.style.right = "5px";
+    x.style.fontSize = "large";
+    x.style.fontWeight = "bold";
+    x.style.zIndex = "10000";
+    x.style.display = "block";
+    x.style.borderColor = "#565e64";
+    x.style.transition = "right 2s ease-in-out, top 0.5s ease-in-out";
+    document.body.appendChild(x);
+
+    // Add the new toast to the list
+    toasts.push(x);
+
+    // Remove the toast after it slides out
+    setTimeout(() => {
+        x.style.right = "-1000px";
+    }, 3000);
+
+    setTimeout(() => {
+        x.style.display = "none";
+        if (document.body.contains(x)) document.body.removeChild(x);
+        toasts = toasts.filter(toast => toast !== x);
+        // Move remaining toasts up
+        toasts.forEach((toast, index) => {
+            toast.style.top = `${index * toastHeight}px`;
+        });
+    }, 4000);
+
+    // Limit the number of toasts to maxToasts
+    if (toasts.length > maxToasts) {
+        const oldestToast = toasts.shift();
+        document.body.removeChild(oldestToast);
+        toasts.forEach((toast, index) => {
+            toast.style.top = `${index * toastHeight}px`;
+        });
     }
 }
