@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     4.2.0
+// @version     4.2.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -57,8 +57,7 @@ const websites = [
             status.textContent = 'Starting...';
             let episodes = {};
             const episodePromises = Array.from(document.querySelectorAll(this.epLinks)).map(async epLink => {
-                const response = await fetchHtml(epLink.href);
-                const page = (new DOMParser()).parseFromString(response, 'text/html');
+                const page = await fetchPage(epLink.href);
                 
                 const [, epTitle, epNumber] = page.querySelector(this.epTitle).textContent.match(/(.+?) Episode (\d+)(?:.+)$/);
                 const episodeTitle = `${epNumber.padStart(3, '0')} - ${epTitle}`;
@@ -96,8 +95,7 @@ const websites = [
             status.textContent = 'Starting...';
             let episodes = {};
             const episodePromises = Array.from(document.querySelectorAll(this.epLinks)).map(async epLink => {
-                const response = await fetchHtml(epLink.href);
-                const page = (new DOMParser()).parseFromString(response, 'text/html');
+                const page = await fetchPage(epLink.href);
                 
                 if (page.querySelector(this.epTitle) == null) return;
                 const [, epTitle, epNumber] = page.querySelector(this.epTitle).outerText.split(/Watch (.+) - (\d+) Online$/);
@@ -125,10 +123,17 @@ const websites = [
     }
 ];
 
-async function fetchHtml(url) {
+/**
+ * Fetches the HTML content of a given URL and parses it into a DOM object.
+ *
+ * @param {string} url - The URL of the page to fetch.
+ * @returns {Promise<Document>} A promise that resolves to a DOM Document object.
+ * @throws {Error} If the fetch operation fails.
+ */
+async function fetchPage(url) {
     const response = await fetch(url);
     if (response.ok) {
-        return response.text();
+        return (new DOMParser()).parseFromString(response.text(), 'text/html');
     } else {
         alert(`Failed to fetch HTML for ${url}`);
         throw new Error(`Failed to fetch HTML for ${url}`);
