@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      5.0.0
+// @version      5.0.1
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -251,8 +251,8 @@ function startSearch() {
 	if (COLLECT_DAILY_ACTIVITY) window.open(`https://rewards.bing.com/?ref=rewardspanel`, "_blank");
 	if (AUTO_CLOSE_TABS) addTabToClose("https://rewards.bing.com/?ref=rewardspanel");
 	
-	window.open(`https://www.bing.com/search?q=${searches.pop()}&qs=ds&form=QBRE`, "_self");
-	addTabToClose(`https://www.bing.com/search?q=${searches[searches.length]}&qs=ds&form=QBRE`);
+	window.open(`https://www.bing.com/search?go=Search&q=${searches.pop()}&qs=ds&form=QBRE`, "_self");
+	addTabToClose(`https://www.bing.com/search?go=Search&q=${encodeURI(searches[0])}&qs=ds&form=QBRE`);
 	
 	GM_setValue("searches", searches);
 }
@@ -393,7 +393,7 @@ if (isSearchPage) {
 				}
 
 				setTimeout(() => {
-					window.open(`https://www.bing.com/search?go=Search&q=${searches.pop()}&qs=ds&form=QBRE`, "_self");
+					window.open(`https://www.bing.com/search?go=Search&q=${encodeURI(searches.pop())}&qs=ds&form=QBRE`, "_self");
 					// document.querySelector("textarea.b_searchbox").value = searches.pop();
 					// document.querySelector("input.b_searchboxSubmit").click();
 					GM_setValue("searches", searches);
@@ -442,7 +442,6 @@ if (isRewardPage) {
 if (AUTO_CLOSE_TABS) {
     const tabToClose = tabsToClose.find(tab => window.location.href.includes(tab.url));
 	if (tabToClose) {
-		alert("Closing tab in 5 seconds...");
 		tabsToClose = tabsToClose.filter(tab => tab.url != tabToClose.url);
 		GM_setValue("tabsToClose", tabsToClose);
         setTimeout(() => window.close(), tabToClose.timeout);
