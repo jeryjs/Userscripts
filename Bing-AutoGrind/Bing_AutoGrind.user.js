@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      4.1.8
+// @version      5.0.0
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
 // @match        https://www.bing.com/search*
 // @match        https://rewards.bing.com/*
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @license      MIT
 // ==/UserScript==
 
@@ -14,11 +16,12 @@
 |*                CONFIGURATION               *|
 \*=============================================*/
 // Constants
-var MAX_SEARCHES = localStorage.getItem("max-searches") || 33; // Maximum number of words to search
-var TIMEOUT = localStorage.getItem("timeout") || 4000; // Timeout between searches
-var UNDER_COOLDOWN = localStorage.getItem("under-cooldown") == "true" || false;	// Workaround for cooldown restriction
-var OPEN_RANDOM_LINKS = localStorage.getItem("open-random-links") == "true" || false;	// Simulate real human searcg by opening links
-var COLLECT_DAILY_ACTIVITY = localStorage.getItem("collect-daily-activity") == "true" || false;	// Automatically collect daily activity points from bingo rewards dashboard page
+var MAX_SEARCHES = GM_getValue("max-searches", 33); // Maximum number of words to search
+var TIMEOUT = GM_getValue("timeout", 4000); // Timeout between searches
+var UNDER_COOLDOWN = GM_getValue("under-cooldown", false);	// Workaround for cooldown restriction
+var OPEN_RANDOM_LINKS = GM_getValue("open-random-links", true);	// Simulate real human searcg by opening links
+var COLLECT_DAILY_ACTIVITY = GM_getValue("collect-daily-activity", false);	// Automatically collect daily activity points from bingo rewards dashboard page
+var AUTO_CLOSE_TABS = GM_getValue("auto-close-tabs", true);	// Automatically close any tabs/windows opened by the script
 
 // Configuration options for the user script
 const configurations = [
@@ -50,7 +53,7 @@ const configurations = [
 		name: "Open Random Links",
 		value: OPEN_RANDOM_LINKS,
 		type: "checkbox",
-		description: "Enable this option to open any random link from the page in an iframe after every search. It has been observed that doing this removes the 15-point restriction after a while / reduces chances of getting the restriction.<br>Default: False",
+		description: "Enable this option to open any random link from the page in an iframe after every search. It has been observed that doing this removes the 15-point restriction after a while / reduces chances of getting the restriction.<br>Default: True",
 	},
 	{
 		id: "collect-daily-activity",
@@ -58,15 +61,21 @@ const configurations = [
 		value: COLLECT_DAILY_ACTIVITY,
 		type: "checkbox",
 		description: "Open rewards page and auto-collect daily activity points from the Bing rewards dashboard page. This option loads the activities into an iframe to earn the points.<br>Default: False",
+	},
+	{
+		id: "auto-close-tabs",
+		name: "Auto Close Tabs",
+		value: AUTO_CLOSE_TABS,
+		type: "checkbox",
+		description: "Automatically close any tabs/windows opened by the script. This applies to the search page and any rewards page that were opened as well.<br>Default: True",
 	}
 ];
 
-
-/*=============================================*\
-|*					MAIN UI					   *|
-\*=============================================*/
 // Load previous searches from local storage or initialize an empty array
-var searches = JSON.parse(localStorage.getItem("searches")) || [];
+var searches = GM_getValue("searches", []);
+
+// store the list of window handles or urls to close them later
+var tabsToClose = GM_getValue("tabsToClose", []);
 
 // Adjust timeout if under cooldown and within search limit
 if (UNDER_COOLDOWN && searches.length % 4 == 0 && searches.length <= MAX_SEARCHES - 4) {
@@ -79,6 +88,10 @@ const isRewardPage = window.location.href.startsWith("https://rewards.bing.com")
 // Check whether current device is a mobile or not
 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
+
+/*=============================================*\
+|*					MAIN UI					   *|
+\*=============================================*/
 
 /**
  * Create a container for the auto-search icon and settings icon.
@@ -133,15 +146,15 @@ configurations.forEach(config => {
     input.type = "range";
     input.min = config.range[0];
     input.max = config.range[1];
-    input.value = localStorage.getItem(config.id) || config.value;
+    input.value = GM_getValue(config.id, config.value);
   } else if (config.type === "checkbox") {
     input = document.createElement("input");
     input.type = "checkbox";
-    input.checked = localStorage.getItem(config.id) === "true" || config.value;
+    input.checked = GM_getValue(config.id, config.value);
   }
   input.id = config.id;
   input.addEventListener("change", () => {
-    localStorage.setItem(config.id, input.type === "checkbox" ? input.checked : input.value);
+    GM_setValue(config.id, input.type === "checkbox" ? input.checked : input.value);
     updateConfigVariable(config.id, input.type === "checkbox" ? input.checked : input.value);
     currentValue.textContent = input.type === "checkbox" ? (input.checked ? "True" : "False") : input.value;
   });
@@ -215,8 +228,9 @@ function updateConfigVariable(name, value) {
  * A search term is opened in the current tab to start the search process.
  */
 function startSearch() {
-	const resultElements = document.querySelectorAll(".b_caption p");
+	GM_setValue("searches", []);
 	let searches = [];
+	const resultElements = document.querySelectorAll(".b_caption p");
 	while (searches.length < MAX_SEARCHES) {
 		resultElements.forEach((element) => {
 			const text = element.textContent.trim().split(/\s+/);
@@ -232,11 +246,15 @@ function startSearch() {
 	searches = searches.slice(0, MAX_SEARCHES); // Extract up to MAX_SEARCHES
 	console.log(searches);
 
-	localStorage.setItem("searches", JSON.stringify(searches));
+	GM_setValue("searches", searches);
 	
 	if (COLLECT_DAILY_ACTIVITY) window.open(`https://rewards.bing.com/?ref=rewardspanel`, "_blank");
+	if (AUTO_CLOSE_TABS) addTabToClose("https://rewards.bing.com/?ref=rewardspanel");
+	
 	window.open(`https://www.bing.com/search?q=${searches.pop()}&qs=ds&form=QBRE`, "_self");
-	localStorage.setItem("searches", JSON.stringify(searches));
+	addTabToClose(`https://www.bing.com/search?q=${searches[searches.length]}&qs=ds&form=QBRE`);
+	
+	GM_setValue("searches", searches);
 }
 
 /**
@@ -258,6 +276,21 @@ function waitForElements(selectors, callback) {
 		}
 	}
 	setTimeout(() => waitForElements(selectors, callback), 500);
+}
+
+/**
+ * Add a tab to the list of tabs to close after a specified timeout.
+ * This function adds the tab to the [tabsToClose] array and sets a timeout to close the tab.
+ * The tabs to close are stored in the local storage and are closed after the specified timeout.
+ * @param {Window} tab - The tab to close.
+ * @param {number} timeout - The timeout in milliseconds to close the tab.
+ * @example addTabToClose(window.open("https://rewards.bing.com/?ref=rewardspanel", "_blank"), 5000);
+ */
+function addTabToClose(tab, timeout=5000) {
+	tabsToClose.push(
+		{"url": tab, "timeout": timeout}
+	);
+	GM_setValue("tabsToClose", tabsToClose);
 }
 
 
@@ -363,7 +396,7 @@ if (isSearchPage) {
 					window.open(`https://www.bing.com/search?go=Search&q=${searches.pop()}&qs=ds&form=QBRE`, "_self");
 					// document.querySelector("textarea.b_searchbox").value = searches.pop();
 					// document.querySelector("input.b_searchboxSubmit").click();
-					localStorage.setItem("searches", JSON.stringify(searches));
+					GM_setValue("searches", searches);
 				}, TIMEOUT);
 			}
 
@@ -392,10 +425,28 @@ if (isSearchPage) {
  * To prevent opening new tabs, points are opened into an iframe inside each point card.
  */
 if (isRewardPage) {
-	// Wait for the page to load the point cards first
-	window.onload = () => document.querySelectorAll("a.ds-card-sec:has(span.mee-icon-AddMedium)").forEach((card) => {
-        card.click();
-    });
+	if (COLLECT_DAILY_ACTIVITY) {
+		// Wait for the page to load the point cards first
+		window.onload = () => document.querySelectorAll("a.ds-card-sec:has(span.mee-icon-AddMedium)").forEach((card) => {
+			addTabToClose(card.href);
+			card.click();
+		});
+	}
+}
+
+
+/**
+ * Close the current tab if it has been registered for auto-closing.
+ * Waits for the specified timeout before closing the tab.
+ */
+if (AUTO_CLOSE_TABS) {
+    const tabToClose = tabsToClose.find(tab => window.location.href.includes(tab.url));
+	if (tabToClose) {
+		alert("Closing tab in 5 seconds...");
+		tabsToClose = tabsToClose.filter(tab => tab.url != tabToClose.url);
+		GM_setValue("tabsToClose", tabsToClose);
+        setTimeout(() => window.close(), tabToClose.timeout);
+    }
 }
 
 /*=============================================*\
