@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     4.3.0
+// @version     5.0.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -18,6 +18,10 @@
 // @match       https://yugenanime.*/anime/*/*/watch/
 // @match       https://yugenanime.tv/anime/*/*/watch/
 // @match       https://yugenanime.sx/anime/*/*/watch/
+// @match       https://hianime.*/watch/*
+// @match       https://hianime.to/watch/*
+// @match       https://hianime.nz/watch/*
+// @match       https://hianime.sz/watch/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_addStyle
 // ==/UserScript==
@@ -104,7 +108,7 @@ const websites = [
                     status.textContent = `Extracting ${episodeTitle}...`;
                     const links = await this._getVideoLinks(page, status, episodeTitle);
 
-                    episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, 'mp4', thumbnail);
+                    episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, 'm3u8', thumbnail);
                 } catch (e) { showToast(e) }});
                 await Promise.all(episodePromises);
             }
@@ -181,6 +185,61 @@ const websites = [
         },
         styles: `div#AniLINK_LinksContainer { font-size: 10px; } #Quality > b > div > ul {font-size: 16px;}`
     },
+    {
+        name: 'HiAnime',
+        url: ['hianime.to', 'hianime.sx', 'hianime.mn', 'hianime.nz'],
+        animeTitle: '.anis-watch-detail .film-name a',
+        epLinks: '.ss-list a',
+        epNumber: '.ssli-order',
+        epTitle: '.ep-name',
+        thumbnail: '.anis-watch-detail img.film-poster-img',
+        addStartButton: function() {
+            const button = document.createElement('div');
+            button.id = "AniLINK_startBtn";
+            button.className = "pc-item pc-live";
+            button.innerHTML = '<a class="btn btn-sm"><i style="color: #ffbade;" class="material-symbols-outlined">downloading</i><span class="m-hide">Generate Download Links</span><span class="w-hide">Download</span></a><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,400,0,0" />';
+            button.title = 'Generate Download Links';
+            document.querySelector('.pc-right').appendChild(button);
+            return button;
+        },
+        extractEpisodes: async function (status) {
+            status.textContent = 'Getting Episodes List...';
+            let epList = [...document.querySelectorAll(this.epLinks)].map(item => ({
+                "epId": new URL(item.href).searchParams.get('ep'),
+                "epNum": item.querySelector(this.epNumber).textContent,
+                "epTitle": item.querySelector(this.epTitle).textContent,
+            }));
+            console.log(epList);
+            const animeTitle = document.querySelector(this.animeTitle).textContent;
+            const thumbnail = document.querySelector(this.thumbnail).src;
+            let episodes = {};
+            const episodePromises = Array.from(epList).map(async item => { try {
+                const episodeTitle = `${item.epNum.padStart(3, '0')} - ${animeTitle}` + (item.epTitle != `Episode ${item.epNum}` ? `- ${item.epTitle}` : '');
+                const links = await this._getVideoLinks(item, status, episodeTitle);
+                status.textContent = `Extracted ${episodeTitle}...`;
+                console.log(links);
+                episodes[episodeTitle] = new Episode(item.epNum.padStart(3, '0'), item.epTitle, links, 'm3u8', thumbnail);
+            } catch (e) { showToast(e) } });
+            await Promise.all(episodePromises);
+            return episodes;
+        },
+        _getVideoLinks: async function (item, status, episodeTitle) {
+            const baseUrl = `${document.location.origin}/ajax/v2/episode`;
+            const animeUrl = document.location.href.split('?')[0];
+            var serverRes = await fetch(`${baseUrl}/servers?episodeId=${item.epId}`);
+            var serversDoc = (new DOMParser()).parseFromString((await serverRes.json()).html, 'text/html');
+            let links = {};
+            serversDoc.querySelectorAll('.server-item').forEach(async server => {
+                var serverName = server.getAttribute('data-type') + " - " + server.textContent;
+                var serverUrl = `${baseUrl}/sources?id=${server.getAttribute('data-id')}`;
+                var serverRes = await fetch(serverUrl, { headers: { "X-Requested-With": "XMLHttpRequest", referer: animeUrl+`?ep=${item.epId}` } });
+                showToast(serverRes.status);
+                links[serverName] = (await serverRes.json()).link;
+                status.textContent = `Parsed ${episodeTitle} - ${serverName}...`;
+            });
+            return links;
+        }
+    }
 
 ];
 
