@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      5.0.2
+// @version      5.0.3
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -377,7 +377,7 @@ if (isSearchPage) {
 						: document.querySelectorAll("li.b_algo h2 a");
 
 						// workaround for the britannica bug.
-						const excludeDomains = ["britannica.com"];
+						const excludeDomains = ["britannica.com", "sunshineseeker.com"];
 						searchLinks = Array.from(searchLinks).filter(link => !excludeDomains.some(domain => link.closest(".b_algo").querySelector(".b_tpcn div.tpmeta").innerText.includes(domain)));
 						let randLink = searchLinks[Math.floor(Math.random() * searchLinks.length)];
 						
