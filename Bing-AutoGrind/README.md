@@ -40,7 +40,9 @@ These settings can be adjusted via the settings overlay, which can be accessed b
     The script can detect a special "&form=STARTSCRIPT" parameter in the url which triggers the auto search process automatically.
     You can use this to your advantage by setting up a program like Python or AHK (or even the task scheduler) to auto run the script.
 
-Here's an example written in [AHK](https://www.autohotkey.com/):
+Here's a demo of how to do this with Task Scheduler: https://imgur.com/B3PnBb8
+
+And here's an example written in [AHK](https://www.autohotkey.com/):
 
 ```autohotkey
     ; BING-REWARDS
@@ -57,10 +59,9 @@ Here's an example written in [AHK](https://www.autohotkey.com/):
             query .= randomString . "%20"
         }
         query .= "&form=STARTSCRIPT"
-        rewardsPage := "https://rewards.bing.com/"
         ; Run each browser and navigate to the generated search url.
         for index, path in paths {
-            Run, %path% %query% %rewardsPage%
+            Run, %path% %query%
         }
         SplashTextOff
     }
