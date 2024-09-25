@@ -10,8 +10,6 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @license      MIT
-// @downloadURL https://update.greasyfork.org/scripts/498482/AutoGrind%3A%20Intelligent%20Bing%20Rewards%20Auto-Grinder.user.js
-// @updateURL https://update.greasyfork.org/scripts/498482/AutoGrind%3A%20Intelligent%20Bing%20Rewards%20Auto-Grinder.meta.js
 // ==/UserScript==
 
 /*=============================================*\
