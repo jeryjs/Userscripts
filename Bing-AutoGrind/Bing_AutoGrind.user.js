@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      5.0.3
+// @version      5.1.0
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -10,6 +10,8 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @license      MIT
+// @downloadURL https://update.greasyfork.org/scripts/498482/AutoGrind%3A%20Intelligent%20Bing%20Rewards%20Auto-Grinder.user.js
+// @updateURL https://update.greasyfork.org/scripts/498482/AutoGrind%3A%20Intelligent%20Bing%20Rewards%20Auto-Grinder.meta.js
 // ==/UserScript==
 
 /*=============================================*\
@@ -17,11 +19,12 @@
 \*=============================================*/
 // Constants
 var MAX_SEARCHES = GM_getValue("max-searches", 33); // Maximum number of words to search
-var TIMEOUT = GM_getValue("timeout", 4000); // Timeout between searches
+var COOLDOWN_TIMEOUT = GM_getValue("cooldown-timeout", 15); // Cooldown_Timeout between searches
 var UNDER_COOLDOWN = GM_getValue("under-cooldown", false);	// Workaround for cooldown restriction
 var OPEN_RANDOM_LINKS = GM_getValue("open-random-links", true);	// Simulate real human searcg by opening links
 var COLLECT_DAILY_ACTIVITY = GM_getValue("collect-daily-activity", false);	// Automatically collect daily activity points from bingo rewards dashboard page
 var AUTO_CLOSE_TABS = GM_getValue("auto-close-tabs", true);	// Automatically close any tabs/windows opened by the script
+var TIMEOUT = 4000;
 
 // Configuration options for the user script
 const configurations = [
@@ -34,19 +37,20 @@ const configurations = [
 		description: "The maximum number of words to search.<br>Default: 33",
 	},
 	{
-		id: "timeout",
-		name: "Timeout",
-		value: TIMEOUT,
-		type: "slider",
-		range: [1000, 10000],
-		description: "The timeout between searches in milliseconds.<br>Default: 4000",
-	},
-	{
 		id: "under-cooldown",
 		name: "Under Cooldown",
 		value: UNDER_COOLDOWN,
 		type: "checkbox",
 		description: "Enable this option if you are facing the 15 min cooldown restriction. For some accounts, Bing restricts the points earned to 9-12 points every 15 minutes. Enabling this option makes the script wait 15 mins after every 4 searches..<br>Default: False",
+	},
+	{
+		id: "cooldown-timeout",
+		name: "Cooldown Timeout",
+		value: COOLDOWN_TIMEOUT,
+		type: "slider",
+		range: [3, 30],
+        disabled: !UNDER_COOLDOWN,
+		description: "The Cooldown timeout between searches in milliseconds.<br> Under Cooldown must be enables for this option to become active.<br>Default: 15",
 	},
 	{
 		id: "open-random-links",
@@ -79,7 +83,7 @@ var tabsToClose = GM_getValue("tabsToClose", []);
 
 // Adjust timeout if under cooldown and within search limit
 if (UNDER_COOLDOWN && searches.length % 4 == 0 && searches.length <= MAX_SEARCHES - 4) {
-	TIMEOUT = 900000; // 15 minutes
+	TIMEOUT = COOLDOWN_TIMEOUT * 60000; // mins * 60 secs
 }
 // Check if the current page is Bing search page
 const isSearchPage = window.location.href.startsWith("https://www.bing.com/search");
@@ -147,6 +151,7 @@ configurations.forEach(config => {
     input.min = config.range[0];
     input.max = config.range[1];
     input.value = GM_getValue(config.id, config.value);
+    input.disabled = config.disabled; // Add this line
   } else if (config.type === "checkbox") {
     input = document.createElement("input");
     input.type = "checkbox";
@@ -191,6 +196,12 @@ settingsIcon.addEventListener("click", () => {
   settingsOverlay.style.display = "flex";
 });
 
+// Add logic to enable/disable the cooldown-timeout input
+document.getElementById("under-cooldown").addEventListener("change", (event) => {
+    const cooldownInput = document.getElementById("cooldown-timeout");
+    cooldownInput.disabled = !event.target.checked;
+});
+
 
 /**
  * This function updates the icon's appearance with the specified content and classlist.
@@ -204,14 +215,14 @@ function updateIcon(content, classlist="searching") {
 }
 
 /**
- * This function updates the configuration variables based on the user's input in the settings overlay.	
+ * This function updates the configuration variables based on the user's input in the settings overlay.
  * @param {string} name - The name of the configuration variable to update.
  * @param {string} value - The new value of the configuration variable.
  * @example updateConfigVariable("max-searches", 50);
 */
 function updateConfigVariable(name, value) {
   if (name === "max-searches") MAX_SEARCHES = parseInt(value);
-  else if (name === "timeout") TIMEOUT = parseInt(value);
+  else if (name === "cooldown-timeout") COOLDOWN_TIMEOUT = parseInt(value);
   else if (name === "under-cooldown") UNDER_COOLDOWN = value == "true";
 }
 
