@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     5.0.0
+// @version     5.0.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
 // @license     MIT
 // @match       https://anitaku.*/*
-// @match       https://anitaku.so/*
+// @match       https://anitaku.pe/*
 // @match       https://gogoanime.*/*
 // @match       https://gogoanime3.co/*
 // @match       https://gogoanime3.*/*
@@ -52,29 +52,31 @@ const websites = [
             button.innerHTML = '<i class="icongec-dowload"></i> Generate Download Links';
 
             // Add the button to the page if user is logged in otherwise show placeholder
-            if (document.querySelector('.cf-download')) {
-                document.querySelector('.cf-download').appendChild(button);
-            } else {
-                const loginMessage = document.querySelector('.list_dowload > div > span');
-                loginMessage.innerHTML = `<b style="color:#FFC119;">AniLINK:</b> Please <a href="/login.html" title="login"><u>log in</u></a> to be able to batch download animes.`;
-            }
+            if (document.querySelector('.cf-download')) document.querySelector('.cf-download').appendChild(button);
+            else document.querySelector('.list_dowload > div > span').innerHTML = `<b style="color:#FFC119;">AniLINK:</b> Please <a href="/login.html" title="login"><u>log in</u></a> to be able to batch download animes.`;
             return button;
         },
         extractEpisodes: async function (status) {
             status.textContent = 'Starting...';
+            const throttleLimit = 12; // Number of episodes to extract in parallel
+            const epLinks = Array.from(document.querySelectorAll(this.epLinks));
             let episodes = {};
-            const episodePromises = Array.from(document.querySelectorAll(this.epLinks)).map(async epLink => { try {
-                const page = await fetchPage(epLink.href);
-                
-                const [, epTitle, epNumber] = page.querySelector(this.epTitle).textContent.match(/(.+?) Episode (\d+(?:\.\d+)?)/);
-                const episodeTitle = `${epNumber.padStart(3, '0')} - ${epTitle}`;
-                const thumbnail = page.querySelector(this.thumbnail).src;
-                const links = [...page.querySelectorAll(this.linkElems)].reduce((obj, elem) => ({ ...obj, [elem.textContent.trim()]: elem.href }), {});
-                status.textContent = `Extracting ${epTitle} - ${epNumber.padStart(3, '0')}...`;
+            for (let i = 0; i < epLinks.length; i += throttleLimit) {
+                const chunk = epLinks.slice(i, i + throttleLimit);
+                let episodePromises = chunk.map(async epLink => { try {
+                    const page = await fetchPage(epLink.href);
+                    
+                    const [, epTitle, epNumber] = page.querySelector(this.epTitle).textContent.match(/(.+?) Episode (\d+(?:\.\d+)?)/);
+                    const episodeTitle = `${epNumber.padStart(3, '0')} - ${epTitle}`;
+                    const thumbnail = page.querySelector(this.thumbnail).src;
+                    status.textContent = `Extracting ${epTitle} - ${epNumber.padStart(3, '0')}...`;
+                    const links = [...page.querySelectorAll(this.linkElems)].reduce((obj, elem) => ({ ...obj, [elem.textContent.trim()]: elem.href }), {});
+                    status.textContent = `Extracted ${epTitle} - ${epNumber.padStart(3, '0')}`;
 
-                episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, 'mp4', thumbnail);
-            } catch (e) { showToast(e) } });
-            await Promise.all(episodePromises);
+                    episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, 'mp4', thumbnail);
+                } catch (e) { showToast(e) } });
+                await Promise.all(episodePromises);
+            }
             return episodes;
         }
     },
@@ -92,7 +94,7 @@ const websites = [
             status.textContent = 'Getting list of episodes...';
             let episodes = {};
             const epLinks = Array.from(document.querySelectorAll(this.epLinks));
-            const throttleLimit = 6;    // Number of episodes to extract in parallel
+            const throttleLimit = 12;    // Number of episodes to extract in parallel
 
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
                 const chunk = epLinks.slice(i, i + throttleLimit);
@@ -114,7 +116,6 @@ const websites = [
             }
             return episodes;
         },
-        // BASED ON N-SUDY's anime_scrapper [https://github.com/N-SUDY/anime_scrapper/blob/80a3c985923a32116fef621050c5de56884a4794/scrape.py#L20]
         _getVideoLinks: async function (page, status, episodeTitle) {
             const embedLinkId = page.body.innerHTML.match(new RegExp(`src="//${page.domain}/e/(.*?)/"`))[1];
             const embedApiResponse = await fetch(`https://${page.domain}/api/embed/`, { method: 'POST', headers: {"X-Requested-With": "XMLHttpRequest"}, body: new URLSearchParams({ id: embedLinkId, ac: "0" }) });
