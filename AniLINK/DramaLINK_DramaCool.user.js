@@ -1,13 +1,19 @@
 // ==UserScript==
 // @name        DramaLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.1.0
+// @version     1.1.1
 // @description Stream or download your favorite drama effortlessly with DramaLINK! Unlock the power to play any drama directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. DramaLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your drama-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=asianc.to
 // @author      Jery
 // @license     MIT
 // @match       https://asianc.*/*-episode-*
-// @match       https://asianc.to/*-episode-*
+// @match       https://asianc.sh/*-episode-*
+// @match       https://runasian.*/*-episode-*
+// @match       https://runasian.net/*-episode-*
+// @match       https://dramanice.*/*-episode-*
+// @match       https://dramanice.la/*-episode-*
+// @match       https://watchasia.*/*-episode-*
+// @match       https://watchasia.to/*-episode-*
 // @grant       GM_registerMenuCommand
 // ==/UserScript==
 
@@ -25,7 +31,7 @@ class Episode {
 const websites = [
     {
         name: 'DramaCool',
-        url: ['asianc', 'asianc.to/'],
+        url: ['asianc', 'runasian', 'dramanice', 'watchasia'],
         epLinks: 'ul.all-episode > li > a',
         epTitle: '.name > h1',
         linkElems: '.cf-download > a',
