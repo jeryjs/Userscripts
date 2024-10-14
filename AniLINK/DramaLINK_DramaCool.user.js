@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        DramaLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.1.2
+// @version     1.2.0
 // @description Stream or download your favorite drama effortlessly with DramaLINK! Unlock the power to play any drama directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. DramaLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your drama-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=asianc.to
 // @author      Jery
@@ -31,7 +31,7 @@ class Episode {
 const websites = [
     {
         name: 'DramaCool',
-        url: ['asianc', 'runasian', 'dramanice', 'watchasia'],
+        url: ['asianc', 'runasian', 'watchasia'],
         epLinks: 'ul.all-episode > li > a',
         epTitle: '.name > h1',
         linkElems: '.cf-download > a',
@@ -63,6 +63,61 @@ const websites = [
                 const episodeTitle = `${epNumber.padStart(3, '0')} - ${epTitle}`;
                 const thumbnail = page.querySelector(this.thumbnail).src;
                 const linkElems = [...page.querySelectorAll(this.linkElems)];
+                status.textContent = `Extracting ${epTitle} - ${epNumber.padStart(3, '0')}...`;
+                let links = {};
+                for (const elem of linkElems) {
+                    try {
+                        const html = await (await fetch('https://proxy.cors.sh/'+elem.href, {headers: {"x-cors-api-key": this._proxyKey}} )).text();
+                        const directLink = html.match(/window\.location="([^"]+)";/)[1];
+                        links[elem.textContent.trim()] = directLink;
+                    } catch (error) {
+                        console.error(`Failed to fetch ${elem.href}: ${error}`);
+                        status.textContent += `Failed to fetch ${elem.href}: ${error}`;
+                    }
+                }
+                status.textContent = `Parsed ${epTitle} - ${epNumber.padStart(3, '0')}...`;
+
+                episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, 'mp4', thumbnail);
+            });
+            await Promise.all(episodePromises);
+            return episodes;
+        }
+    },
+    {
+        name: 'DramaNice',
+        url: ['dramanice'],
+        epLinks: 'ul.list_episode > li > a',
+        epTitle: 'h1.label_coming',
+        linkElems: '.cf-download > a',
+        thumbnail: 'img',
+        addStartButton: function() {
+            const button = document.createElement('a');
+            button.id = "DramaLINK_startBtn";
+            button.style.cssText = `cursor: pointer; background-color: #145132;`;
+            button.innerHTML = '<i class="icongec-dowload"></i> Generate Download Links';
+            button.addEventListener('click', extractEpisodes);
+
+            // Add the button to the page if user is logged in otherwise show placeholder
+            if (document.querySelector('.cf-download')) {
+                document.querySelector('.cf-download').appendChild(button);
+            } else {
+                const loginMessage = document.querySelector('.list_dowload > div > span');
+                loginMessage.innerHTML = `<b style="color:#FFC119;">DramaLINK:</b> Please <a href="/login.html" title="login"><u>log in</u></a> to be able to batch download the series.`;
+            }
+        },
+		_proxyKey: "temp_2ed7d641dd52613591687200e7f7958b",
+        extractEpisodes: async function (status) {
+            status.textContent = 'Starting...';
+            let episodes = {};
+            const episodePromises = Array.from(document.querySelectorAll(this.epLinks)).map(async epLink => {
+                const response = await fetchHtml(epLink.href);
+                const page = (new DOMParser()).parseFromString(response, 'text/html');
+                
+                const [, epTitle, epNumber] = page.querySelector(this.epTitle).textContent.match(/(.+?) Episode (\d+)(?:.+)$/);
+                const episodeTitle = `${epNumber.padStart(3, '0')} - ${epTitle}`;
+                const thumbnail = page.querySelector(this.thumbnail).src;
+                const linkElems = [...page.querySelectorAll(this.linkElems)]
+                // const links = linkElems.reduce((obj, elem) => ({ ...obj, [elem.textContent.trim()]: elem.href }), {});
                 status.textContent = `Extracting ${epTitle} - ${epNumber.padStart(3, '0')}...`;
                 let links = {};
                 for (const elem of linkElems) {
