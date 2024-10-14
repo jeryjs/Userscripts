@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        DramaLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.1.1
+// @version     1.1.2
 // @description Stream or download your favorite drama effortlessly with DramaLINK! Unlock the power to play any drama directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. DramaLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your drama-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=asianc.to
 // @author      Jery
@@ -63,6 +63,7 @@ const websites = [
                 const episodeTitle = `${epNumber.padStart(3, '0')} - ${epTitle}`;
                 const thumbnail = page.querySelector(this.thumbnail).src;
                 const linkElems = [...page.querySelectorAll(this.linkElems)];
+                status.textContent = `Extracting ${epTitle} - ${epNumber.padStart(3, '0')}...`;
                 let links = {};
                 for (const elem of linkElems) {
                     try {
@@ -74,7 +75,7 @@ const websites = [
                         status.textContent += `Failed to fetch ${elem.href}: ${error}`;
                     }
                 }
-                status.textContent = `Extracting ${epTitle} - ${epNumber.padStart(3, '0')}...`;
+                status.textContent = `Parsed ${epTitle} - ${epNumber.padStart(3, '0')}...`;
 
                 episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, 'mp4', thumbnail);
             });
