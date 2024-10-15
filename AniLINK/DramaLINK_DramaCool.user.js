@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        DramaLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.2.1
+// @version     1.2.2
 // @description Stream or download your favorite drama effortlessly with DramaLINK! Unlock the power to play any drama directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. DramaLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your drama-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=asianc.to
 // @author      Jery
@@ -47,7 +47,7 @@ const websites = [
             if (document.querySelector('.cf-download')) {
                 document.querySelector('.cf-download').appendChild(button);
             } else {
-                const loginMessage = document.querySelector('.list_dowload > div > span');
+                const loginMessage = document.querySelector('.watch-drama > .plugins2').nextElementSibling;
                 loginMessage.innerHTML = `<b style="color:#FFC119;">DramaLINK:</b> Please <a href="/login.html" title="login"><u>log in</u></a> to be able to batch download the series.`;
             }
         },
@@ -55,7 +55,7 @@ const websites = [
         extractEpisodes: async function (status) {
             status.textContent = 'Starting...';
             let episodes = {};
-            const episodePromises = Array.from(document.querySelectorAll(this.epLinks)).map(async epLink => {
+            const episodePromises = Array.from(document.querySelectorAll(this.epLinks)).map(async epLink => { try {
                 const response = await fetchHtml(epLink.href);
                 const page = (new DOMParser()).parseFromString(response, 'text/html');
 
@@ -83,7 +83,7 @@ const websites = [
                 status.textContent = `Parsed ${epTitle} - ${epNumber.padStart(3, '0')}...`;
 
                 episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, 'mp4', thumbnail);
-            });
+            } catch (error) {alert(error)}} );
             await Promise.all(episodePromises);
             return episodes;
         }
@@ -106,7 +106,7 @@ const websites = [
             if (document.querySelector('.cf-download')) {
                 document.querySelector('.cf-download').appendChild(button);
             } else {
-                const loginMessage = document.querySelector('.list_dowload > div > span');
+                const loginMessage = document.querySelector('.drama_video_body > .clr').nextElementSibling;
                 loginMessage.innerHTML = `<b style="color:#FFC119;">DramaLINK:</b> Please <a href="/login.html" title="login"><u>log in</u></a> to be able to batch download the series.`;
             }
         },
@@ -114,7 +114,7 @@ const websites = [
         extractEpisodes: async function (status) {
             status.textContent = 'Starting...';
             let episodes = {};
-            const episodePromises = Array.from(document.querySelectorAll(this.epLinks)).map(async epLink => {
+            const episodePromises = Array.from(document.querySelectorAll(this.epLinks)).map(async epLink => { try {
                 const response = await fetchHtml(epLink.href);
                 const page = (new DOMParser()).parseFromString(response, 'text/html');
                 
@@ -138,7 +138,7 @@ const websites = [
                 status.textContent = `Parsed ${epTitle} - ${epNumber.padStart(3, '0')}...`;
 
                 episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, 'mp4', thumbnail);
-            });
+            } catch (error) {alert(error)}} );
             await Promise.all(episodePromises);
             return episodes;
         }
