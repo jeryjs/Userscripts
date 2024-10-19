@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      5.1.2
+// @version      5.1.3
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -484,6 +484,8 @@ const stylesheet = Object.assign(document.createElement("style"), {textContent: 
         padding: 2px 10px 2px 0px;
         transition: all 0.5s ease;
     }
+    .b_drk .search-icon,
+    .b_drk .settings-icon,
     .b_dark .search-icon,
     .b_dark .settings-icon {
         background-color: #333;
@@ -510,12 +512,14 @@ const stylesheet = Object.assign(document.createElement("style"), {textContent: 
     .search-icon.searching {
         background-color: lightblue !important;
     }
+    .b_drk .search-icon.searching,
     .b_dark .search-icon.searching {
         background-color: midnightblue !important;
     }
     .search-icon.counting {
         background-color: lightgreen !important;
     }
+    .b_drk .search-icon.counting,
     .b_dark .search-icon.counting {
         background-color: green !important;
     }
@@ -523,6 +527,7 @@ const stylesheet = Object.assign(document.createElement("style"), {textContent: 
 
 	/******** Settings Overlay *********/
 
+	.b_drk .settings-overlay > div,
 	.b_dark .settings-overlay > div {
 		background-color: black !important;
 	}
