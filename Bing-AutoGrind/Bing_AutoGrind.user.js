@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      5.1.3
+// @version      5.2.0
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -17,58 +17,68 @@
 \*=============================================*/
 // Constants
 var MAX_SEARCHES = GM_getValue("max-searches", 33); // Maximum number of words to search
+var TIMEOUT_RANGE = GM_getValue("timeout-range", [5, 10]);	// Randomize the time to wait between searches
 var COOLDOWN_TIMEOUT = GM_getValue("cooldown-timeout", 15); // Cooldown_Timeout between searches
 var UNDER_COOLDOWN = GM_getValue("under-cooldown", false);	// Workaround for cooldown restriction
 var OPEN_RANDOM_LINKS = GM_getValue("open-random-links", true);	// Simulate real human searcg by opening links
 var COLLECT_DAILY_ACTIVITY = GM_getValue("collect-daily-activity", false);	// Automatically collect daily activity points from bingo rewards dashboard page
 var AUTO_CLOSE_TABS = GM_getValue("auto-close-tabs", true);	// Automatically close any tabs/windows opened by the script
-var TIMEOUT = Math.floor(Math.random() * (10000 - 5000 + 1)) + 5000;	// Randomize the timeout between searches by 5-15 seconds
+
+var TIMEOUT = (Math.floor(Math.random() * (TIMEOUT_RANGE[1] - TIMEOUT_RANGE[0]) * 1000) + TIMEOUT_RANGE[0] * 1000);	// Randomize the timeout with given range
 
 // Configuration options for the user script
 const configurations = [
 	{
 		id: "max-searches",
 		name: "Max Searches",
-		value: MAX_SEARCHES,
 		type: "slider",
+		value: MAX_SEARCHES,
 		range: [3, 50],
 		description: "The maximum number of words to search.<br>Default: 33",
 	},
 	{
+		id: "timeout-range",
+		name: "Random Timeout Range",
+		type: "range",
+		value: TIMEOUT_RANGE,
+		range: [1, 60],
+		description: "Randomise the time to wait between searches (in seconds).<br>Example: 5-10 makes the script wait between 5 to 10 seconds before going to next search.<br>Setting it below 5 is not advised as bing limits how often points are awarded searches.<br>Default: 5-10",
+	},
+	{
 		id: "under-cooldown",
-		name: "Under Cooldown",
-		value: UNDER_COOLDOWN,
+		name: "Under Cooldown Workaround",
 		type: "checkbox",
-		description: "Enable this option if you are facing the 15 min cooldown restriction. For some accounts, Bing restricts the points earned to 9-12 points every 15 minutes. Enabling this option makes the script wait 15 mins after every 4 searches..<br>Default: False",
+		value: UNDER_COOLDOWN,
+		description: "Enable this option if you are facing the 15 min cooldown restriction.<br>For some accounts, Bing restricts the points earned to 9-12 points every 15 minutes. Enabling this option makes the script wait 15 mins after every 4 searches..<br>Default: False",
 	},
 	{
 		id: "cooldown-timeout",
 		name: "Cooldown Timeout",
-		value: COOLDOWN_TIMEOUT,
 		type: "slider",
+		value: COOLDOWN_TIMEOUT,
 		range: [3, 30],
         disabled: !UNDER_COOLDOWN,
-		description: "The Cooldown timeout between searches in milliseconds.<br> Under Cooldown must be enables for this option to become active.<br>Default: 15",
+		description: "The Cooldown timeout between every 4th search (in seconds).<br> Under Cooldown must be enabled for this option to become active.<br>Default: 15",
 	},
 	{
 		id: "open-random-links",
 		name: "Open Random Links",
-		value: OPEN_RANDOM_LINKS,
 		type: "checkbox",
+		value: OPEN_RANDOM_LINKS,
 		description: "Enable this option to open any random link from the page in an iframe after every search. It has been observed that doing this removes the 15-point restriction after a while / reduces chances of getting the restriction.<br>Default: True",
 	},
 	{
 		id: "collect-daily-activity",
 		name: "Daily Activity Points",
-		value: COLLECT_DAILY_ACTIVITY,
 		type: "checkbox",
+		value: COLLECT_DAILY_ACTIVITY,
 		description: "Open rewards page and auto-collect daily activity points from the Bing rewards dashboard page. This option loads the activities into an iframe to earn the points.<br>Default: False",
 	},
 	{
 		id: "auto-close-tabs",
 		name: "Auto Close Tabs",
-		value: AUTO_CLOSE_TABS,
 		type: "checkbox",
+		value: AUTO_CLOSE_TABS,
 		description: "Automatically close any tabs/windows opened by the script. This applies to the search page and any rewards page that were opened as well.<br>Default: True",
 	}
 ];
@@ -133,57 +143,73 @@ const settingsContent = document.createElement("div");
 settingsContent.style = `background-color: white; padding: 20px; border-radius: 10px; display: flex; flex-direction: column;`;
 
 configurations.forEach(config => {
-  const settingItem = document.createElement("div");
-  settingItem.classList.add("settings-item");
+	const settingItem = document.createElement("div");
+	settingItem.classList.add("settings-item");
 
-  const name = document.createElement("div");
-  name.classList.add("settings-item-name");
-  name.textContent = config.name;
+	const name = document.createElement("div");
+	name.classList.add("settings-item-name");
+	name.textContent = config.name;
 
-  const inputContainer = document.createElement("div");
-  inputContainer.classList.add("settings-item-input");
-  let input;
-  if (config.type === "slider") {
-    input = document.createElement("input");
-    input.type = "range";
-    input.min = config.range[0];
-    input.max = config.range[1];
-    input.value = GM_getValue(config.id, config.value);
-    input.disabled = config.disabled; // Add this line
-  } else if (config.type === "checkbox") {
-    input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = GM_getValue(config.id, config.value);
-  }
-  input.id = config.id;
-  input.addEventListener("change", () => {
-    GM_setValue(config.id, input.type === "checkbox" ? input.checked : input.value);
-    updateConfigVariable(config.id, input.type === "checkbox" ? input.checked : input.value);
-    currentValue.textContent = input.type === "checkbox" ? (input.checked ? "True" : "False") : input.value;
-  });
-  inputContainer.appendChild(input);
+	const inputContainer = document.createElement("div");
+	inputContainer.classList.add("settings-item-input");
+	let input;
+	if (config.type == "slider") {
+		input = document.createElement("input");
+		input.type = "range";
+		input.min = config.range[0];
+		input.max = config.range[1];
+		input.value = GM_getValue(config.id, config.value);
+		input.disabled = config.disabled;
+	} else if (config.type == "range") {
+		input = document.createElement("div"); input.classList.add("range-slider");
+		input.value = GM_getValue(config.id, config.value);
+		input.valueText = input.value.join("-");
+		for (let i = 0; i < 2; i++) {
+			let rangeInput = document.createElement("input");
+			Object.assign(rangeInput, { type: "range", value: config.value[i], min: config.range[0], max: config.range[1], style: `height: 1px;` });
+			input.appendChild(rangeInput);
+			rangeInput.addEventListener("input", () => {
+				if (parseInt(input.children[0].value) > parseInt(input.children[1].value)) input.children[i].value = input.children[1 - i].value; // Ensure min <= max
+				input.value = [input.children[0].value, input.children[1].value];
+				input.valueText = input.value.join("-");
+			});
+		}
+	} else if (config.type == "checkbox") {
+		input = document.createElement("input");
+		input.type = "checkbox";
+		input.checked = GM_getValue(config.id, config.value);
+		input.oninput = () => input.valueText = input.checked ? "Enabled" : "Disabled";
+	}
+	input.id = config.id;
+	input.dispatchEvent(new Event("input"));	// Trigger input event to initialize `input.valueText`
 
-  const currentValue = document.createElement("div");
-  currentValue.classList.add("settings-item-value");
-  currentValue.textContent = input.type === "checkbox" ? (input.checked ? "True" : "False") : input.value;
+	const currentValue = document.createElement("div");
+	currentValue.classList.add("settings-item-value");
+	currentValue.textContent = input.valueText??input.value;
 
-  const description = document.createElement("div");
-  description.classList.add("settings-item-description");
-  description.innerHTML = config.description;
+	input.addEventListener("input", () => {
+		GM_setValue(config.id, input.type == "checkbox" ? input.checked : input.value);
+		currentValue.textContent = input.valueText??input.value;
+	});
+	inputContainer.appendChild(input);
 
-  settingItem.appendChild(name);
-  settingItem.appendChild(inputContainer);
-  settingItem.appendChild(currentValue);
-  settingItem.appendChild(description);
+	const description = document.createElement("div");
+	description.classList.add("settings-item-description");
+	description.innerHTML = config.description;
 
-  settingsContent.appendChild(settingItem);
+	settingItem.appendChild(name);
+	settingItem.appendChild(inputContainer);
+	settingItem.appendChild(currentValue);
+	settingItem.appendChild(description);
+
+	settingsContent.appendChild(settingItem);
 });
 
 const closeButton = document.createElement("button");
 closeButton.textContent = "Close";
 closeButton.style = `align-self: center; margin-top: 10px; padding: 5px 10px; border-radius: 5px; background-color: lightgray;`;
 closeButton.addEventListener("click", () => {
-  settingsOverlay.style.display = "none";
+	settingsOverlay.style.display = "none";
 });
 
 settingsContent.appendChild(closeButton);
@@ -191,7 +217,7 @@ settingsOverlay.appendChild(settingsContent);
 document.body.appendChild(settingsOverlay);
 
 settingsIcon.addEventListener("click", () => {
-  settingsOverlay.style.display = "flex";
+	settingsOverlay.style.display = "flex";
 });
 
 // Add logic to enable/disable the cooldown-timeout input
@@ -207,21 +233,9 @@ document.getElementById("under-cooldown").addEventListener("change", (event) => 
  * @param {string} classlist - The classlist to apply to the icon.
  */
 function updateIcon(content, classlist="searching") {
-  searchIcon.classList.add(classlist);
-  settingsIcon.classList.add(classlist);
-  searchIcon.querySelector("span").textContent = content;
-}
-
-/**
- * This function updates the configuration variables based on the user's input in the settings overlay.
- * @param {string} name - The name of the configuration variable to update.
- * @param {string} value - The new value of the configuration variable.
- * @example updateConfigVariable("max-searches", 50);
-*/
-function updateConfigVariable(name, value) {
-  if (name === "max-searches") MAX_SEARCHES = parseInt(value);
-  else if (name === "cooldown-timeout") COOLDOWN_TIMEOUT = parseInt(value);
-  else if (name === "under-cooldown") UNDER_COOLDOWN = value == "true";
+	searchIcon.classList.add(classlist);
+	settingsIcon.classList.add(classlist);
+	searchIcon.querySelector("span").textContent = content;
 }
 
 
@@ -339,7 +353,7 @@ if (isSearchPage) {
 		else if (searches.length > 0 && window.location.href.includes("&qs=ds&form=QBRE")) {
 			updateIcon(`${searches.length} left`);
 			let targetNode = document.querySelector(pointsElem);
-			const observerTimeout = 5000;
+			const observerTimeout = 4000;
 
 			let observerOptions = {characterData: true, childList: true, subtree: true};
 
@@ -348,7 +362,7 @@ if (isSearchPage) {
 
 				let observer = new MutationObserver((mutationsList, observer) => {
 					for (let mutation of mutationsList) {
-						if (mutation.type === "childList" || mutation.type === "characterData") {
+						if (mutation.type == "childList" || mutation.type == "characterData") {
 							let newTextContent = targetNode.textContent.trim();
 							if (newTextContent != oldTextContent) {
 								gotoNextSearch();
@@ -419,7 +433,7 @@ if (isSearchPage) {
 				let c = parseInt(count);
 				const intervalId = setInterval(() => {
 					updateIcon(c, "counting");
-					if (c === 0) {
+					if (c == 0) {
 						clearInterval(intervalId);
 					}
 					c--;
