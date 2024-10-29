@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Close this window</title>
+</head>
+<body>
+    <h1>Close this window</h1>
+    <p style="color: grey;">You can manually close this window or use an external tool to do so..</p>
+</body>
+<script>
+    if (window.opener) {
+        window.close();
+    } else {
+        window.open('', '_self').close();
+        if (!win.closed) {
+            alert("This window cannot be closed automatically. Please close it manually.");
+        }
+    }
+</script>
+</html>
