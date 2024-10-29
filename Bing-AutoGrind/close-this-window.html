@@ -4,19 +4,51 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Close this window</title>
+
+    <style>
+
+        code {
+            background-color: #f4f4f4;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
 </head>
 <body>
     <h1>Close this window</h1>
     <p style="color: grey;">You can manually close this window or use an external tool to do so..</p>
+    <p style="margin-top: 50px;">To enable closing windows not opened by script in <strong>Firefox</strong>, follow these steps:</p>
+    <ol>
+        <li>Open Firefox and type <code>about:config</code> in the address bar.</li>
+        <li>Press <strong>Enter</strong> and accept the risk warning.</li>
+        <li>Search for the preference named <code>dom.allow_scripts_to_close_windows</code>.</li>
+        <li>Change its value to <strong>true</strong>.</li>
+    </ol>
+
+    <div style="margin-top: 50px;" class="bing-autogrind hidden">
+        <h3>This page was opened by <a href="https://greasyfork.org/en/scripts/498482-autogrind-intelligent-bing-rewards-auto-grinder">Bing_AutoGrind</a>.</h6>
+        <p><strong>Tip: </strong>you can use an external tool to automate closing tabs after searches by checking for the title of this window (Close this window).</p>
+    </div>
+
+    <h4 style="margin-top: 50px;">Why am I here?</h4>
+    <p>This page is used to close the window automatically after the task is completed. If you see this page, it means that the window cannot be closed automatically. Please close it manually.</p>
+    <p>If you are a developer, you can use the following code to close the window:</p>
 </body>
 <script>
-    if (window.opener) {
-        window.close();
-    } else {
-        window.open('', '_self').close();
-        if (!win.closed) {
-            alert("This window cannot be closed automatically. Please close it manually.");
+    const params = new URLSearchParams(window.location.search);
+    params.forEach((value, key) => {
+        const element = document.querySelector(`.${key}`);
+        if (element) {
+            element.classList.remove('hidden');
         }
-    }
+    });
+
+    window.close();
+    window.open('', '_self').close();
+    alert("This window cannot be closed automatically. Please close it manually.");
 </script>
 </html>

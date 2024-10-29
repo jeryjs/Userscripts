@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      5.2.0
+// @version      5.2.1
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -34,7 +34,7 @@ const configurations = [
 		type: "slider",
 		value: MAX_SEARCHES,
 		range: [3, 50],
-		description: "The maximum number of words to search.<br>Default: 33",
+		description: "The maximum number of searches to make.<br>Default: 33",
 	},
 	{
 		id: "timeout-range",
@@ -470,6 +470,18 @@ if (AUTO_CLOSE_TABS) {
 		GM_setValue("tabsToClose", tabsToClose);
         setTimeout(() => window.close(), tabToClose.timeout);
     }
+	
+
+	/**
+	 * If the current page is the Bing search page and the search results are empty,
+	 * the script opens `close-this-window.html`.
+	 * This is a workaround for modern browser's limitation in closing tabs that werent opened by the script.
+	 * Tip: This workaround still might not work, so you can use an external tool to automate closing windows
+	 * by checking for the title of the window (Close this window).
+	 */
+	if (window.location.href.includes("&qs=ds&form=QBRE") && searches.length == 0 && !window.location.href.includes("&form=STARTSCRIPT")) {
+		window.open(`https://jeryjs.github.io/Userscripts/Bing-AutoGrind/close-this-window.html?bing-autogrind=true`, "_self");
+	}
 }
 
 /*=============================================*\
