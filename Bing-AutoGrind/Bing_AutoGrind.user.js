@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      5.2.3
+// @version      5.2.4
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -190,6 +190,7 @@ configurations.forEach(config => {
 	input.addEventListener("input", () => {
 		GM_setValue(config.id, input.type == "checkbox" ? input.checked : input.value);
 		currentValue.textContent = input.valueText??input.value;
+		updateConfigVariable(config.id, input.type == "checkbox" ? input.checked : input.value);
 	});
 	inputContainer.appendChild(input);
 
@@ -238,6 +239,18 @@ function updateIcon(content, classlist="searching") {
 	searchIcon.querySelector("span").textContent = content;
 }
 
+
+/**
+ * This function updates the configuration variables based on the user's input in the settings overlay.
+ * This is required only for configurations that require immediate changes before reloading the tab like the `Max Searches` option.
+ * @param {string} id - The id of the configuration variable to update.
+ * @param {string} value - The new value of the configuration variable.
+*/
+function updateConfigVariable(id, value) {
+	if (id === "max-searches") MAX_SEARCHES = parseInt(value);
+	else if (id === "cooldown-timeout") COOLDOWN_TIMEOUT = parseInt(value);
+	else if (id === "under-cooldown") UNDER_COOLDOWN = value == "true";
+  }
 
 /*=============================================*\
 |* 				HELPER FUNCTIONS			   *|
