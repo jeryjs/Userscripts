@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      5.2.2
+// @version      5.2.3
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -276,10 +276,11 @@ function startSearch() {
 	if (COLLECT_DAILY_ACTIVITY) window.open(`https://rewards.bing.com/?ref=rewardspanel`, "_blank");
 	if (AUTO_CLOSE_TABS) addTabToClose("https://rewards.bing.com/?ref=rewardspanel");
 	
-	window.open(`https://www.bing.com/search?go=Search&q=${searches.pop()}&qs=ds&form=QBRE`, "_self");
-	addTabToClose(`https://www.bing.com/search?go=Search&q=${encodeURI(searches[0])}&qs=ds&form=QBRE`);
+	const nextSearchTerm = searches.pop();
 	
 	GM_setValue("searches", searches);
+	addTabToClose(`https://www.bing.com/search?go=Search&q=${encodeURI(searches[0])}&qs=ds&form=QBRE`);
+	window.open(`https://www.bing.com/search?go=Search&q=${nextSearchTerm}&qs=ds&form=QBRE`, "_self");
 }
 
 /**
@@ -464,26 +465,22 @@ if (isRewardPage) {
 /**
  * Close the current tab if it has been registered for auto-closing.
  * Waits for the specified timeout before closing the tab.
+ * If the tab cant be closed, then use a workaround for modern browser's limitation in closing tabs that werent opened by the script.
+ * Tip: This workaround still might not work, so you can use an external tool to automate closing windows
+ * by checking for the title of the window (Close this window).
  */
 if (AUTO_CLOSE_TABS) {
     const tabToClose = tabsToClose.find(tab => window.location.href.includes(tab.url));
 	if (tabToClose) {
 		tabsToClose = tabsToClose.filter(tab => tab.url != tabToClose.url);
 		GM_setValue("tabsToClose", tabsToClose);
-        setTimeout(() => window.close(), tabToClose.timeout);
-    }
-	
+        setTimeout(() => {
+			window.close()
 
-	/**
-	 * If the current page is the Bing search page and the search results are empty,
-	 * the script opens `close-this-window.html`.
-	 * This is a workaround for modern browser's limitation in closing tabs that werent opened by the script.
-	 * Tip: This workaround still might not work, so you can use an external tool to automate closing windows
-	 * by checking for the title of the window (Close this window).
-	 */
-	if (window.location.href.includes("&qs=ds&form=QBRE") && searches.length == 0 && !window.location.href.includes("&form=STARTSCRIPT")) {
-		window.open(`https://jeryjs.github.io/Userscripts/Bing-AutoGrind/close-this-window.html?bing-autogrind=true`, "_self");
-	}
+			// IF the tab still hasnt closed, take the user to close-this-window page
+			window.open(`https://jeryjs.github.io/Userscripts/Bing-AutoGrind/close-this-window.html?bing-autogrind=true`, "_self");
+		}, tabToClose.timeout);
+    }
 }
 
 /*=============================================*\
