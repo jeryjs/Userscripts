@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     5.1.0
+// @version     5.2.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -23,6 +23,7 @@
 // @match       https://hianime.nz/watch/*
 // @match       https://hianime.sz/watch/*
 // @match       https://otaku-streamers.com/info/*/*
+// @match       https://animeheaven.me/anime.php?*
 // @grant       GM_registerMenuCommand
 // @grant       GM_addStyle
 // ==/UserScript==
@@ -268,13 +269,53 @@ const websites = [
                 let episodePromises = chunk.map(async epLink => { try {
                     const page = await fetchPage(epLink.href); 
                     const epTitle = page.querySelector(this.epTitle).textContent;
-                    const epNumber = page.querySelector(this.epNum).textContent.replace("Episode ", '');
-                    const episodeTitle = `${epNumber.padStart(3, '0')} - ${epTitle}`;
+                    const epNumber = page.querySelector(this.epNum).textContent.replace("Episode ", '').padStart(3, '0');
+                    const episodeTitle = `${epNumber} - ${epTitle}`;
 
-                    status.textContent = `Extracting ${epTitle} - ${epNumber.padStart(3, '0')}...`;
+                    status.textContent = `Extracting ${epTitle} - ${epNumber}...`;
                     const links = { 'mp4': page.querySelector('video > source').src };
 
-                    episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, 'mp4', this.thumbnail);
+                    episodes[episodeTitle] = new Episode(epNumber, epTitle, links, 'mp4', this.thumbnail);
+                } catch (e) { showToast(e) } });
+                await Promise.all(episodePromises);
+            }
+            return episodes;
+        }
+    },
+    {
+        name: 'AnimeHeaven',
+        url: ['animeheaven.me'],
+        epLinks: 'a.ac3',
+        epTitle: 'a.c2.ac2',
+        epNumber: '.boxitem.bc2.c1.mar0',
+        thumbnail: 'img.posterimg',
+        addStartButton: function() {
+            const button = document.createElement('a');
+            button.id = "AniLINK_startBtn";
+            button.style.cssText = `cursor: pointer; border: 2px solid red; padding: 4px;`;
+            button.innerHTML = 'Generate Download Links';
+            document.querySelector("div.linetitle2.c2").parentNode.insertBefore(button, document.querySelector("div.linetitle2.c2"));
+            return button;
+        },
+        extractEpisodes: async function (status) {
+            status.textContent = 'Starting...';
+            let episodes = {};
+            const epLinks = Array.from(document.querySelectorAll(this.epLinks));
+            const throttleLimit = 12; // Number of episodes to extract in parallel
+
+            for (let i = 0; i < epLinks.length; i += throttleLimit) {
+                const chunk = epLinks.slice(i, i + throttleLimit);
+                let episodePromises = chunk.map(async epLink => { try {
+                    const page = await fetchPage(epLink.href);
+                    const epTitle = page.querySelector(this.epTitle).textContent;
+                    const epNumber = page.querySelector(this.epNumber).textContent.replace("Episode ", '').padStart(3, '0');
+                    const episodeTitle = `${epNumber} - ${epTitle}`;
+                    const thumbnail = document.querySelector(this.thumbnail).src;
+
+                    status.textContent = `Extracting ${epTitle} - ${epNumber}...`;
+                    const links = [...page.querySelectorAll('#vid > source')].reduce((acc, source) => ({ ...acc, [source.src.match(/\/\/(\w+)\./)[1]]: source.src }), {});
+
+                    episodes[episodeTitle] = new Episode(epNumber, epTitle, links, 'mp4', thumbnail);
                 } catch (e) { showToast(e) } });
                 await Promise.all(episodePromises);
             }
