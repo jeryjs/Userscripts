@@ -24,6 +24,7 @@
 // @match       https://hianime.sz/watch/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_addStyle
+// @grant       GM_xmlhttpRequest
 // ==/UserScript==
 
 class Episode {
@@ -141,6 +142,7 @@ const websites = [
         epLinks: '.dropup.episode-menu .dropdown-item',
         epTitle: '.theatre-info > h1',
         linkElems: '#resolutionMenu > button',
+        // linkElems: '#pickDownload > a',
         thumbnail: '.theatre-info > a > img',
         addStartButton: function() {
             GM_addStyle(`.theatre-settings .col-sm-3 { max-width: 20%; }`);
@@ -166,14 +168,36 @@ const websites = [
                 const episodeTitle = `${epNumber.padStart(3, '0')} - ${epTitle}`;
                 const thumbnail = page.querySelector(this.thumbnail).src;
                 status.textContent = `Extracting ${epTitle} - ${epNumber.padStart(3, "0")}...`;
-
+                
                 async function getVideoUrl(kwikUrl) {
                     const response = await fetch(kwikUrl, { headers: { "Referer": "https://animepahe.com" } });
                     const data = await response.text();
                     return eval(/(eval)(\(f.*?)(\n<\/script>)/s.exec(data)[2].replace("eval", "")).match(/https.*?m3u8/)[0];
                 }
+
                 let links = {};
                 for (const elm of [...page.querySelectorAll(this.linkElems)]) {
+                    // const kwikUrl = await fetch(elm.href).then(res => res.text()).then(data => data.match(/https:\/\/kwik.\w+\/f\/[^"]+/)[0]);
+                    // const resText = await fetch(kwikUrl).then(res => res.text());
+                    // const [_, string, key, v1, v2] = resText.match(/\("(\w+)",\d+,"(\w+)",(\d+),(\d+),\d+\)/);
+                    // const decryptedString = this._decryptString(string, key, v1, v2);
+
+                    // const res = await new Promise((resolve, reject) => {
+                    //     GM_xmlhttpRequest({
+                    //         method: "POST",
+                    //         url: decryptedString.match(/action="(.+?)"/)[1],
+                    //         headers: {
+                    //             "content-type": "application/x-www-form-urlencoded",
+                    //             "cookie": `kwik_session=${document.cookie.match(/XSRF-TOKEN=(\w+)/)[1]}%3D;`,
+                    //             "Referer": kwikUrl
+                    //         },
+                    //         data: `_token=${decryptedString.match(/value="(.+?)"/)[1]}`,
+                    //         onload: resolve,
+                    //         onerror: reject
+                    //     });
+                    // });
+                    // links[elm.textContent] = res.finalUrl;
+
                     links[elm.textContent] = await getVideoUrl(elm.getAttribute('data-src'));
                     status.textContent = `Parsed ${episodeTitle}`;
                 }
@@ -183,6 +207,20 @@ const websites = [
             await Promise.all(episodePromises);
             console.log(episodes);
             return episodes;
+        },
+        _decryptString: function(fullString, key, v1, v2) {
+            let CHAR_MAP = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ+/";
+            function getString(content, s1, s2) {
+                let acc = [...content].reduce((a, c, i) => a + (/\d/.test(c) ? +c : 0) * s1 ** (content.length - i - 1), 0);
+                let res = '';
+                while (acc > 0) { res = CHAR_MAP[acc % s2] + res; acc = Math.floor(acc / s2); }
+                return res || '0';
+            }
+            
+            return fullString.split(key[+v2]).map(s => {
+                key.split('').forEach((k, j) => s = s.split(k).join(j));
+                return String.fromCharCode(parseInt(getString(s, +v2, 10)) - +v1);
+            }).join('');
         },
         styles: `div#AniLINK_LinksContainer { font-size: 10px; } #Quality > b > div > ul {font-size: 16px;}`
     },
