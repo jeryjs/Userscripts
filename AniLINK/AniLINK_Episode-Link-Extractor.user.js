@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     5.2.0
+// @version     5.2.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -30,15 +30,60 @@
 
 class Episode {
     constructor(number, title, links, type, thumbnail) {
-        this.number = number;
-        this.title = title;
-        this.links = links;
-        this.type = type;
-        this.thumbnail = thumbnail;
-        this.name = `${this.title} - ${this.number}`;
+        this.number = number;   // The episode number, padded to 3 digits.
+        this.title = title;     // The title of the episode (this can be the specific ep title or just the anime name).
+        this.links = links;     // An object containing the download links for the episode, keyed by quality (eg: {"source1":"http://linktovideo.mp4", "source2":"vid2.mp4"}).
+        this.type = type;       // The file type of the video links (eg: "mp4", "m3u8").
+        this.thumbnail = thumbnail; // The URL of the episode's thumbnail image (if unavailable, then just any image is fine. Thumbnail property isnt really used in the script yet).
+        this.name = `${this.title} - ${this.number}`;   // The formatted name of the episode, combining title and number.
     }
 }
 
+/**
+ * @typedef {Object} Websites[]
+ * @property {string} name - The name of the website (required).
+ * @property {string[]} url - An array of URL patterns that identify the website (required).
+ * @property {string} thumbnail - A CSS selector to identify the episode thumbnail on the website (required).
+ * @property {Function} addStartButton - A function to add the "Generate Download Links" button to the website (required).
+ * @property {Function} extractEpisodes - A function to extract episode information from the website (required).
+ * @property {string} epLinks - A CSS selector to identify the episode links on the website (optional).
+ * @property {string} epTitle - A CSS selector to identify the episode title on the website (optional).
+ * @property {string} linkElems - A CSS selector to identify the download link elements on the website (optional).
+ * @property {string} [animeTitle] - A CSS selector to identify the anime title on the website (optional).
+ * @property {string} [epNum] - A CSS selector to identify the episode number on the website (optional).
+ * @property {Function} [_getVideoLinks] - A function to extract video links from the website (optional).
+ * @property {string} [styles] - Custom CSS styles to be applied to the website (optional).
+ * 
+ * @description An array of website configurations for extracting episode links.
+ * 
+ * @note To add a new website, follow these steps:
+ * 1. Create a new object with the following properties:
+ *    - `name`: The name of the website.
+ *    - `url`: An array of URL patterns that identify the website.
+ *    - `thumbnail`: A CSS selector to identify the episode thumbnail on the website.
+ *    - `addStartButton`: A function to add the "Generate Download Links" button to the website.
+ *    - `extractEpisodes`: A function to extract episode information from the website.
+ * 2. Optionally, add the following properties if needed (they arent used by the script, but they will come in handy when the animesite changes its layout):
+ *    - `animeTitle`: A CSS selector to identify the anime title on the website.
+ *    - `epLinks`: A CSS selector to identify the episode links on the website.
+ *    - `epTitle`: A CSS selector to identify the episode title on the website.
+ *    - `linkElems`: A CSS selector to identify the download link elements on the website.
+ *    - `epNum`: A CSS selector to identify the episode number on the website.
+ *    - `_getVideoLinks`: A function to extract video links from the website.
+ *    - `styles`: Custom CSS styles to be applied to the website.
+ * 3. Implement the `addStartButton` function to add the "Generate Download Links" button to the website.
+ *    - This function should create a element and append it to the appropriate location on the website.
+ *    - The button should have an ID of "AniLINK_startBtn".
+ * 4. Implement the `extractEpisodes` function to extract episode information from the website.
+ *    - This function should return a promise that resolves to an object containing episode information.
+ *    - Use the `fetchPage` function to fetch the HTML content of each episode page.
+ *    - Parse the HTML content to extract the episode title, number, links, and thumbnail.
+ *    - Create an `Episode` object for each episode and add it to the result object.
+ * 5. Optionally, implement the `_getVideoLinks` function to extract video links from the website.
+ *    - This function should return a promise that resolves to an object containing video links.
+ *    - Use this function if the video links require additional processing or API calls.
+ *    - Tip: use GM_xmlhttpRequest to make cross-origin requests if needed (I've used proxy.sh so far which I plan to change in the future since GM_XHR seems more reliable).
+ */
 const websites = [
     {
         name: 'GoGoAnime',
