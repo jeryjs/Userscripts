@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     5.0.3
+// @version     5.1.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -22,6 +22,7 @@
 // @match       https://hianime.to/watch/*
 // @match       https://hianime.nz/watch/*
 // @match       https://hianime.sz/watch/*
+// @match       https://otaku-streamers.com/info/*/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_addStyle
 // ==/UserScript==
@@ -239,6 +240,45 @@ const websites = [
                 status.textContent = `Parsed ${episodeTitle} - ${serverName}...`;
             });
             return links;
+        }
+    },
+    {
+        name: 'Otaku-Streamers',
+        url: ['otaku-streamers.com'],
+        epLinks: 'table > tbody > tr > td:nth-child(2) > a',
+        epTitle: '#strw_player > table > tbody > tr:nth-child(1) > td > span:nth-child(1) > a',
+        epNum: '#video_episode',
+        thumbnail: 'otaku-streamers.com/images/os.jpg',
+        addStartButton: function() {
+            const button = document.createElement('a');
+            button.id = "AniLINK_startBtn";
+            button.style.cssText = `cursor: pointer; background-color: #145132; float: right;`;
+            button.innerHTML = 'Generate Download Links';
+            document.querySelector('table > tbody > tr:nth-child(2) > td > div > table > tbody > tr > td > h2').appendChild(button);
+            return button;
+        },
+        extractEpisodes: async function (status) {
+            status.textContent = 'Starting...';
+            let episodes = {};
+            const epLinks = Array.from(document.querySelectorAll(this.epLinks));
+            const throttleLimit = 12;    // Number of episodes to extract in parallel
+
+            for (let i = 0; i < epLinks.length; i += throttleLimit) {
+                const chunk = epLinks.slice(i, i + throttleLimit);
+                let episodePromises = chunk.map(async epLink => { try {
+                    const page = await fetchPage(epLink.href); 
+                    const epTitle = page.querySelector(this.epTitle).textContent;
+                    const epNumber = page.querySelector(this.epNum).textContent.replace("Episode ", '');
+                    const episodeTitle = `${epNumber.padStart(3, '0')} - ${epTitle}`;
+
+                    status.textContent = `Extracting ${epTitle} - ${epNumber.padStart(3, '0')}...`;
+                    const links = { 'mp4': page.querySelector('video > source').src };
+
+                    episodes[episodeTitle] = new Episode(epNumber.padStart(3, '0'), epTitle, links, 'mp4', this.thumbnail);
+                } catch (e) { showToast(e) } });
+                await Promise.all(episodePromises);
+            }
+            return episodes;
         }
     }
 
