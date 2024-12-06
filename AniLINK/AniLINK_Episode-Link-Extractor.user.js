@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     5.2.1
+// @version     5.2.2
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -93,14 +93,15 @@ const websites = [
         linkElems: '.cf-download > a',
         thumbnail: '.headnav_left > a > img',
         addStartButton: function() {
-            const button = document.createElement('a');
-            button.id = "AniLINK_startBtn";
-            button.style.cssText = `cursor: pointer; background-color: #145132;`;
-            button.innerHTML = '<i class="icongec-dowload"></i> Generate Download Links';
-
-            // Add the button to the page if user is logged in otherwise show placeholder
-            if (document.querySelector('.cf-download')) document.querySelector('.cf-download').appendChild(button);
-            else document.querySelector('.list_dowload > div > span').innerHTML = `<b style="color:#FFC119;">AniLINK:</b> Please <a href="/login.html" title="login"><u>log in</u></a> to be able to batch download animes.`;
+            const button = Object.assign(document.createElement('a'), {
+                id: "AniLINK_startBtn",
+                style: "cursor: pointer; background-color: #145132;", 
+                innerHTML: document.querySelector("div.user_auth a[href='/login.html']") 
+                    ? `<b style="color:#FFC119;">AniLINK:</b> Please <a href="/login.html"><u>log in</u></a> to download`
+                    : '<i class="icongec-dowload"></i> Generate Download Links'
+            });
+            const target = location.href.includes('/category/') ? '#episode_page' : '.cf-download';
+            document.querySelector(target)?.appendChild(button);
             return button;
         },
         extractEpisodes: async function (status) {
