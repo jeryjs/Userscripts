@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.2.1
+// @version     2.2.2
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -20,6 +20,8 @@
 // @match       https://animesuge.to/*
 // @match       https://animesuge.*/*
 // @match       https://*animesuge.cc/*
+// @match       https://www.miruro.*/
+// @match       https://www.miruro.tv/
 // @grant       GM_registerMenuCommand
 // @grant       GM_addStyle
 // @grant       GM_getValue
@@ -41,8 +43,9 @@ if (GM_getValue("version") != GM_info.script.version) {
         ${GM_info.script.name}:\n
         This scipt has been updated!!\n
         What's new:
-         -Support for alternative titles [Improved detection]
+         -Better handling of dynamic sites [improved detection]
          -Now skips unhiding manually added animes if they are in animelist [fix]
+         -Support for alternative titles [Improved detection]
     `
     // alert(msg);
 }
@@ -75,16 +78,14 @@ const animeSites = [
         url: ['yugenanime.tv', 'yugenanime.sx', 'yugenanime'],
         item: '.ep-grid > li',
         title: '.ep-origin-name',
-        thumbnail: '.ep-thumbnail > img',
-        timeout: 0
+        thumbnail: '.ep-thumbnail > img'
     },
     {
         name: 'gogoanime',
         url: ['gogoanime3', 'gogoanimehd', 'gogoanime', 'anitaku'],
         item: '.items > li',
         title: '.name > a',
-        thumbnail: '.img > a > img',
-        timeout: 0
+        thumbnail: '.img > a > img'
     },
     {
         name: 'animepahe',
@@ -100,24 +101,30 @@ const animeSites = [
         url: ['animesuge.to'],
         item: '.item',
         title: '.name > a',
-        thumbnail: '.poster img',
-        timeout: 0
+        thumbnail: '.poster img'
     },
     {
         name: 'animesuge',
         url: ['animesuge.cc'],
         item: '.itemlist > li',
         title: '.name a',
-        thumbnail: '.poster > img',
-        timeout: 0
+        thumbnail: '.poster > img'
     },
     {
         name: 'animesuge',
         url: ['animesuge.su'],
         item: '.bs',
         title: '.tt',
-        thumbnail: 'img',
-        timeout: 0
+        thumbnail: 'img'
+    },
+    {
+        name: 'miruro',
+        url: ['miruro.tv'],
+        item: '.sc-jwIPbr.foYxYt a',
+        title: '.sc-jtQUzJ.fGLHFF h5',
+        thumbnail: '.sc-fAUdSK.biFvDr img',
+        observe: '.sc-fRmVKk.cYURJP',
+        timeout: 1200
     }
 ];
 
@@ -286,35 +293,25 @@ class Website {
 
     // Gets all the anime items on the page
     getAnimeItems() {
-        return $(this.site.item);
+        return document.querySelectorAll(this.site.item);
     }
 
     // Gets the anime title from the anime item
     getAnimeTitle(animeItem) {
-        return $(animeItem).find(this.site.title).contents().filter(function() {
-            return this.nodeType === Node.TEXT_NODE;
-        }).text().trim();
+        const titleEl = animeItem.querySelector(this.site.title);
+        // Get only text content, excluding child elements
+        return titleEl ? Array.from(titleEl.childNodes)
+            .filter(node => node.nodeType === Node.TEXT_NODE)
+            .map(node => node.textContent.trim())
+            .join('').trim() : '';
     }
 
     undarkenRelatedEps(animeList) {
-        const animeItems = this.getAnimeItems();
-        animeItems.each((_, animeItem) => {
-            const animeTitle = this.getAnimeTitle(animeItem);
-            const isRelated = animeList.isEntryExist(animeTitle);
-            if (isRelated) {
-                // console.log(`Anime "${animeTitle}" is related:`, isRelated);
-                $(animeItem).find(this.site.thumbnail).css({
-                    opacity: '1',
-                    filter: 'brightness(1)',
-                    transition: '.2s ease-in-out'
-                });
-            } else {
-                $(animeItem).find(this.site.thumbnail).css({
-                    opacity: '0.5',
-                    filter: 'brightness(0.3)',
-                    transition: '.4s ease-in-out'
-                });
-            }
+        this.getAnimeItems().forEach(item => {
+            const thumbnail = item.querySelector(this.site.thumbnail);
+            thumbnail.style.cssText = animeList.isEntryExist(this.getAnimeTitle(item)) 
+                ? 'opacity:1;   filter:brightness(1);   transition:.2s ease-in-out'
+                : 'opacity:0.5; filter:brightness(0.3); transition:.4s ease-in-out';
         });
     }
 }
@@ -472,9 +469,9 @@ function executeAnimeFiltering() {
                 clearTimeout(timeoutId); // Debounce the callback
                 timeoutId = setTimeout(() => thisSite.undarkenRelatedEps(entriesList), 100);
             }).observe(document.querySelector(animeSite.observe), { childList: true, subtree: true, attributeFilter: ['src'] });
-        } else {
-            thisSite.undarkenRelatedEps(entriesList);
-        }
+        } 
+        
+        thisSite.undarkenRelatedEps(entriesList);
     }, animeSite.timeout || 0);
 }
 
