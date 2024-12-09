@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.2.0
+// @version     2.2.1
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -92,8 +92,8 @@ const animeSites = [
         item: '.episode-wrap > .episode',
         title: '.episode-title > a',
         thumbnail: '.episode-snapshot > img',
-        timeout: 500,
-        pageSelector: '.page-item'    // Page selector for AnimePahe
+        observe: '.episode-list-wrapper',
+        timeout: 100
     },
     {
         name: 'animesuge',
@@ -391,7 +391,7 @@ async function refreshList() {
         msg += `${unchangedAnime.map(a=>a[0]).join('\n')}`;
 
         alert(`Anime list refreshed (${newAnimeList.length - oldAnimeList.length}/${newAnimeList.length}):\n\n${msg}`);
-        undarkenRelatedEps();
+        executeAnimeFiltering();
     } catch (error) {
         console.error('An error occurred while refreshing the anime list:', error);
         alert(`An error occurred while refreshing the anime list:\n\n${error}\n\n\nAlternatively, you can try to refresh the list from any other supported site and return here.\n\nSupported sites: ${animeSites.map(site => site.name).join(', ')}`);
@@ -423,7 +423,7 @@ function modifyManualAnime() {
             alert(`Anime Added Successfully:\n\n${animeEntry.titles[0]}`);
         }
         GM_setValue(manualListKey, manualList.entries);
-        undarkenRelatedEps();
+        executeAnimeFiltering();
     }
 }
 
@@ -455,26 +455,27 @@ function chooseService(ch) {
 }
 
 // Undarken related eps based on the anime titles
-function undarkenRelatedEps() {
+function executeAnimeFiltering() {
     const animeSite = getCurrentSite();
+    if (!animeSite) return console.error('No matching website found.');
+
     const thisSite = new Website(animeSite);
-    console.log('animeList', animeList)
-    // Workaround for sites like AnimePahe which dynamically generate episodes page
+    console.log('animeList', animeList);
+
+    const entriesList = Object.create(animeList);
+    entriesList.entries = animeList.entries.concat(manualList.entries);
+    manualList.entries.forEach(e => {if (e.skip) entriesList.removeEntry(e)});
     setTimeout(() => {
-        const entriesList = Object.create(animeList);
-        entriesList.entries = animeList.entries.concat(manualList.entries);
-        manualList.entries.forEach(e => {if (e.skip) entriesList.removeEntry(e)});
-        console.log('entriesList', entriesList);
-        if (!animeSite) console.error('No matching website found.');
-        else thisSite.undarkenRelatedEps(entriesList);
-        
-        // Add event listeners to the pagination buttons if available
-        if (animeSite.pageSelector) {
-            document.querySelectorAll(animeSite.pageSelector).forEach(it => {
-                it.addEventListener('click', undarkenRelatedEps);
-            });
+        if (document.querySelector(animeSite.observe)) {
+            let timeoutId;
+            new MutationObserver(() => {
+                clearTimeout(timeoutId); // Debounce the callback
+                timeoutId = setTimeout(() => thisSite.undarkenRelatedEps(entriesList), 100);
+            }).observe(document.querySelector(animeSite.observe), { childList: true, subtree: true, attributeFilter: ['src'] });
+        } else {
+            thisSite.undarkenRelatedEps(entriesList);
         }
-    }, animeSite.timeout);
+    }, animeSite.timeout || 0);
 }
 
 // Get the current website based on the URL
@@ -484,7 +485,7 @@ function getCurrentSite() {
 }
 
 // Run the script
-undarkenRelatedEps();
+executeAnimeFiltering();
 
 // Refresh the anime list if it has been more than a week since the last refresh
 const lastRefreshTime = GM_getValue('lastRefreshTime', 0);
