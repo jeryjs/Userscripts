@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.2.2
+// @version     2.3.0
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -20,8 +20,8 @@
 // @match       https://animesuge.to/*
 // @match       https://animesuge.*/*
 // @match       https://*animesuge.cc/*
-// @match       https://www.miruro.*/
-// @match       https://www.miruro.tv/
+// @match       https://www.miruro.*/*
+// @match       https://www.miruro.tv/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_addStyle
 // @grant       GM_getValue
@@ -124,7 +124,7 @@ const animeSites = [
         title: '.sc-jtQUzJ.fGLHFF h5',
         thumbnail: '.sc-fAUdSK.biFvDr img',
         observe: '.sc-fRmVKk.cYURJP',
-        timeout: 1200
+        timeout: 1000
     }
 ];
 
@@ -481,8 +481,29 @@ function getCurrentSite() {
     return animeSites.find(website => website.url.some(site => currentUrl.includes(site)));
 }
 
-// Run the script
-executeAnimeFiltering();
+// Workaround for SPA sites like Miruro for which the script doesn't auto reload on navigation
+function initScript() {
+    executeAnimeFiltering();
+
+    // Handle SPA navigation
+    let lastUrl = location.href;
+    new MutationObserver(() => {
+        const url = location.href;
+        if (url !== lastUrl) {
+            lastUrl = url;
+            console.log('URL changed, re-running AniHIDE');
+            executeAnimeFiltering();
+        }
+    }).observe(document.querySelector('body'), { subtree: true, childList: true });
+
+    // Also watch for History API changes
+    window.addEventListener('popstate', executeAnimeFiltering);
+    window.addEventListener('pushstate', executeAnimeFiltering);
+    window.addEventListener('replacestate', executeAnimeFiltering);
+}
+
+// Initialize the script
+initScript();
 
 // Refresh the anime list if it has been more than a week since the last refresh
 const lastRefreshTime = GM_getValue('lastRefreshTime', 0);
