@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.3.0
+// @version     2.4.0
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -48,7 +48,10 @@
 // @grant       GM_getValue
 // @grant       GM_setValue
 // @grant       GM_notification
+// @grant       GM.xmlHttpRequest
 // @require     https://unpkg.com/axios/dist/axios.min.js
+//				Using GM_fetch for bypassing CORS
+// @require     https://cdn.jsdelivr.net/npm/@trim21/gm-fetch@0.2.1
 // @downloadURL https://update.greasyfork.org/scripts/485793/AniCHAT%20-%20Discuss%20Anime%20Episodes.user.js
 // @updateURL https://update.greasyfork.org/scripts/485793/AniCHAT%20-%20Discuss%20Anime%20Episodes.meta.js
 // ==/UserScript==
@@ -58,8 +61,6 @@
  ***************************/
 // seconds to wait before loading the discussions (to avoid spamming the service)
 const TIMEOUT = 30000; // in milliseconds
-// proxy to bypass the cors restriction on services like MAL
-const PROXYURL = "https://proxy.cors.sh/"; //"https://test.cors.workers.dev/?"; //'https://corsproxy.io/?';
 
 /***************************************************************
  * ANIME SITES & SERVICES
@@ -164,6 +165,7 @@ const animeSites = [
 		getAnimeTitle: () => document.querySelector(".anime-title > a").textContent.trim(),
 		getEpTitle: () => document.querySelector(".title-container .title").textContent.trim(),
 		getEpNum: () => document.querySelector(".title-container .ep-number").textContent.split(". ")[0],
+		styles: `#AniCHAT a:-webkit-any-link { color: lightblue; }`,
 		initDelay: 5000,	// Time to wait (for page to load) before attaching the discussion area
 	}
 ];
@@ -174,22 +176,23 @@ const services = [
 		icon: "https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ",
 		url: "https://myanimelist.net/",
 		_clientId: "dbe5cec5a2f33fdda148a6014384b984",
-		_proxyKey: "temp_2ed7d641dd52613591687200e7f7958b",
 		async getDiscussion(animeTitle, epNum) {
 			let animeId, topic, url, response, data;
-			let headers = {headers: {"X-MAL-CLIENT-ID": this._clientId, "x-cors-api-key": this._proxyKey, 'x-requested-with': 'XMLHttpRequest', 'origin': window.location.origin}};
+			let headers = {headers: {"X-MAL-CLIENT-ID": this._clientId, 'x-requested-with': 'XMLHttpRequest', 'origin': window.location.origin}};
 			// get the anime's MAL id using MAL API (or use Jikan API if title is too long)
 			try {
 				if (animeTitle.length > 500) {
-					url = PROXYURL + `https://api.myanimelist.net/v2/anime?q=${animeTitle}&limit=1`;
-					response = await axios.get(url, headers);
-					animeId = response.data.data[0].node.id;
+					url = `https://api.myanimelist.net/v2/anime?q=${animeTitle}&limit=1`;
+					response = await GM_fetch(url, headers);
+					data = await response.json();
+					animeId = data.data[0].node.id;
 				} else {
-					url = PROXYURL + `https://api.jikan.moe/v4/anime?q=${animeTitle}&limit=1`;
+					url = `https://api.jikan.moe/v4/anime?q=${animeTitle}&limit=1`;
 					animeId = GM_getValue('cachedId_'+url, null);
 					if (!animeId) {
-						response = await axios.get(url, headers);
-						animeId = response.data.data[0].mal_id;
+						response = await GM_fetch(url, headers);
+						data = await response.json();
+						animeId = data.data[0].mal_id;
 						GM_setValue('cachedId_'+url, animeId);
 					}
 				}
@@ -199,25 +202,26 @@ const services = [
 			}
 			// get the discussion url from the anime
 			try {
-				url = PROXYURL + `https://api.jikan.moe/v4/anime/${animeId}/forum`;
-				response = await axios.get(url, headers);
-				topic = response.data.data.find(it => it.title.includes(`Episode ${epNum} Discussion`));
+				url = `https://api.jikan.moe/v4/anime/${animeId}/forum`;
+				response = await GM_fetch(url, headers);
+				data = await response.json();
+				topic = data.data.find(it => it.title.includes(`Episode ${epNum} Discussion`));
 				console.log(`topic: ${topic}`);
 			} catch (e) {
 				throw new Error(`No discussion found. Retry after a while or switch to another service.\n${e.code} : ${e}`);
 			}
 			// get the forum page
 			try {
-				url = PROXYURL + `https://api.myanimelist.net/v2/forum/topic/${topic.mal_id}?limit=100`;
-				response = await axios.get(url, headers);
-				data = response.data.data;
+				url = `https://api.myanimelist.net/v2/forum/topic/${topic.mal_id}?limit=100`;
+				response = await GM_fetch(url, headers);
+				data = await response.json();
 				console.log(`data: ${data}`);
 			} catch (e) {
 				throw new Error(`Error getting the discusssion (${topic}). Retry after a while or switch to another service.\n${e.code} : ${e}`);
 			}
 
 			let chats = [];
-			data.posts.forEach((post) => {
+			data.data.posts.forEach((post) => {
 				const user = post.created_by.name;
 				const userLink = "https://myanimelist.net/profile/" + user;
 				const avatar = post.created_by.forum_avator;
@@ -261,18 +265,18 @@ const services = [
 		icon: "https://www.redditstatic.com/desktop2x/img/favicon/apple-icon-57x57.png",
 		url: "https://www.reddit.com/",
 		_clientId: "dbe5cec5a2f33fdda148a6014384b984",
-		_proxyKey: "temp_2ed7d641dd52613591687200e7f7958b",
 		async getDiscussion(animeTitle, epNum) {
 			let animeId, topic, url, response, posts;
-			let headers = {headers: {"x-cors-api-key": this._proxyKey, 'x-requested-with': 'XMLHttpRequest', 'origin': window.location.origin}};
+			let headers = {headers: {'x-requested-with': 'XMLHttpRequest', 'origin': window.location.origin}};
 			// get the anime's MAL id
 			try {
-				url = PROXYURL + `https://api.jikan.moe/v4/anime?q=${animeTitle}&limit=1`;
+				url = `https://api.jikan.moe/v4/anime?q=${animeTitle}&limit=1`;
 				animeId = GM_getValue('cachedId_'+url, '');
 				if (animeId == '') {
-					response = await axios.get(url, headers);
-					if (response.data.data.length>0) {
-						animeId = response.data.data[0].mal_id;
+					response = await GM_fetch(url, headers);
+					data = await response.json();
+					if (data.data.length > 0) {
+						animeId = data.data[0].mal_id;
 						GM_setValue('cachedId_'+url, animeId);
 					}
 				}
@@ -388,6 +392,7 @@ class Discussion {
 // generate the discussion area
 async function generateDiscussionArea() {
 	const discussionArea = document.createElement("div");
+	discussionArea.id = "AniCHAT";
 	discussionArea.className = "discussion-area";
 
 	const discussionTitle = document.createElement("h3");
