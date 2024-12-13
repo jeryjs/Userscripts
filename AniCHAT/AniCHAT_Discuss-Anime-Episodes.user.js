@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.5.0
+// @version     2.5.1
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -251,6 +251,9 @@ const services = [
 				{ bbcode: /\[\*\](.*?)\[\/\*\]/g, html: "<li>$1</li>" },
 				{ bbcode: /\[spoiler\]([\s\S]*?)\[\/spoiler\]/g, html: '<div class="spoiler"><input type="button" onclick="this.nextSibling.style.display=\'inline-block\';this.style.display=\'none\';" value="Show spoiler" style="display: inline-block;"><span class="spoiler_content" style="display: none;"><input type="button" onclick="this.parentNode.style.display=\'none\';this.parentNode.parentNode.childNodes[0].style.display=\'inline-block\';" value="Hide spoiler">$1</span></div>' },
 				{ bbcode: /\[spoiler=(.*?)\]([\s\S]*?)\[\/spoiler\]/g, html: '<div class="spoiler"><input type="button" onclick="this.nextSibling.style.display=\'inline-block\';this.style.display=\'none\';" value="Show $1" style="display: inline-block;"><span class="spoiler_content" style="display: none;"><input type="button" onclick="this.parentNode.style.display=\'none\';this.parentNode.parentNode.childNodes[0].style.display=\'inline-block\';" value="Hide $1">$2</span></div>' },
+				{ bbcode: /\[yt\](.*?)\[\/yt\]/g, html: '<iframe width="560" height="315" src="https://www.youtube.com/embed/$1" frameborder="0" allowfullscreen></iframe>' },
+				{ bbcode: /\[yt\](.*?)\?(start|end)=(\d+)\[\/yt\]/g, html: '<iframe width="560" height="315" src="https://www.youtube.com/embed/$1?$2=$3" frameborder="0" allowfullscreen></iframe>' },
+				{ bbcode: /\[yt\](.*?)\?start=(\d+)&end=(\d+)\[\/yt\]/g, html: '<iframe width="560" height="315" src="https://www.youtube.com/embed/$1?start=$2&end=$3" frameborder="0" allowfullscreen></iframe>' },
 				{ bbcode: /@(\S+)/g, html: '<a href="https://myanimelist.net/profile/$1" target="_blank">@$1</a>' },
 			];
 			let html = bbcode;
