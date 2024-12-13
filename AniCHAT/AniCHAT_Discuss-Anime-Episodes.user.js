@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.2.0
+// @version     2.3.0
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -12,7 +12,7 @@
 // @match       https://animepahe.*/*
 // @match       https://animepahe.com/*/
 // @match       https://anitaku.*/*
-// @match       https://anitaku.so/*
+// @match       https://anitaku.bz/*
 // @match       https://gogoanime.*/*
 // @match       https://gogoanime.to/*
 // @match       https://gogoanime3.*/*
@@ -43,6 +43,8 @@
 // @match       https://animehub.ac/watch/*
 // @match       https://animesuge.*/anime/*
 // @match       https://animesuge.to/anime/*
+// @match       https://*.miruro.*/watch?id=*
+// @match       https://*.miruro.tv/watch?id=*
 // @grant       GM_getValue
 // @grant       GM_setValue
 // @grant       GM_notification
@@ -154,6 +156,15 @@ const animeSites = [
         getAnimeTitle: () => document.querySelector("#media-info .maindata > h1").textContent,
         getEpTitle: () => document.querySelector("#media-info .maindata > h1").textContent,
         getEpNum: () => window.location.href.split("/ep-")[1],
+	},
+	{
+		name: "miruro",
+		url: ["miruro.tv"],
+		chatArea: () => document.querySelector("#disqus_thread").parentElement,
+		getAnimeTitle: () => document.querySelector(".anime-title > a").textContent.trim(),
+		getEpTitle: () => document.querySelector(".title-container .title").textContent.trim(),
+		getEpNum: () => document.querySelector(".title-container .ep-number").textContent.split(". ")[0],
+		initDelay: 5000,	// Time to wait (for page to load) before attaching the discussion area
 	}
 ];
 
@@ -672,62 +683,86 @@ function getCurrentSite() {
 
 // Run the script
 async function run(timeout=TIMEOUT) {
-	// initialize the discussionArea
-	const discussionArea = await generateDiscussionArea();
-
-	// Fallback techniques to use when chatArea cant be detected
-	const selectors = [
-		{ selector: () => site.chatArea && typeof site.chatArea === "string" ? document.querySelector(site.chatArea) : site.chatArea(), prepend: false },
-		{ selector: () => document.querySelector('#main > .container'), prepend: false },
-		{ selector: () => document.querySelector('#footer'), prepend: true },
-		{ selector: () => document.querySelector('footer'), prepend: true },
-		{ selector: () => document.body, prepend: false },
-	];
-	for (let i = 0; i < selectors.length; i++) {
-		try {
-			const element = selectors[i].selector();
-			if (selectors[i].prepend) {
-				element.prepend(discussionArea);
-			} else {
-				element.appendChild(discussionArea);
-			}
-			break;
-		} catch (error) {
-			continue;
-		}
-	}
-
-	// Add custom css styles to the page
-	const styleElement = document.createElement("style");
-	styleElement.textContent = styles + (site.styles || '');
-	discussionArea.append(styleElement);
-
-	// Attach the loading element to the page
-	discussionArea.appendChild(setLoadingTimeout(timeout));
-
-	// Load the discussion after a set timeout
+	// Wait for the page to load if it has dynamic loading (like Miruro)
 	setTimeout(async () => {
-		try {
-			const discussion = await service.getDiscussion(await site.getAnimeTitle(), await site.getEpNum());
-			console.log(discussion);
-			discussion.chats.forEach(async (chat) => {
-				discussionArea.querySelector("ul").appendChild(await buildChatRow(chat));
-			});
+		// initialize the discussionArea
+		const discussionArea = await generateDiscussionArea();
 
-			discussionArea.querySelector(".discussion-title a").href = discussion.link;
-			discussionArea.querySelector(".discussion-title a").textContent = discussion.title;
-		} catch (error) {
-			console.error(`${error.message}\n\n${error.stack}`);
-			const errorElement = document.createElement("span");
-			errorElement.className = "error-message";
-			errorElement.textContent = `AniCHAT:\n${error.stack}\n\nCheck the console logs for more detail.`;
-			discussionArea.appendChild(errorElement);
+		// Fallback techniques to use when chatArea cant be detected
+		const selectors = [
+			{ selector: () => site.chatArea && typeof site.chatArea === "string" ? document.querySelector(site.chatArea) : site.chatArea(), prepend: false },
+			{ selector: () => document.querySelector('#main > .container'), prepend: false },
+			{ selector: () => document.querySelector('#footer'), prepend: true },
+			{ selector: () => document.querySelector('footer'), prepend: true },
+			{ selector: () => document.body, prepend: false },
+		];
+		for (let i = 0; i < selectors.length; i++) {
+			try {
+				const element = selectors[i].selector();
+				if (selectors[i].prepend) {
+					element.prepend(discussionArea);
+				} else {
+					element.appendChild(discussionArea);
+				}
+				break;
+			} catch (error) {
+				continue;
+			}
 		}
-	}, timeout);
+
+		// Add custom css styles to the page
+		const styleElement = document.createElement("style");
+		styleElement.textContent = styles + (site.styles || '');
+		discussionArea.append(styleElement);
+
+		// Attach the loading element to the page
+		discussionArea.appendChild(setLoadingTimeout(timeout));
+
+		// Load the discussion after a set timeout
+		setTimeout(async () => {
+			try {
+				const discussion = await service.getDiscussion(await site.getAnimeTitle(), await site.getEpNum());
+				console.log(discussion);
+				discussion.chats.forEach(async (chat) => {
+					discussionArea.querySelector("ul").appendChild(await buildChatRow(chat));
+				});
+
+				discussionArea.querySelector(".discussion-title a").href = discussion.link;
+				discussionArea.querySelector(".discussion-title a").textContent = discussion.title;
+			} catch (error) {
+				console.error(`${error.message}\n\n${error.stack}`);
+				const errorElement = document.createElement("span");
+				errorElement.className = "error-message";
+				errorElement.textContent = `AniCHAT:\n${error.stack}\n\nCheck the console logs for more detail.`;
+				discussionArea.appendChild(errorElement);
+			}
+		}, timeout);
+	}, site.initDelay || 0);
+}
+
+// Workaround for SPA sites like Miruro for which the script doesn't auto reload on navigation
+function initScript() {
+    run();
+
+    // Handle SPA navigation
+    let lastUrl = location.href;
+    new MutationObserver(() => {
+        const url = location.href;
+        if (url !== lastUrl) {
+            lastUrl = url;
+            console.log('URL changed, re-running AniCHAT');
+            run();
+        }
+    }).observe(document.querySelector('body'), { subtree: true, childList: true });
+
+    // Also watch for History API changes
+    window.addEventListener('popstate', run);
+    window.addEventListener('pushstate', run);
+    window.addEventListener('replacestate', run);
 }
 
 try {
-	run();
+	initScript();
 } catch (e) {
 	console.error(`${e.message}\n\n${e.stack}`);
 }
