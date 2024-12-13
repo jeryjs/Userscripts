@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.4.0
+// @version     2.4.1
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -52,8 +52,6 @@
 // @require     https://unpkg.com/axios/dist/axios.min.js
 //				Using GM_fetch for bypassing CORS
 // @require     https://cdn.jsdelivr.net/npm/@trim21/gm-fetch@0.2.1
-// @downloadURL https://update.greasyfork.org/scripts/485793/AniCHAT%20-%20Discuss%20Anime%20Episodes.user.js
-// @updateURL https://update.greasyfork.org/scripts/485793/AniCHAT%20-%20Discuss%20Anime%20Episodes.meta.js
 // ==/UserScript==
 
 /**************************
@@ -688,66 +686,65 @@ function getCurrentSite() {
 
 // Run the script
 async function run(timeout=TIMEOUT) {
-	// Wait for the page to load if it has dynamic loading (like Miruro)
-	setTimeout(async () => {
-		// initialize the discussionArea
-		const discussionArea = await generateDiscussionArea();
+	console.info(`Running AniCHAT on ${site.name}...`);
+	// initialize the discussionArea
+	const discussionArea = await generateDiscussionArea();
 
-		// Fallback techniques to use when chatArea cant be detected
-		const selectors = [
-			{ selector: () => site.chatArea && typeof site.chatArea === "string" ? document.querySelector(site.chatArea) : site.chatArea(), prepend: false },
-			{ selector: () => document.querySelector('#main > .container'), prepend: false },
-			{ selector: () => document.querySelector('#footer'), prepend: true },
-			{ selector: () => document.querySelector('footer'), prepend: true },
-			{ selector: () => document.body, prepend: false },
-		];
-		for (let i = 0; i < selectors.length; i++) {
-			try {
-				const element = selectors[i].selector();
-				if (selectors[i].prepend) {
-					element.prepend(discussionArea);
-				} else {
-					element.appendChild(discussionArea);
-				}
-				break;
-			} catch (error) {
-				continue;
+	// Fallback techniques to use when chatArea cant be detected
+	const selectors = [
+		{ selector: () => site.chatArea && typeof site.chatArea === "string" ? document.querySelector(site.chatArea) : site.chatArea(), prepend: false },
+		{ selector: () => document.querySelector('#main > .container'), prepend: false },
+		{ selector: () => document.querySelector('#footer'), prepend: true },
+		{ selector: () => document.querySelector('footer'), prepend: true },
+		{ selector: () => document.body, prepend: false },
+	];
+	for (let i = 0; i < selectors.length; i++) {
+		try {
+			const element = selectors[i].selector();
+			if (selectors[i].prepend) {
+				element.prepend(discussionArea);
+			} else {
+				element.appendChild(discussionArea);
 			}
+			break;
+		} catch (error) {
+			continue;
 		}
+	}
 
-		// Add custom css styles to the page
-		const styleElement = document.createElement("style");
-		styleElement.textContent = styles + (site.styles || '');
-		discussionArea.append(styleElement);
+	// Add custom css styles to the page
+	const styleElement = document.createElement("style");
+	styleElement.textContent = styles + (site.styles || '');
+	discussionArea.append(styleElement);
 
-		// Attach the loading element to the page
-		discussionArea.appendChild(setLoadingTimeout(timeout));
+	// Attach the loading element to the page
+	discussionArea.appendChild(setLoadingTimeout(timeout));
 
-		// Load the discussion after a set timeout
-		setTimeout(async () => {
-			try {
-				const discussion = await service.getDiscussion(await site.getAnimeTitle(), await site.getEpNum());
-				console.log(discussion);
-				discussion.chats.forEach(async (chat) => {
-					discussionArea.querySelector("ul").appendChild(await buildChatRow(chat));
-				});
+	// Load the discussion after a set timeout
+	setTimeout(async () => {
+		try {
+			const discussion = await service.getDiscussion(await site.getAnimeTitle(), await site.getEpNum());
+			console.log(discussion);
+			discussion.chats.forEach(async (chat) => {
+				discussionArea.querySelector("ul").appendChild(await buildChatRow(chat));
+			});
 
-				discussionArea.querySelector(".discussion-title a").href = discussion.link;
-				discussionArea.querySelector(".discussion-title a").textContent = discussion.title;
-			} catch (error) {
-				console.error(`${error.message}\n\n${error.stack}`);
-				const errorElement = document.createElement("span");
-				errorElement.className = "error-message";
-				errorElement.textContent = `AniCHAT:\n${error.stack}\n\nCheck the console logs for more detail.`;
-				discussionArea.appendChild(errorElement);
-			}
-		}, timeout);
-	}, site.initDelay || 0);
+			discussionArea.querySelector(".discussion-title a").href = discussion.link;
+			discussionArea.querySelector(".discussion-title a").textContent = discussion.title;
+		} catch (error) {
+			console.error(`${error.message}\n\n${error.stack}`);
+			const errorElement = document.createElement("span");
+			errorElement.className = "error-message";
+			errorElement.textContent = `AniCHAT:\n${error.stack}\n\nCheck the console logs for more detail.`;
+			discussionArea.appendChild(errorElement);
+		}
+	}, timeout);
 }
 
 // Workaround for SPA sites like Miruro for which the script doesn't auto reload on navigation
 function initScript() {
-    run();
+	const initDelay = site.initDelay || 0;
+    setTimeout(run, initDelay);
 
     // Handle SPA navigation
     let lastUrl = location.href;
@@ -756,14 +753,9 @@ function initScript() {
         if (url !== lastUrl) {
             lastUrl = url;
             console.log('URL changed, re-running AniCHAT');
-            run();
+			setTimeout(run, initDelay);
         }
     }).observe(document.querySelector('body'), { subtree: true, childList: true });
-
-    // Also watch for History API changes
-    window.addEventListener('popstate', run);
-    window.addEventListener('pushstate', run);
-    window.addEventListener('replacestate', run);
 }
 
 try {
