@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.5.1
+// @version     2.5.2
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -225,7 +225,9 @@ const services = [
 				const avatar = post.created_by.forum_avator;
 				const msg = this._parseBBCode(post.body);
 				const timestamp = new Date(post.created_at).getTime();
-				chats.push(new Chat(user, userLink, avatar, msg, timestamp, null));
+				const postId = data.data.posts.indexOf(post) + 1;
+				const postLink = `https://myanimelist.net/forum/?goto=post&topicid=${topic.mal_id}&id=${post.id}`;
+				chats.push(new Chat(user, userLink, avatar, msg, timestamp, null, postId, postLink));
 			});
 
 			const discussion = new Discussion(topic.title, topic.url, chats);
@@ -290,7 +292,7 @@ const services = [
 				response = await axios.get(url);
 				topic = response.data.data.children.find(it => it.data.title.includes(` - Episode ${epNum} discussion`) && it.data.selftext.includes(`[MyAnimeList](https://myanimelist.net/anime/${animeId}`))?.data;
 			} catch (e) {
-				throw new Error(`No discussion found. Retry after a while or switch to another service.\n${e.code} : ${e.message}`);
+				throw new Error(`No discussion found. Retry after a while or switch to another service. (You are probably being rate limited)\n${e.code} : ${e.message}`);
 			}
 			// get the comments in the discussion
 			try {
@@ -303,23 +305,22 @@ const services = [
 			}
 
 			let chats = [];
-			for (let post of posts) chats.push(this._processPost(post));
+			for (let post of posts) chats.push(this._processPost(post.data));
 
 			const discussion = new Discussion(topic.title, topic.url, chats);
 			return discussion;
 		},
 		_processPost(post) {
-			const user = post.data.author;
+			const user = post.author;
 			const userLink = "https://www.reddit.com/user/" + user;
-			// const about = axios.get(`https://api.reddit.com/user/${user}/about`);
 			const avatar = axios.get(`https://api.reddit.com/user/${user}/about`).then(r=>r.data.data.icon_img.split('?')[0]);
-			const msg = ((el) => { el.innerHTML = post.data.body_html; return el.value; })(document.createElement('textarea'));
-			const timestamp = post.data.created_utc * 1000;
+			const msg = ((el) => { el.innerHTML = post.body_html; return el.value; })(document.createElement('textarea'));
+			const timestamp = post.created_utc * 1000;
 			let replies = [];
-			if (post.data.replies && post.data.replies.data)
-				for (let reply of post.data.replies.data.children)
-					replies.push(this._processPost(reply));
-			return new Chat(user, userLink, avatar, msg, timestamp, replies);
+			if (post.replies && post.replies.data)
+				for (let reply of post.replies.data.children)
+					if(reply.data?.body_html) replies.push(this._processPost(reply.data));
+			return new Chat(user, userLink, avatar, msg, timestamp, replies, post.id, "https://www.reddit.com"+post.permalink);
 		}
 	},
 ];
@@ -339,13 +340,15 @@ class UserSettings {
 
 // Class to hold each row of a discussion
 class Chat {
-	constructor(user, userLink, avatar, msg, timestamp, replies) {
+	constructor(user, userLink, avatar, msg, timestamp, replies, id, link) {
 		this.user = user;
 		this.userLink = userLink;
 		this.avatar = avatar;
 		this.msg = msg;
 		this.timestamp = timestamp;
 		this.replies = replies;
+		this.id = id;
+		this.link = link;
 	}
 
 	getRelativeTime() {
@@ -455,9 +458,11 @@ async function buildChatRow(chat) {
 	const userMsg = document.createElement("div");
 	userMsg.className = "user-msg";
 
-	const name = document.createElement("span");
+	const name = document.createElement("a");
 	name.className = "chat-name";
 	name.textContent = chat.user;
+	name.href = chat.userLink;
+	name.target = "_blank";
 
 	const time = document.createElement("span");
 	time.className = "chat-time";
@@ -476,6 +481,13 @@ async function buildChatRow(chat) {
 	msg.className = "chat-msg";
 	msg.innerHTML = chat.msg;
 
+	const chatId = document.createElement("a");
+	chatId.className = "chat-id";
+	chatId.textContent = `#${chat.id}`;
+	chatId.href = chat.link;
+	chatId.target = "_blank";
+
+	userMsg.appendChild(chatId);
 	userMsg.appendChild(name);
 	userMsg.appendChild(time);
 	userMsg.appendChild(msg);
@@ -639,12 +651,26 @@ const styles = `
 
 	.user-msg {
 		display: flex;
+		width: 100%;
     	flex-direction: column;
+	}
+
+	.chat-id {
+		margin-bottom: -20px;
+		font-size: 16px;
+		align-self: end;
+		color: grey !important;
+		opacity: 0.3;
+		transition: opacity 0.2s;
+	}
+	.chat-id:hover {
+		opacity: 1;
 	}
 
 	.chat-name {
 		font-weight: bold;
 		font-size: 15px;
+    	align-self: start;
 	}
 
 	.chat-time {
