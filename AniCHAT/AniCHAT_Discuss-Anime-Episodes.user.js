@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.4.1
+// @version     2.5.0
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -163,7 +163,7 @@ const animeSites = [
 		getAnimeTitle: () => document.querySelector(".anime-title > a").textContent.trim(),
 		getEpTitle: () => document.querySelector(".title-container .title").textContent.trim(),
 		getEpNum: () => document.querySelector(".title-container .ep-number").textContent.split(". ")[0],
-		styles: `#AniCHAT a:-webkit-any-link { color: lightblue; }`,
+		styles: `#AniCHAT a:-webkit-any-link { color: lightblue; } ul.discussion-list { padding-inline-start: 0px; }`,
 		initDelay: 5000,	// Time to wait (for page to load) before attaching the discussion area
 	}
 ];
@@ -389,6 +389,8 @@ class Discussion {
  ***************************************************************/
 // generate the discussion area
 async function generateDiscussionArea() {
+	document.querySelector("#AniCHAT")?.remove();	// Remove existing discussion area (if it exists)
+
 	const discussionArea = document.createElement("div");
 	discussionArea.id = "AniCHAT";
 	discussionArea.className = "discussion-area";
@@ -427,8 +429,7 @@ function buildServiceSwitcher() {
 			console.log(serviceOpt);
 			GM_setValue("service", serviceOpt);
 			service = services[serviceOpt];
-			document.querySelector('.discussion-area').remove();
-			run(0);
+			run();
 		});
 	});
 	return servicesArea;
@@ -492,48 +493,74 @@ async function buildChatRow(chat) {
 	return chatRow;
 }
 
-// Countdown to show before load the discussions
-function setLoadingTimeout(timeout) {
-	let countdown = timeout;
-
+// Show countdown for loading the discussion.
+function showLoading(timeout = TIMEOUT, onComplete) {
 	const loadingArea = document.createElement("div");
-	loadingArea.className = "loading-discussion";
+	loadingArea.className = "loading-anichat";
 
-	const loadingElement = document.createElement("div");
-	loadingElement.innerHTML = `<img src="https://flyclipart.com/thumb2/explosion-gif-transparent-transparent-gif-sticker-741584.png" style="width: 150px; margin-right: 10px;">`;
-	loadingElement.style.cssText = `display: flex; align-items: center;`;
+	// Loading UI elements
+	const ui = {
+		loadingElement: document.createElement("div"),
+		progressBar: document.createElement("div"),
+		progressFill: document.createElement("div"),
+		skipButton: document.createElement("button"),
+		message: document.createElement("span"),
+		buttonContainer: document.createElement("div")
+	};
 
-	const progressBar = document.createElement("div");
-	progressBar.className = "progress-bar";
-	progressBar.style.cssText = `width: "100%"; height: 10px; background-color: #ccc; position: relative;`;
+	// Setup UI elements
+	ui.loadingElement.innerHTML = `<img src="https://flyclipart.com/thumb2/explosion-gif-transparent-transparent-gif-sticker-741584.png" style="width: 150px; margin-right: 10px;">`;
+	ui.loadingElement.style.cssText = `display: flex; align-items: center;`;
 
-	const progressFill = document.createElement("div");
-	progressFill.className = "progress-fill";
-	progressFill.style.cssText = `width: 0%; height: 100%; background-color: #4CAF50; position: absolute; top: 0; left: 0;`;
+	ui.progressBar.className = "progress-bar";
+	ui.progressBar.style.cssText = `width: 100%; height: 10px; background-color: #ccc; position: relative; margin-bottom: 10px;`;
 
-	const message = document.createElement("span");
-	message.textContent = `This ${
-		timeout / 1000
-	} secs timeout is set to reduce the load on the service and you can configure the TIMEOUT by editing the script (line 21)`;
-	message.style.cssText = "font-size: 14px; color: darkgrey;";
+	ui.progressFill.className = "progress-fill";
+	ui.progressFill.style.cssText = `width: 0%; height: 100%; background-color: #4CAF50; position: absolute; top: 0; left: 0; transition: width 0.1s linear;`;
 
-	progressBar.appendChild(progressFill);
-	loadingElement.appendChild(message);
-	loadingArea.appendChild(loadingElement);
-	loadingArea.appendChild(progressBar);
+	ui.skipButton.textContent = "Skip Waiting";
+	ui.skipButton.style.cssText = `background: #4CAF50; color: white; border: none; padding: 5px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; transition: transform 0.2s ease; margin-right: 10px;`;
+	ui.skipButton.onmouseover = () => ui.skipButton.style.transform = 'scale(1.1)';
+	ui.skipButton.onmouseout = () => ui.skipButton.style.transform = 'scale(1)';
 
-	console.log("Countdown started: " + countdown + "ms");
+	ui.message.textContent = `This ${timeout / 1000} secs timeout is set to reduce the load on the service`;
+	ui.message.style.cssText = "font-size: 14px; color: darkgrey;";
+
+	ui.buttonContainer.style.cssText = "display: flex; align-items: center;";
+
+	// Assemble UI
+	ui.progressBar.appendChild(ui.progressFill);
+	ui.loadingElement.appendChild(ui.message);
+	ui.buttonContainer.appendChild(ui.skipButton);
+	loadingArea.appendChild(ui.loadingElement);
+	loadingArea.appendChild(ui.progressBar);
+	loadingArea.appendChild(ui.buttonContainer);
+
+	// Loading logic
+	let countdown = timeout;
+	let skipRequested = false;
 
 	const countdownInterval = setInterval(() => {
-		countdown -= 100;
-		const progressWidth = 100 - (countdown / timeout) * 100;
-		progressFill.style.width = `${progressWidth}%`;
-		if (countdown <= 0) {
-			message.remove();
-			loadingElement.remove();
-			clearInterval(countdownInterval);
+		if (!skipRequested) {
+			countdown -= 100;
+			ui.progressFill.style.width = `${100 - (countdown / timeout) * 100}%`;
+			if (countdown <= 0) complete();
 		}
 	}, 100);
+
+	function complete() {
+		clearInterval(countdownInterval);
+		ui.message.textContent = "Hold on tight~ The discussions are being loaded..."
+		onComplete();
+	}
+
+	ui.skipButton.onclick = () => {
+		skipRequested = true;
+		ui.skipButton.remove();
+		ui.progressFill.style.width = '100%';
+		complete();
+	};
+	if (!(document.body.isFirstLoad??true)) ui.skipButton.click();	// Skip the loading timeout if not first load
 
 	return loadingArea;
 }
@@ -684,61 +711,70 @@ function getCurrentSite() {
 	return animeSites.find((website) => website.url.some((site) => currentUrl.includes(site)));
 }
 
-// Run the script
-async function run(timeout=TIMEOUT) {
-	console.info(`Running AniCHAT on ${site.name}...`);
-	// initialize the discussionArea
-	const discussionArea = await generateDiscussionArea();
-
-	// Fallback techniques to use when chatArea cant be detected
-	const selectors = [
-		{ selector: () => site.chatArea && typeof site.chatArea === "string" ? document.querySelector(site.chatArea) : site.chatArea(), prepend: false },
-		{ selector: () => document.querySelector('#main > .container'), prepend: false },
-		{ selector: () => document.querySelector('#footer'), prepend: true },
-		{ selector: () => document.querySelector('footer'), prepend: true },
-		{ selector: () => document.body, prepend: false },
-	];
-	for (let i = 0; i < selectors.length; i++) {
-		try {
-			const element = selectors[i].selector();
-			if (selectors[i].prepend) {
-				element.prepend(discussionArea);
-			} else {
-				element.appendChild(discussionArea);
+// Use IntersectionObserver to call the callback when the element is in view 
+function withIntersectionObserver(element, callback) {
+	new IntersectionObserver((entries, observer) => {
+		entries.forEach(entry => {
+			if (entry.isIntersecting) {
+				callback();
+				observer.disconnect();
 			}
-			break;
-		} catch (error) {
-			continue;
+		});
+	}, { threshold: 0.1 }).observe(element);
+	if(!callback) return new Promise(r => callback=r);
+}
+
+// Run the script
+async function run() {
+    console.info(`Running AniCHAT on ${site.name}...`);
+    const discussionArea = await generateDiscussionArea();
+
+    // Add to page using fallback selectors
+    const selectors = [
+        { selector: () => site.chatArea && typeof site.chatArea === "string" ? document.querySelector(site.chatArea) : site.chatArea(), prepend: false },
+        { selector: () => document.querySelector('#main > .container'), prepend: false },
+        { selector: () => document.querySelector('#footer'), prepend: true },
+        { selector: () => document.querySelector('footer'), prepend: true },
+        { selector: () => document.body, prepend: false },
+    ];
+    for (let {selector, prepend} of selectors) {
+        try {
+            const element = selector();
+            prepend ? element.prepend(discussionArea) : element.appendChild(discussionArea);
+            break;
+        } catch (error) { continue; }
+    }
+
+    // Add styles
+    const styleElement = document.createElement("style");
+    styleElement.textContent = styles + (site.styles || '');
+    discussionArea.append(styleElement);
+
+    // Loading and discussion loading logic
+    const loadDiscussion = async () => {
+		document.body.isFirstLoad = false;	// A flag to disable loading timeout on subsequent loads
+        try {
+            const discussion = await service.getDiscussion(await site.getAnimeTitle(), await site.getEpNum());
+            discussion.chats.forEach(async chat => {
+                discussionArea.querySelector("ul").appendChild(await buildChatRow(chat));
+            });
+            discussionArea.querySelector(".discussion-title a").href = discussion.link;
+            discussionArea.querySelector(".discussion-title a").textContent = discussion.title;
+        } catch (error) {
+            console.error(error);
+            const errorElement = document.createElement("span");
+            errorElement.className = "error-message";
+            errorElement.textContent = `AniCHAT:\n${error.stack}\n\nCheck the console logs for more detail.`;
+            discussionArea.appendChild(errorElement);
+        } finally {
+			document.querySelector(".loading-anichat")?.remove();
 		}
-	}
+    };
 
-	// Add custom css styles to the page
-	const styleElement = document.createElement("style");
-	styleElement.textContent = styles + (site.styles || '');
-	discussionArea.append(styleElement);
-
-	// Attach the loading element to the page
-	discussionArea.appendChild(setLoadingTimeout(timeout));
-
-	// Load the discussion after a set timeout
-	setTimeout(async () => {
-		try {
-			const discussion = await service.getDiscussion(await site.getAnimeTitle(), await site.getEpNum());
-			console.log(discussion);
-			discussion.chats.forEach(async (chat) => {
-				discussionArea.querySelector("ul").appendChild(await buildChatRow(chat));
-			});
-
-			discussionArea.querySelector(".discussion-title a").href = discussion.link;
-			discussionArea.querySelector(".discussion-title a").textContent = discussion.title;
-		} catch (error) {
-			console.error(`${error.message}\n\n${error.stack}`);
-			const errorElement = document.createElement("span");
-			errorElement.className = "error-message";
-			errorElement.textContent = `AniCHAT:\n${error.stack}\n\nCheck the console logs for more detail.`;
-			discussionArea.appendChild(errorElement);
-		}
-	}, timeout);
+    // Initial loading with timeout
+    discussionArea.appendChild(showLoading(TIMEOUT, () => {
+        withIntersectionObserver(discussionArea, loadDiscussion);
+    }));
 }
 
 // Workaround for SPA sites like Miruro for which the script doesn't auto reload on navigation
