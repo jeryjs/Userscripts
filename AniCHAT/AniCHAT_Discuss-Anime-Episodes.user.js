@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.5.2
+// @version     2.5.3
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -514,42 +514,38 @@ function showLoading(timeout = TIMEOUT, onComplete) {
 	loadingArea.className = "loading-anichat";
 
 	// Loading UI elements
-	const ui = {
-		loadingElement: document.createElement("div"),
-		progressBar: document.createElement("div"),
-		progressFill: document.createElement("div"),
-		skipButton: document.createElement("button"),
-		message: document.createElement("span"),
-		buttonContainer: document.createElement("div")
-	};
+	const loadingElement = document.createElement("div");
+	loadingElement.innerHTML = `<img src="https://flyclipart.com/thumb2/explosion-gif-transparent-transparent-gif-sticker-741584.png" style="width: 150px; margin-right: 10px;">`;
+	loadingElement.style.cssText = `display: flex; align-items: center;`;
 
-	// Setup UI elements
-	ui.loadingElement.innerHTML = `<img src="https://flyclipart.com/thumb2/explosion-gif-transparent-transparent-gif-sticker-741584.png" style="width: 150px; margin-right: 10px;">`;
-	ui.loadingElement.style.cssText = `display: flex; align-items: center;`;
+	const progressBar = document.createElement("div");
+	progressBar.className = "progress-bar";
+	progressBar.style.cssText = `width: 100%; height: 10px; background-color: #ccc; position: relative; margin-bottom: 10px;`;
 
-	ui.progressBar.className = "progress-bar";
-	ui.progressBar.style.cssText = `width: 100%; height: 10px; background-color: #ccc; position: relative; margin-bottom: 10px;`;
+	const progressFill = document.createElement("div");
+	progressFill.className = "progress-fill";
+	progressFill.style.cssText = `width: 0%; height: 100%; background-color: #4CAF50; position: absolute; top: 0; left: 0; transition: width 0.1s linear;`;
 
-	ui.progressFill.className = "progress-fill";
-	ui.progressFill.style.cssText = `width: 0%; height: 100%; background-color: #4CAF50; position: absolute; top: 0; left: 0; transition: width 0.1s linear;`;
+	const message = document.createElement("span");
+	message.textContent = `This ${timeout / 1000} secs timeout is set to reduce the load on the service`;
+	message.style.cssText = "font-size: 14px; color: darkgrey;";
 
-	ui.skipButton.textContent = "Skip Waiting";
-	ui.skipButton.style.cssText = `background: #4CAF50; color: white; border: none; padding: 5px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; transition: transform 0.2s ease; margin-right: 10px;`;
-	ui.skipButton.onmouseover = () => ui.skipButton.style.transform = 'scale(1.1)';
-	ui.skipButton.onmouseout = () => ui.skipButton.style.transform = 'scale(1)';
+	const skipButton = document.createElement("button");
+	skipButton.textContent = "Skip Waiting";
+	skipButton.style.cssText = `background: #4CAF50; color: white; border: none; padding: 5px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; transition: transform 0.2s ease; margin-top: 10px; align-self: start;`;
+	skipButton.onmouseover = () => skipButton.style.transform = 'scale(1.1)';
+	skipButton.onmouseout = () => skipButton.style.transform = 'scale(1)';
 
-	ui.message.textContent = `This ${timeout / 1000} secs timeout is set to reduce the load on the service`;
-	ui.message.style.cssText = "font-size: 14px; color: darkgrey;";
-
-	ui.buttonContainer.style.cssText = "display: flex; align-items: center;";
+	const colDiv = document.createElement("div");
+	colDiv.style.cssText = "display: flex; flex-direction: column; align-items: center;";
+	colDiv.appendChild(message);
+	colDiv.appendChild(skipButton);
 
 	// Assemble UI
-	ui.progressBar.appendChild(ui.progressFill);
-	ui.loadingElement.appendChild(ui.message);
-	ui.buttonContainer.appendChild(ui.skipButton);
-	loadingArea.appendChild(ui.loadingElement);
-	loadingArea.appendChild(ui.progressBar);
-	loadingArea.appendChild(ui.buttonContainer);
+	progressBar.appendChild(progressFill);
+	loadingElement.appendChild(colDiv);
+	loadingArea.appendChild(loadingElement);
+	loadingArea.appendChild(progressBar);
 
 	// Loading logic
 	let countdown = timeout;
@@ -558,21 +554,21 @@ function showLoading(timeout = TIMEOUT, onComplete) {
 	const countdownInterval = setInterval(() => {
 		if (!skipRequested) {
 			countdown -= 100;
-			ui.progressFill.style.width = `${100 - (countdown / timeout) * 100}%`;
+			progressFill.style.width = `${100 - (countdown / timeout) * 100}%`;
 			if (countdown <= 0) complete();
 		}
 	}, 100);
 
 	function complete() {
 		clearInterval(countdownInterval);
-		ui.message.textContent = "Hold on tight~ The discussions are being loaded..."
+		message.textContent = "Hold on tight~ The discussions are being loaded..."
 		onComplete();
 	}
 
-	ui.skipButton.onclick = () => {
+	skipButton.onclick = () => {
 		skipRequested = true;
-		ui.skipButton.remove();
-		ui.progressFill.style.width = '100%';
+		skipButton.remove();
+		progressFill.style.width = '100%';
 		complete();
 	};
 	if (!(document.body.isFirstLoad??true)) ui.skipButton.click();	// Skip the loading timeout if not first load
