@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.3.1
+// @version     2.3.2
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -122,11 +122,11 @@ const animeSites = [
     {
         name: 'miruro',
         url: ['miruro.tv'],
-        item: '.sc-jwIPbr.foYxYt a',
-        title: '.sc-jtQUzJ.fGLHFF h5',
+        item: '.sc-dprtRQ.PjDKo a',
+        title: '.sc-cHqXqK.ksKtwb h5',
         thumbnail: '.sc-fAUdSK.biFvDr img',
-        observe: '.sc-fRmVKk.cYURJP',
-        timeout: 1000
+        observe: '.sc-bSficL.hABmot',
+        timeout: 1200
     }
 ];
 
@@ -305,7 +305,7 @@ class Website {
     undarkenRelatedEps(animeList) {
         this.getAnimeItems().forEach(item => {
             const thumbnail = item.querySelector(this.site.thumbnail);
-            thumbnail.style.cssText = animeList.isEntryExist(this.getAnimeTitle(item)) 
+            thumbnail.style.cssText = animeList.isEntryExist(this.getAnimeTitle(item))
                 ? 'opacity:1;   filter:brightness(1);   transition:.2s ease-in-out'
                 : 'opacity:0.5; filter:brightness(0.3); transition:.4s ease-in-out';
         });
@@ -465,8 +465,8 @@ function executeAnimeFiltering() {
                 clearTimeout(timeoutId); // Debounce the callback
                 timeoutId = setTimeout(() => thisSite.undarkenRelatedEps(entriesList), 100);
             }).observe(document.querySelector(animeSite.observe), { childList: true, subtree: true, attributeFilter: ['src'] });
-        } 
-        
+        }
+
         thisSite.undarkenRelatedEps(entriesList);
     }, animeSite.timeout || 0);
 }
