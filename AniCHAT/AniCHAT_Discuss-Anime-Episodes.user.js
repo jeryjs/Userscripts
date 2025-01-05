@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.5.4
+// @version     2.5.5
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -571,7 +571,7 @@ function showLoading(timeout = TIMEOUT, onComplete) {
 		progressFill.style.width = '100%';
 		complete();
 	};
-	if (!(document.body.isFirstLoad??true)) ui.skipButton.click();	// Skip the loading timeout if not first load
+	if (!(document.body.isFirstLoad??true)) skipButton.click();	// Skip the loading timeout if not first load
 
 	return loadingArea;
 }
