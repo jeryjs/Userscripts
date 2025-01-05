@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.5.3
+// @version     2.5.4
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -160,7 +160,7 @@ const animeSites = [
 		name: "miruro",
 		url: ["miruro.tv"],
 		chatArea: () => document.querySelector("#disqus_thread").parentElement,
-		getAnimeTitle: () => document.querySelector(".anime-title > a").textContent.trim(),
+		getAnimeTitle: () => document.querySelector(".title > a").textContent.trim(),
 		getEpTitle: () => document.querySelector(".title-container .title").textContent.trim(),
 		getEpNum: () => document.querySelector(".title-container .ep-number").textContent.split(". ")[0],
 		styles: `#AniCHAT a:-webkit-any-link { color: lightblue; } ul.discussion-list { padding-inline-start: 0px; }`,
