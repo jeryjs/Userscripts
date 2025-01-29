@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.5.5
+// @version     2.5.6
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -43,7 +43,7 @@
 // @match       https://animehub.ac/watch/*
 // @match       https://animesuge.*/anime/*
 // @match       https://animesuge.to/anime/*
-// @match       https://*.miruro.*/watch?id=*
+// @match       https://*.miruro.*/*
 // @match       https://*.miruro.tv/watch?id=*
 // @grant       GM_getValue
 // @grant       GM_setValue
@@ -160,8 +160,8 @@ const animeSites = [
 		name: "miruro",
 		url: ["miruro.tv"],
 		chatArea: () => document.querySelector("#disqus_thread").parentElement,
-		getAnimeTitle: () => document.querySelector(".title > a").textContent.trim(),
-		getEpTitle: () => document.querySelector(".title-container .title").textContent.trim(),
+		getAnimeTitle: () => document.querySelector(".anime-title > a").textContent.trim(),
+		getEpTitle: () => document.querySelector(".title-container .ep-title").textContent.trim(),
 		getEpNum: () => document.querySelector(".title-container .ep-number").textContent.split(". ")[0],
 		styles: `#AniCHAT a:-webkit-any-link { color: lightblue; } ul.discussion-list { padding-inline-start: 0px; }`,
 		initDelay: 5000,	// Time to wait (for page to load) before attaching the discussion area
@@ -736,7 +736,7 @@ function getCurrentSite() {
 	return animeSites.find((website) => website.url.some((site) => currentUrl.includes(site)));
 }
 
-// Use IntersectionObserver to call the callback when the element is in view 
+// Use IntersectionObserver to call the callback when the element is in view
 function withIntersectionObserver(element, callback) {
 	new IntersectionObserver((entries, observer) => {
 		entries.forEach(entry => {
