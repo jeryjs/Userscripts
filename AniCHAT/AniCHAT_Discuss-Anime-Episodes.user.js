@@ -45,6 +45,7 @@
 // @match       https://animesuge.to/anime/*
 // @match       https://*.miruro.*/*
 // @match       https://*.miruro.tv/watch?id=*
+// @match       https://animez.org/*/epi-*
 // @grant       GM_getValue
 // @grant       GM_setValue
 // @grant       GM_notification
@@ -165,6 +166,14 @@ const animeSites = [
 		getEpNum: () => document.querySelector(".title-container .ep-number").textContent.split(". ")[0],
 		styles: `#AniCHAT a:-webkit-any-link { color: lightblue; } ul.discussion-list { padding-inline-start: 0px; }`,
 		initDelay: 5000,	// Time to wait (for page to load) before attaching the discussion area
+	},
+	{
+		name: "animez",
+		url: ["animez.org"],
+		chatArea: '#box_right_watch',
+		getAnimeTitle: () => document.querySelector("#title-detail-manga").textContent,
+		getEpTitle: () => document.querySelector("#title-detail-manga").textContent,
+		getEpNum: () => document.querySelector(".wp-manga-chapter.active").textContent.replace("-Dub", "").trim(),
 	}
 ];
 
