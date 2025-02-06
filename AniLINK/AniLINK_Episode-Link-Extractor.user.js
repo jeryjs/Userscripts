@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.0.0
+// @version     6.1.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -232,6 +232,44 @@ const websites = [
             }
         },
         styles: `div#AniLINK_LinksContainer { font-size: 10px; } #Quality > b > div > ul {font-size: 16px;}`
+    },
+    {
+        name: 'Beta-Otaku-Streamers',
+        url: ['beta.otaku-streamers.com'],
+        epLinks: '.video-container .clearfix > a',
+        epTitle: '.title > a',
+        epNum: '.watch_curep',
+        thumbnail: 'video',
+        addStartButton: function() {
+            const button = document.createElement('a');
+            button.id = "AniLINK_startBtn";
+            button.className = "btn btn-outline-danger osbtnl osright btnlights";
+            button.innerHTML = 'Generate Download Links';
+            document.querySelector('.video-container .title-box').appendChild(button);
+            return button;
+        },
+        extractEpisodes: async function* (status) {
+            status.textContent = 'Starting...';
+            const epLinks = Array.from(document.querySelectorAll(this.epLinks));
+            const throttleLimit = 12;
+
+            for (let i = 0; i < epLinks.length; i += throttleLimit) {
+                const chunk = epLinks.slice(i, i + throttleLimit);
+                const episodePromises = chunk.map(async epLink => { try {
+                    const page = await fetchPage(epLink.href);
+                    const epTitle = page.querySelector(this.epTitle).textContent.trim();
+                    const epNumber = page.querySelector(this.epNum).textContent.replace("Episode ", '')
+                    const thumbnail = page.querySelector(this.thumbnail).poster;
+
+                    status.textContent = `Extracting ${epTitle} - ${epNumber}...`;
+                    const links = { 'Video Links': page.querySelector('video > source').src };
+
+                    return new Episode(epNumber, epTitle, links, 'mp4', thumbnail);
+                } catch (e) { showToast(e); return null; } });
+
+                yield* yieldEpisodesFromPromises(episodePromises);
+            }
+        }
     },
     {
         name: 'Otaku-Streamers',
