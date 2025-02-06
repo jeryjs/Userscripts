@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.1.0
+// @version     6.1.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -23,6 +23,7 @@
 // @match       https://hianime.nz/watch/*
 // @match       https://hianime.sz/watch/*
 // @match       https://otaku-streamers.com/info/*/*
+// @match       https://beta.otaku-streamers.com/watch/*/*
 // @match       https://animeheaven.me/anime.php?*
 // @grant       GM_registerMenuCommand
 // @grant       GM_addStyle
