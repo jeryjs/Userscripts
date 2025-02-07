@@ -1,11 +1,12 @@
 # Superset Assessments - Bypass Tab Switch Detection & AI Answer Generator
 
-Welcome to the GitHub repository for the **Superset Assessments - Bypass Tab Switch Detection & AI Answer Generator** userscript. This script not only prevents the assessment platform from detecting tab switches but also provides an AI-powered answer generator to help you tackle assessment questions with ease.
+This userscript enhances the Superset Assessments platform by disabling tab switch detection and providing an AI-powered answer generator.
+It allows users to navigate away from the assessment tab without triggering warnings and offers multiple AI models to assist in answering questions.
 
 ## Features
 
 - **Tab Switch Detection Bypass**  
-  Overrides browser visibility APIs and blocks events (e.g., "blur", "visibilitychange") so you can navigate without unwanted interruptions.
+  Overrides browser visibility APIs and blocks events (e.g., "blur", "visibilitychange") so you can navigate without triggering warnings.
 
 - **AI Answer Generator**  
   - Offers multiple AI models (Thinking, Pro, Flash, Flash Lite) with distinct quality and request/quota parameters.
@@ -48,21 +49,15 @@ Make sure you have a userscript manager installed (such as [Tampermonkey](https:
 
     - To use the AI Answer Generator, you'll need a Google Gemini API key. Here’s how to get one:
 
-      - **Go to Google AI Studio:**
-         - Open your web browser and navigate to [Google AI Studio](https://aistudio.google.com/).
+      - **Go to Google AI Studio:** Open your web browser and navigate to [Google AI Studio](https://aistudio.google.com/).
 
-      - **Sign In/Sign Up:**
-         - If you have a Google account, sign in. If not, you'll need to create one.
+      - **Sign In/Sign Up:** If you have a Google account, sign in. If not, you'll need to create one.
 
-      - **Create a New API Key:**
-         - Once you're logged in, look for an option to "Create API key in new project". Click on it.
-         - If you've already created a project, you might see an option like "Get an API key".
+      - **Create a New API Key:** Once you're logged in, look for an option to "Create API key in new project". Click on it. If you've already created a project, you might see an option like "Get an API key".
 
-      - **Copy Your API Key:**
-         - After creating the key, it will be displayed on the screen. Copy this key to your clipboard. It’s a long string of alphanumeric characters.
+      - **Copy Your API Key:** After creating the key, it will be displayed on the screen. Copy this key to your clipboard. It’s a long string of alphanumeric characters.
 
-      - **Enter the API Key in the Script:**
-         - When you first use the AI Answer Generator in the Superset Assessments page, the script will prompt you to enter your API key. Paste the API key you copied from Google AI Studio into the prompt.
+      - **Enter the API Key in the Script:** When you first use the AI Answer Generator in the Superset Assessments page, the script will prompt you to enter your API key. Paste the API key you copied from Google AI Studio into the prompt.
 
     - **Important Notes:**
       - Make sure you copy the API key exactly as it is provided. Even a small mistake can cause the script to fail.
@@ -70,6 +65,7 @@ Make sure you have a userscript manager installed (such as [Tampermonkey](https:
 
 4. **Usage**  
    Navigate to any Superset Assessments page. The script automatically injects a side panel where you can select an AI model and generate answers.
+   - You can test this script on any practice page.
 
 ## Troubleshooting
 
