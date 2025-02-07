@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Superset Assessments - Bypass Tab Switch Detection & AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      1.5
+// @version      1.6
 // @description  Prevents tab switch detection, adds AI answer genrator with enhanced UI, caching, and error handling.
 // @author       JeryJs
 // @match        https://app.joinsuperset.com/assessments/*
@@ -223,8 +223,19 @@
                     console.error(errorText);
                     outputTextArea.value = errorText;
                     return;
+                } else if (response.status === 400) {
+                    const errorBody = await response.json();
+                    const errorCode = errorBody.error.code;
+                    const errorMessage = errorBody.error.message;
+                    // Clear the stored API key
+                    GM_setValue('geminiApiKey', "");
+                    apiKey = "";
+                    const fullError = `API error (400):\nError Code: ${errorCode}\nMessage: ${errorMessage}\n\nYour stored API key has been cleared. Please provide a valid API key.`;
+                    console.error(fullError);
+                    outputTextArea.value = fullError;
+                    return;
                 }
-                const errorText = `API error for ${modelName}: ${response.status} ${response.statusText}`;
+                const errorText = `API error for ${modelName}: ${response.status} ${response.statusText} - ${await response.text()}`;
                 console.error(errorText);
                 outputTextArea.value = errorText;
                 return;
