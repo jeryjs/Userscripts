@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Superset Assessments - Bypass Tab Switch Detection & AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      1.4
+// @version      1.5
 // @description  Prevents tab switch detection, adds AI answer genrator with enhanced UI, caching, and error handling.
 // @author       JeryJs
 // @match        https://app.joinsuperset.com/assessments/*
@@ -13,6 +13,8 @@
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
 // @grant        GM_deleteValue
+// @updateURL    https://github.com/jeryjs/Userscripts/raw/refs/heads/main/Superset/Assessment-Detection-Bypass-And-AI-Answers.user.js
+// @downloadURL  https://github.com/jeryjs/Userscripts/raw/refs/heads/main/Superset/Assessment-Detection-Bypass-And-AI-Answers.user.js
 // ==/UserScript==
 
 (function() {
