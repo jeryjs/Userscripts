@@ -20,7 +20,7 @@ It allows users to navigate away from the assessment tab without triggering warn
 ## How It Works
 
 1. **Bypass Mechanism**  
-   The script intercepts page events to keep the assessment running smoothly even if you switch tabs or windows.
+   The script intercepts page events to keep the assessment running smoothly without triggering warnings even if you switch tabs or windows.
 
 2. **AI Answer Generation**  
    - Click on one of the model buttons in the provided side panel.
@@ -49,7 +49,7 @@ Make sure you have a userscript manager installed (such as [Tampermonkey](https:
 
     - To use the AI Answer Generator, you'll need a Google Gemini API key. Here’s how to get one:
 
-      - **Go to Google AI Studio:** Open your web browser and navigate to [Google AI Studio](https://aistudio.google.com/).
+      - **Go to Google AI Studio:** Open your web browser and navigate to [Google AI Studio's API Key Page](https://aistudio.google.com/app/apikey).
 
       - **Sign In/Sign Up:** If you have a Google account, sign in. If not, you'll need to create one.
 
@@ -65,7 +65,7 @@ Make sure you have a userscript manager installed (such as [Tampermonkey](https:
 
 4. **Usage**  
    Navigate to any Superset Assessments page. The script automatically injects a side panel where you can select an AI model and generate answers.
-   - You can test this script on any practice page.
+   - You can test this script on any practice assessment page.
 
 ## Troubleshooting
 
