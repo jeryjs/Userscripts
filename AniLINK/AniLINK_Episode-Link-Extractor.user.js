@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.1.2
+// @version     6.1.3
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -25,6 +25,7 @@
 // @match       https://hianime.sz/watch/*
 // @match       https://otaku-streamers.com/info/*/*
 // @match       https://beta.otaku-streamers.com/watch/*/*
+// @match       https://beta.otaku-streamers.com/title/*/*
 // @match       https://animeheaven.me/anime.php?*
 // @grant       GM_registerMenuCommand
 // @grant       GM_addStyle
@@ -243,17 +244,15 @@ const websites = [
     {
         name: 'Beta-Otaku-Streamers',
         url: ['beta.otaku-streamers.com'],
-        epLinks: '.video-container .clearfix > a',
+        epLinks: (document.location.pathname.startsWith('/title/')) ? '.item-title a' : '.video-container .clearfix > a',
         epTitle: '.title > a',
         epNum: '.watch_curep',
         thumbnail: 'video',
         addStartButton: function() {
-            const button = document.createElement('a');
-            button.id = "AniLINK_startBtn";
-            button.className = "btn btn-outline-danger osbtnl osright btnlights";
-            button.innerHTML = 'Generate Download Links';
-            document.querySelector('.video-container .title-box').appendChild(button);
-            return button;
+            (document.location.pathname.startsWith('/title/')
+                ? document.querySelector(".album-top-box"): document.querySelector('.video-container .title-box'))
+                    .innerHTML += `<a id="AniLINK_startBtn" class="btn btn-outline rounded-btn">Generate Download Links</a>`;
+            return document.getElementById("AniLINK_startBtn");
         },
         extractEpisodes: async function* (status) {
             status.textContent = 'Starting...';
