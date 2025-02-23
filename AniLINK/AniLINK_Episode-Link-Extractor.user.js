@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.1.1
+// @version     6.1.2
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -12,6 +12,7 @@
 // @match       https://gogoanime3.cc/*
 // @match       https://gogoanime3.*/*
 // @match       https://animepahe.*/play/*
+// @match       https://animepahe.*/anime/*
 // @match       https://animepahe.ru/play/*
 // @match       https://animepahe.com/play/*
 // @match       https://animepahe.org/play/*
@@ -183,21 +184,26 @@ const websites = [
     {
         name: 'AnimePahe',
         url: ['animepahe.ru', 'animepahe.com', 'animepahe.org', 'animepahe'],
-        epLinks: '.dropup.episode-menu .dropdown-item',
+        epLinks: (document.location.pathname.startsWith('/anime/'))? '.play': '.dropup.episode-menu .dropdown-item',
         epTitle: '.theatre-info > h1',
         linkElems: '#resolutionMenu > button',
         thumbnail: '.theatre-info > a > img',
         addStartButton: function() {
             GM_addStyle(`.theatre-settings .col-sm-3 { max-width: 20%; }`);
-            document.querySelector("div.theatre-settings > div.row").innerHTML += `
-                <div class="col-12 col-sm-3">
-                    <div class="dropup">
-                        <a class="btn btn-secondary btn-block" id="AniLINK_startBtn">
-                            Generate Download Links
-                        </a>
+            (document.location.pathname.startsWith('/anime/'))
+                ? document.querySelector(".col-6.bar").innerHTML += `
+                    <div class="btn-group btn-group-toggle">
+                        <label id="AniLINK_startBtn" class="btn btn-dark btn-sm">Generate Download Links</label>
+                    </div>`
+                : document.querySelector("div.theatre-settings > div.row").innerHTML += `
+                    <div class="col-12 col-sm-3">
+                        <div class="dropup">
+                            <a class="btn btn-secondary btn-block" id="AniLINK_startBtn">
+                                Generate Download Links
+                            </a>
+                        </div>
                     </div>
-                </div>
-            `;
+                `;
             return document.getElementById("AniLINK_startBtn");
         },
         extractEpisodes: async function* (status) {
