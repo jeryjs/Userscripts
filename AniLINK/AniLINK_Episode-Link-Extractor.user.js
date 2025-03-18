@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.2.0
+// @version     6.2.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -27,6 +27,7 @@
 // @match       https://beta.otaku-streamers.com/watch/*/*
 // @match       https://beta.otaku-streamers.com/title/*/*
 // @match       https://animeheaven.me/anime.php?*
+// @match       https://animez.org/*/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_addStyle
 // ==/UserScript==
@@ -351,8 +352,44 @@ const websites = [
                 yield* yieldEpisodesFromPromises(episodePromises); // Use helper function
             }
         }
-    }
+    },
+    {
+        name: 'AnimeZ',
+        url: ['animez.org'],
+        epLinks: '.list-chapter .wp-manga-chapter a',
+        epTitle: '#title-detail-manga',
+        epNum: '.wp-manga-chapter.active',
+        thumbnail: '.Image > figure > img',
+        addStartButton: function() {
+            (document.querySelector(".MovieTabNav.ControlPlayer") || document.querySelector(".mb-3:has(#keyword_chapter)"))
+                .innerHTML += `<div class="Lnk AAIco-link" id="AniLINK_startBtn">Extract Episode Links</div>`;
+            return document.getElementById("AniLINK_startBtn");
+        },
+        extractEpisodes: async function* (status) {
+            status.textContent = 'Starting...';
+            const epLinks = Array.from(document.querySelectorAll(this.epLinks))
+                .filter((el, index, self) => self.findIndex(e => e.href === el.href && e.textContent.trim() === el.textContent.trim()) === index);;
+            const throttleLimit = 12; // Number of episodes to extract in parallel
 
+            for (let i = 0; i < epLinks.length; i += throttleLimit) {
+                const chunk = epLinks.slice(i, i + throttleLimit);
+                const episodePromises = chunk.map(async epLink => { try {
+                    const page = await fetchPage(epLink.href);
+                    const epTitle = page.querySelector(this.epTitle).textContent;
+                    const isDub = page.querySelector(this.epNum).textContent.includes('-Dub');
+                    const epNumber = page.querySelector(this.epNum).textContent.replace(/-Dub/, '').trim();
+                    const thumbnail = document.querySelector(this.thumbnail).src;
+
+                    status.textContent = `Extracting ${epTitle} - ${epNumber}...`;
+                    const links = { [isDub ? "Dub" : "Sub"]: page.querySelector('iframe').src.replace('/embed/', '/anime/') };
+
+                    return new Episode(epNumber, epTitle, links, 'mp4', thumbnail); // Return Episode object
+                } catch (e) { showToast(e); return null; } }); // Handle errors and return null
+
+                yield* yieldEpisodesFromPromises(episodePromises); // Use helper function
+            }
+        }
+    }
 ];
 
 /**
