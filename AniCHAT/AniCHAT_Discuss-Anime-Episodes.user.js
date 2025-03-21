@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.5.7
+// @version     2.6.0
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -46,6 +46,7 @@
 // @match       https://*.miruro.*/*
 // @match       https://*.miruro.tv/watch?id=*
 // @match       https://animez.org/*/epi-*
+// @match       https://animekai.to/watch/*
 // @grant       GM_getValue
 // @grant       GM_setValue
 // @grant       GM_notification
@@ -174,7 +175,16 @@ const animeSites = [
 		getAnimeTitle: () => document.querySelector("#title-detail-manga").textContent,
 		getEpTitle: () => document.querySelector("#title-detail-manga").textContent,
 		getEpNum: () => document.querySelector(".wp-manga-chapter.active").textContent.replace("-Dub", "").trim(),
-	}
+	},
+	{
+		name: "animekai",
+		url: ["animekai.to"],
+		chatArea: ".scontent",
+		getAnimeTitle: () => document.querySelector(".title").textContent,
+		getEpTitle: () => document.querySelector(".eplist a > span").textContent,
+		getEpNum: () => document.querySelector(".eplist a.active").getAttribute("num"),
+		initDelay: 750,	// Time to wait (for page to load) before attaching the discussion area
+	},
 ];
 
 const services = [
