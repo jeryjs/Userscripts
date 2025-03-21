@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.6.0
+// @version     2.6.1
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -183,7 +183,7 @@ const animeSites = [
 		getAnimeTitle: () => document.querySelector(".title").textContent,
 		getEpTitle: () => document.querySelector(".eplist a > span").textContent,
 		getEpNum: () => document.querySelector(".eplist a.active").getAttribute("num"),
-		initDelay: 750,	// Time to wait (for page to load) before attaching the discussion area
+		initDelay: 1000,	// Time to wait (for page to load) before attaching the discussion area
 	},
 ];
 
