@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.0
+// @version      3.1
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
@@ -76,14 +76,6 @@
         window.onfocus = null;
         window.onvisibilitychange = null;
         window.onwebkitvisibilitychange = null;
-
-        // Prevent browser tab title changes
-        const originalTitle = document.title;
-        Object.defineProperty(document, 'title', {
-            get: function() { return originalTitle; },
-            set: function() { return originalTitle; },
-            configurable: true
-        });
 
         // Block beacon API (often used for analytics on tab switching)
         const originalSendBeacon = navigator.sendBeacon;
