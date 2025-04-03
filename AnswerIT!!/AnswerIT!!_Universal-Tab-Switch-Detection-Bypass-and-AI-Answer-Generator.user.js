@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.1
+// @version      3.2.0
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
@@ -61,7 +61,7 @@
         });
 
         // Block visibility events
-        const eventsToBlock = ['visibilitychange', 'webkitvisibilitychange', 'blur', 'focus', 'focusin', 'focusout'];
+        const eventsToBlock = ['visibilitychange', 'webkitvisibilitychange', 'blur', 'focus', 'focusin', 'focusout', 'fullscreenchange', 'webkitfullscreenchange'];
         eventsToBlock.forEach(eventType => {
             window.addEventListener(eventType, function(event) {
                 event.stopImmediatePropagation();
@@ -76,6 +76,8 @@
         window.onfocus = null;
         window.onvisibilitychange = null;
         window.onwebkitvisibilitychange = null;
+        window.onfullscreenchange = null;
+        window.onwebkitfullscreenchange = null;
 
         // Block beacon API (often used for analytics on tab switching)
         const originalSendBeacon = navigator.sendBeacon;
@@ -840,8 +842,8 @@
     
     // Keyboard shortcut handler
     document.addEventListener('keydown', function(event) {
-        // Check if Alt+[configured key] is pressed
-        if (event.altKey && event.key.toLowerCase() === config.hotkey.toLowerCase()) {
+        // Check if Alt+[configured key] is pressed using event.code for better compatibility
+        if (event.altKey && event.code.toLowerCase() === `key${config.hotkey.toLowerCase()}`) {
             event.preventDefault();
             togglePopup();
         }
