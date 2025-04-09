@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.2.1
+// @version     6.2.2
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -28,7 +28,11 @@
 // @match       https://beta.otaku-streamers.com/title/*/*
 // @match       https://animeheaven.me/anime.php?*
 // @match       https://animez.org/*/*
+// @match       https://animekai.to/watch/*
 // @grant       GM_registerMenuCommand
+// @grant       GM_xmlhttpRequest
+// @grant       GM.xmlHttpRequest
+// @require     https://cdn.jsdelivr.net/npm/@trim21/gm-fetch@0.2.1
 // @grant       GM_addStyle
 // ==/UserScript==
 
@@ -387,6 +391,181 @@ const websites = [
                 } catch (e) { showToast(e); return null; } }); // Handle errors and return null
 
                 yield* yieldEpisodesFromPromises(episodePromises); // Use helper function
+            }
+        }
+    },
+    // AnimeKai is not fully implemented yet... its a work in progress...
+    {
+        name: 'AnimeKai',
+        url: ['animekai.to/watch/'],
+        animeTitle: '.title',
+        thumbnail: 'img',
+        addStartButton: function() {
+            const button = Object.assign(document.createElement('button'), {
+                id: "AniLINK_startBtn",
+                className: "btn btn-primary", // Use existing site styles
+                textContent: "Generate Download Links",
+                style: "margin-left: 10px;"
+            });
+            // Add button next to the episode list controls or similar area
+            const target = document.querySelector('.episode-section');
+            if (target) {
+                target.appendChild(button);
+            } else {
+                // Fallback location if the primary target isn't found
+                document.querySelector('.eplist-nav')?.appendChild(button);
+            }
+            return button;
+        },
+        // --- Helper functions adapted from provided code ---
+        _reverseIt: (n) => n.split('').reverse().join(''),
+        _base64UrlEncode: (str) => btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+        _base64UrlDecode: (n) => { n = n.padEnd(n.length + ((4 - (n.length % 4)) % 4), '=').replace(/-/g, '+').replace(/_/g, '/'); return atob(n); },
+        _substitute: (input, keys, values) => { const map = Object.fromEntries(keys.split('').map((key, i) => [key, values[i] || ''])); return input.split('').map(char => map[char] || char).join(''); },
+        _transform: (n, t) => { const v = Array.from({ length: 256 }, (_, i) => i); let c = 0, f = ''; for (let w = 0; w < 256; w++) { c = (c + v[w] + n.charCodeAt(w % n.length)) % 256; [v[w], v[c]] = [v[c], v[w]]; } for (let a = (c = 0), w = 0; a < t.length; a++) { w = (w + 1) % 256; c = (c + v[w]) % 256; [v[w], v[c]] = [v[c], v[w]]; f += String.fromCharCode(t.charCodeAt(a) ^ v[(v[w] + v[c]) % 256]); } return f; },
+        _GenerateToken: function(n) { n = encodeURIComponent(n); return this._base64UrlEncode( this._substitute( this._base64UrlEncode( this._transform( 'sXmH96C4vhRrgi8', this._reverseIt( this._reverseIt( this._base64UrlEncode( this._transform( 'kOCJnByYmfI', this._substitute( this._substitute( this._reverseIt(this._base64UrlEncode(this._transform('0DU8ksIVlFcia2', n))), '1wctXeHqb2', '1tecHq2Xbw' ), '48KbrZx1ml', 'Km8Zb4lxr1' ) ) ) ) ) ) ), 'hTn79AMjduR5', 'djn5uT7AMR9h' ) ); },
+        _DecodeIframeData: function(n) { n = `${n}`; n = this._transform( '0DU8ksIVlFcia2', this._base64UrlDecode( this._reverseIt( this._substitute( this._substitute( this._transform( 'kOCJnByYmfI', this._base64UrlDecode( this._reverseIt( this._reverseIt( this._transform( 'sXmH96C4vhRrgi8', this._base64UrlDecode( this._substitute(this._base64UrlDecode(n), 'djn5uT7AMR9h', 'hTn79AMjduR5') ) ) ) ) ) ), 'Km8Zb4lxr1', '48KbrZx1ml' ), '1tecHq2Xbw', '1wctXeHqb2' ) ) ) ); return decodeURIComponent(n); },
+        _Decode: function(n) { n = this._substitute( this._reverseIt( this._transform( '3U8XtHJfgam02k', this._base64UrlDecode( this._transform( 'PgiY5eIZWn', this._base64UrlDecode( this._substitute( this._reverseIt( this._substitute( this._transform( 'QKbVomcBHysCW9', this._base64UrlDecode(this._reverseIt(this._base64UrlDecode(n))) ), '0GsO8otUi21aY', 'Go1UiY82st0Oa' ) ), 'rXjnhU3SsbEd', 'rXEsS3nbjhUd' ) ) ) ) ) ), '7DtY4mHcMA2yIL', 'IM7Am4D2yYHctL' ); return decodeURIComponent(n); },
+        // --- Main extraction logic ---
+        extractEpisodes: async function* (status) {
+            status.textContent = 'Starting AnimeKai extraction...';
+            const animeTitle = document.querySelector(this.animeTitle)?.textContent || 'Unknown Anime';
+            const thumbnail = document.querySelector(this.thumbnail)?.src || '';
+            const ani_id = document.querySelector('.rate-box#anime-rating')?.getAttribute('data-id');
+
+            if (!ani_id) {
+                showToast("Could not find anime ID.");
+                return;
+            }
+
+            const headers = {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Referer': window.location.href,
+                'Accept': 'application/json, text/javascript, */*; q=0.01', // Ensure correct accept header
+            };
+
+            try {
+                status.textContent = 'Fetching episode list...';
+                const episodeListUrl = `${location.origin}/ajax/episodes/list?ani_id=${ani_id}&_=${this._GenerateToken(ani_id)}`;
+                console.log(`Fetching episode list from: ${episodeListUrl}`);
+                const epListResponse = await fetch(episodeListUrl, { headers });
+                if (!epListResponse.ok) throw new Error(`Failed to fetch episode list: ${epListResponse.status}`);
+                const epListJson = await epListResponse.json();
+                console.log(`Episode list response:`, epListJson);               
+                const epListDoc = (new DOMParser()).parseFromString(epListJson.result, 'text/html');
+                const episodeElements = Array.from(epListDoc.querySelectorAll('div.eplist > ul > li > a'));
+
+                const throttleLimit = 5; // Limit concurrent requests to avoid rate limiting
+
+                for (let i = 0; i < episodeElements.length; i += throttleLimit) {
+                    const chunk = episodeElements.slice(i, i + throttleLimit);
+                    const episodePromises = chunk.map(async epElement => {
+                        const epNumber = epElement.getAttribute('num');
+                        const epToken = epElement.getAttribute('token');
+                        const epTitleText = epElement.querySelector('span')?.textContent || `Episode ${epNumber}`;
+
+                        if (!epNumber || !epToken) {
+                            showToast(`Skipping episode: Missing number or token.`);
+                            return null;
+                        }
+
+                        try {
+                            status.textContent = `Fetching servers for Ep ${epNumber}...`;
+                            const serversUrl = `${location.origin}/ajax/links/list?token=${epToken}&_=${this._GenerateToken(epToken)}`;
+                            const serversResponse = await fetch(serversUrl, { headers });
+                            if (!serversResponse.ok) throw new Error(`Failed to fetch servers for Ep ${epNumber}: ${serversResponse.status}`);
+                            const serversJson = await serversResponse.json();
+                            const serversDoc = (new DOMParser()).parseFromString(serversJson.result, 'text/html');
+                            console.log(JSON.stringify(serversDoc));                            
+
+                            const serverElements = serversDoc.querySelectorAll('.server-items .server');
+                            
+                            console.log(JSON.stringify(serverElements));
+                            if (serverElements.length === 0) {
+                                showToast(`No servers found for Ep ${epNumber}.`);
+                                return null;
+                            }
+
+                            status.textContent = `Processing ${serverElements.length} servers for Ep ${epNumber}...`;
+
+                            for (const serverElement of serverElements) {
+                                const serverId = serverElement.getAttribute('data-lid');
+                                const serverName = serverElement.textContent || `Server_${serverId?.slice(0, 4)}`; // Fallback name
+
+                                if (!serverId) {
+                                    console.warn(`Skipping server: Missing ID.`);
+                                    continue;
+                                }
+
+                                try {
+                                    // Fetch view link
+                                    status.textContent = `Fetching video link for Ep ${epNumber}...`;
+                                    const viewUrl = `${location.origin}/ajax/links/view?id=${serverId}&_=${this._GenerateToken(serverId)}`;
+                                    const viewResponse = await fetch(viewUrl, { headers });
+                                    if (!viewResponse.ok) throw new Error(`Failed to fetch view link for Ep ${epNumber}: ${viewResponse.status}`);
+                                    const viewJson = await viewResponse.json();
+                                    console.log(`View link response:`, viewJson);
+                                    
+
+                                    const decodedIframeData = JSON.parse(this._DecodeIframeData(viewJson.result));
+                                    console.log(`Decoded iframe data:`, decodedIframeData);
+                                    
+                                    const megaUpEmbedUrl = decodedIframeData.url;
+
+                                    if (!megaUpEmbedUrl) {
+                                        showToast(`Could not decode embed URL for Ep ${epNumber}.`);
+                                        return null;
+                                    }
+
+                                    // Fetch MegaUp media page to get encrypted sources
+                                    const mediaUrl = megaUpEmbedUrl.replace(/\/(e|e2)\//, '/media/');
+                                    status.textContent = `Fetching media data for Ep ${epNumber}...`;
+                                    const mediaResponse = await GM_fetch(mediaUrl, { headers: { 'Referer': location.origin } });
+                                    if (!mediaResponse.ok) throw new Error(`Failed to fetch media data for Ep ${epNumber}: ${mediaResponse.status}`);
+                                    const mediaJson = await mediaResponse.json();
+                                    console.log(`Media data response:`, mediaJson);
+                                    
+
+                                    if (!mediaJson.result) {
+                                        showToast(`No result found in media data for Ep ${epNumber}.`);
+                                        return null;
+                                    }
+
+                                    status.textContent = `Decoding sources for Ep ${epNumber}...`;
+                                    const decryptedSources = JSON.parse(this._Decode(mediaJson.result).replace(/\\/g, ''));
+
+                                    const links = {};
+                                    let fileType = 'm3u8';
+                                    decryptedSources.sources.forEach(source => {
+                                        // Try to determine quality from URL or label if available
+                                        const qualityMatch = source.file.match(/(\d{3,4})[pP]/);
+                                        const quality = qualityMatch ? qualityMatch[1] + 'p' : 'Default';
+                                        links[quality] = source.file;
+                                    });
+
+                                    status.textContent = `Extracted Ep ${epNumber}`;
+                                    return new Episode(epNumber, animeTitle, links, fileType, thumbnail);
+
+                                } catch (epError) {
+                                    showToast(`Error processing Ep ${epNumber}: ${epError.message}`);
+                                    console.error(`Error processing Ep ${epNumber}:`, epError);
+                                    return null;
+                                }
+                    
+                            }
+                        } catch (serverError) {
+                            showToast(`Error fetching servers for Ep ${epNumber}: ${serverError.message}`);
+                            console.error(`Error fetching servers for Ep ${epNumber}:`, serverError);
+                            return null;
+                        }
+                    });
+
+                    yield* yieldEpisodesFromPromises(episodePromises);
+                }
+            } catch (error) {
+                showToast(`Failed AnimeKai extraction: ${error.message}`);
+                console.error("AnimeKai extraction error:", error);
+                status.textContent = `Error: ${error.message}`;
             }
         }
     }
