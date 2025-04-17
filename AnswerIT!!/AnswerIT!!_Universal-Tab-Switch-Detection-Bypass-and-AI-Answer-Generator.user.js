@@ -28,6 +28,7 @@
 		hotkeyModifier: "alt", // Currently only supports 'alt'
 		popupVisible: false,
 		aiEnabled: GM_getValue("aiEnabled", true),
+		theme: GM_getValue("theme", "light"), // Default theme is 'light'
 	};
 
 	// --- Website Configurations ---
@@ -188,7 +189,7 @@
             width: 500px;
             max-width: 90vw;
             height: 100vh;
-            background-color: #fff;
+            background-color: #f5f5f5; /* Changed from pure white to off-white */
             border-radius: 8px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
             z-index: 9999;
@@ -196,6 +197,13 @@
             flex-direction: column;
             overflow: hidden;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+        }
+
+        #ai-answer-popup.dark {
+            background-color: #1e1e1e;
+            color: #e0e0e0;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
         }
 
         #ai-answer-popup.visible {
@@ -209,6 +217,12 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            transition: background-color 0.3s, border-color 0.3s;
+        }
+
+        #ai-answer-popup.dark #ai-popup-header {
+            background-color: #252525;
+            border-bottom: 1px solid #333;
         }
 
         #ai-popup-title {
@@ -216,6 +230,39 @@
             font-size: 18px;
             font-weight: 600;
             color: #333;
+            transition: color 0.3s;
+        }
+
+        #ai-answer-popup.dark #ai-popup-title {
+            color: #e0e0e0;
+        }
+
+        #ai-popup-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #ai-theme-toggle {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            transition: color 0.3s, transform 0.3s;
+        }
+
+        #ai-answer-popup.dark #ai-theme-toggle {
+            color: #ddd;
+        }
+
+        #ai-theme-toggle:hover {
+            transform: scale(1.1);
         }
 
         #ai-popup-close {
@@ -224,6 +271,11 @@
             cursor: pointer;
             font-size: 20px;
             color: #666;
+            transition: color 0.3s;
+        }
+
+        #ai-answer-popup.dark #ai-popup-close {
+            color: #ddd;
         }
 
         #ai-caption {
@@ -231,6 +283,11 @@
             color: #555;
             margin-bottom: 5px;
             font-style: italic;
+            transition: color 0.3s;
+        }
+
+        #ai-answer-popup.dark #ai-caption {
+            color: #aaa;
         }
 
         #ai-popup-content {
@@ -256,9 +313,39 @@
             box-shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
 
+        #ai-answer-popup.dark .ai-model-button {
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+        }
+        
+        /* Darker background colors for model buttons in dark theme */
+        #ai-answer-popup.dark .ai-model-button[data-model="gemini-2.5-pro-exp-03-25"] {
+            background-color: #2E7D32 !important; /* Darker Green */
+        }
+        
+        #ai-answer-popup.dark .ai-model-button[data-model="gemini-2.0-flash-thinking-exp-01-21"] {
+            background-color: #6A1B9A !important; /* Darker Purple */
+        }
+        
+        #ai-answer-popup.dark .ai-model-button[data-model="gemini-2.0-pro-exp-02-05"] {
+            background-color: #00695C !important; /* Darker Teal */
+        }
+        
+        #ai-answer-popup.dark .ai-model-button[data-model="gemini-2.0-flash"] {
+            background-color: #EF6C00 !important; /* Darker Amber */
+        }
+        
+        #ai-answer-popup.dark .ai-model-button[data-model="gemini-2.0-flash-lite-preview-02-05"] {
+            background-color: #827717 !important; /* Darker Lime */
+        }
+
         .ai-model-button:hover {
             transform: translateY(-2px);
             box-shadow: 0 3px 5px rgba(0,0,0,0.1);
+        }
+
+        #ai-answer-popup.dark .ai-model-button:hover {
+            box-shadow: 0 3px 5px rgba(0,0,0,0.3);
         }
 
         .ai-model-text-container {
@@ -270,6 +357,12 @@
         .ai-model-name {
             font-weight: 500;
             font-size: 14px;
+            color: #333;
+            transition: color 0.3s;
+        }
+
+        #ai-answer-popup.dark .ai-model-name {
+            color: #e0e0e0;
         }
 
         .ai-model-subtitle {
@@ -277,9 +370,13 @@
             overflow: hidden;
             font-size: 12px;
             color: #555;
-            transition: height 0.2s ease, opacity 0.2s ease, margin 0.2s ease;
+            transition: height 0.2s ease, opacity 0.2s ease, margin 0.2s ease, color 0.3s;
             opacity: 0;
             margin-top: 0;
+        }
+
+        #ai-answer-popup.dark .ai-model-subtitle {
+            color: #aaa;
         }
 
         .ai-model-button:hover .ai-model-subtitle {
@@ -310,6 +407,15 @@
             resize: none;
             min-height: 150px;
             box-sizing: border-box;
+            background-color: #f9f9f9; /* Changed from pure white to subtle off-white */
+            color: #000;
+            transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+        }
+
+        #ai-answer-popup.dark #ai-output-textarea {
+            background-color: #2d2d2d;
+            color: #e0e0e0;
+            border-color: #444;
         }
 
         #ai-custom-prompt-container {
@@ -332,6 +438,11 @@
             display: flex;
             align-items: center;
             cursor: pointer;
+            transition: color 0.3s;
+        }
+
+        #ai-answer-popup.dark #ai-custom-prompt-label {
+            color: #aaa;
         }
 
         #ai-custom-prompt-label::before {
@@ -355,6 +466,15 @@
             resize: vertical;
             min-height: 60px;
             display: none;
+            background-color: #fff;
+            color: #333;
+            transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+        }
+
+        #ai-answer-popup.dark #ai-custom-prompt {
+            background-color: #2d2d2d;
+            color: #e0e0e0;
+            border-color: #444;
         }
 
         #ai-custom-prompt.visible {
@@ -373,6 +493,13 @@
             justify-content: space-between;
             font-size: 0.8em;
             color: #777;
+            transition: background-color 0.3s, border-color 0.3s, color 0.3s;
+        }
+
+        #ai-answer-popup.dark #ai-popup-footer {
+            background-color: #252525;
+            border-top: 1px solid #333;
+            color: #aaa;
         }
 
         #ai-status-text {
@@ -381,16 +508,31 @@
 
         #ai-insert-button {
             position: absolute;
-            top: 5px;
-            right: 5px;
-            background-color: #f0f0f0;
+            top: -28px;
+            right: 0;
+            min-width: 60px; /* Ensure minimum width */
+            height: 26px; /* Fixed height */
+            display: flex; /* Use flexbox for better content centering */
+            align-items: center; /* Center content vertically */
+            justify-content: center; /* Center content horizontally */
+            background-color: #e0e0e0;
             border: 1px solid #ccc;
             border-radius: 4px;
-            padding: 2px 8px;
-            font-size: 0.8em;
+            padding: 4px 10px;
+            font-size: 0.9em;
             cursor: pointer;
-            opacity: 0.8;
-            transition: opacity 0.3s ease;
+            opacity: 1;
+            color: #333;
+            font-weight: 500;
+            z-index: 10;
+            transition: all 0.3s ease;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1); /* Add subtle shadow for depth */
+        }
+
+        #ai-answer-popup.dark #ai-insert-button {
+            background-color: #3a3a3a;
+            border-color: #555;
+            color: #e0e0e0;
         }
 
         #ai-insert-button:hover {
@@ -410,6 +552,11 @@
 		const popup = document.createElement("div");
 		popup.id = "ai-answer-popup";
 
+		 // Apply theme class based on config
+		if (config.theme === "dark") {
+			popup.classList.add("dark");
+		}
+
 		// Header section
 		const header = document.createElement("div");
 		header.id = "ai-popup-header";
@@ -418,13 +565,27 @@
 		title.id = "ai-popup-title";
 		title.textContent = "AI Answer Generator";
 
+		// Container for theme toggle and close buttons
+		const controls = document.createElement("div");
+		controls.id = "ai-popup-controls";
+
+		// Theme toggle button
+		const themeToggle = document.createElement("button");
+		themeToggle.id = "ai-theme-toggle";
+		themeToggle.textContent = config.theme === "dark" ? "☀️" : "🌙";
+		themeToggle.title = config.theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
+		themeToggle.addEventListener("click", toggleTheme);
+
 		const closeButton = document.createElement("button");
 		closeButton.id = "ai-popup-close";
 		closeButton.textContent = "×";
 		closeButton.addEventListener("click", togglePopup);
 
+		controls.appendChild(themeToggle);
+		controls.appendChild(closeButton);
+
 		header.appendChild(title);
-		header.appendChild(closeButton);
+		header.appendChild(controls);
 
 		// Content section
 		const content = document.createElement("div");
@@ -558,6 +719,47 @@
 
 		if (textarea.classList.contains("visible")) {
 			textarea.focus();
+		}
+	}
+
+	function toggleTheme() {
+		const popup = document.getElementById("ai-answer-popup");
+		const themeToggle = document.getElementById("ai-theme-toggle");
+		
+		if (config.theme === "light") {
+			config.theme = "dark";
+			popup.classList.add("dark");
+			themeToggle.textContent = "☀️"; // Sun emoji for switching to light theme
+			themeToggle.title = "Switch to light theme";
+		} else {
+			config.theme = "light";
+			popup.classList.remove("dark");
+			themeToggle.textContent = "🌙"; // Moon emoji for switching to dark theme
+			themeToggle.title = "Switch to dark theme";
+		}
+		
+		// Save the theme preference
+		GM_setValue("theme", config.theme);
+	}
+
+	function changeHotkey() {
+		const newHotkey = prompt("Enter a new hotkey (single character) to use with Alt:", config.hotkey);
+		if (newHotkey && newHotkey.length === 1) {
+			config.hotkey = newHotkey.toLowerCase();
+			GM_setValue("hotkey", config.hotkey);
+
+			// Update hotkey info in UI if popup exists
+			const popup = document.getElementById("ai-answer-popup");
+			if (popup) {
+				const hotkeyInfo = popup.querySelector("#ai-popup-footer span:last-child");
+				if (hotkeyInfo) {
+					hotkeyInfo.textContent = `Press ${config.hotkeyModifier.toUpperCase()}+${config.hotkey.toUpperCase()} to toggle`;
+				}
+			}
+
+			alert(`Hotkey updated to ALT+${config.hotkey.toUpperCase()}`);
+		} else if (newHotkey) {
+			alert("Please enter a single character only.");
 		}
 	}
 
@@ -851,27 +1053,6 @@
 	function clearCache() {
 		Object.keys(modelCache).forEach((key) => delete modelCache[key]);
 		alert("Cache cleared from memory.");
-	}
-
-	function changeHotkey() {
-		const newHotkey = prompt("Enter a new hotkey (single character) to use with Alt:", config.hotkey);
-		if (newHotkey && newHotkey.length === 1) {
-			config.hotkey = newHotkey.toLowerCase();
-			GM_setValue("hotkey", config.hotkey);
-
-			// Update hotkey info in UI if popup exists
-			const popup = document.getElementById("ai-answer-popup");
-			if (popup) {
-				const hotkeyInfo = popup.querySelector("#ai-popup-footer span:last-child");
-				if (hotkeyInfo) {
-					hotkeyInfo.textContent = `Press ${config.hotkeyModifier.toUpperCase()}+${config.hotkey.toUpperCase()} to toggle`;
-				}
-			}
-
-			alert(`Hotkey updated to ALT+${config.hotkey.toUpperCase()}`);
-		} else if (newHotkey) {
-			alert("Please enter a single character only.");
-		}
 	}
 
 	// Basic string hash function for cache keys
