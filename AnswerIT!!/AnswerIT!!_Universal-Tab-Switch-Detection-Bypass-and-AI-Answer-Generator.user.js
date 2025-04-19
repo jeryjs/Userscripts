@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.5.0
+// @version      3.6.0
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
@@ -173,7 +173,7 @@
 			displayName: "Flash",
 			subtitle: "Fast Response | 15 RPM | Recommended for General Questions",
 			rank: 4,
-			color: "#FFD54F", // Faded Yellow
+			color: "#FCDF80", // Faded Yellow
 			tooltip: "Faster model, good for quick answers, quality may be slightly lower. Has an API quota of 15 requests per minute.",
 		},
 		{
@@ -202,6 +202,9 @@
 			--shadow-popup: 0 4px 20px rgba(0, 0, 0, 0.2);
 			--shadow-button: 0 1px 2px rgba(0,0,0,0.05);
 			--shadow-button-hover: 0 3px 5px rgba(0,0,0,0.1);
+			--spinner-color: #555;
+			--success-color: #4CAF50;
+			--retry-color: #ff9800;
 		}
 
 		#ai-answer-popup.dark {
@@ -218,6 +221,9 @@
 			--shadow-popup: 0 4px 20px rgba(0, 0, 0, 0.5);
 			--shadow-button: 0 1px 2px rgba(0,0,0,0.15);
 			--shadow-button-hover: 0 3px 5px rgba(0,0,0,0.3);
+			--spinner-color: #aaa;
+			--success-color: #81C784; /* Lighter green for dark mode */
+			--retry-color: #FFB74D; /* Lighter orange for dark mode */
 		}
 
 		#ai-answer-popup {
@@ -294,8 +300,8 @@
 			display: flex;
 			align-items: center;
 			box-shadow: var(--shadow-button);
-						background-color: var(--bg-main);
-						color: var(--color-text);
+			position: relative; /* Needed for absolute positioning of icons */
+			justify-content: space-between; /* Push icon container to the right */
 		}
 
 		.ai-model-button:hover {
@@ -312,6 +318,7 @@
 		.ai-model-name {
 			font-weight: 500;
 			font-size: 14px;
+			color: var(--color-text);
 		}
 
 		.ai-model-subtitle {
@@ -328,6 +335,79 @@
 			height: auto;
 			opacity: 1;
 			margin-top: 4px;
+		}
+
+		.ai-model-button.loading {
+			cursor: wait;
+			opacity: 0.7;
+		}
+
+		.ai-model-button.success .ai-model-status-icon {
+			display: flex; /* Show the status container */
+		}
+
+		.ai-model-status-container {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			width: 24px; /* Fixed width for alignment */
+			height: 24px;
+			margin-left: 10px; /* Space between text and icon */
+		}
+
+		.ai-model-progress {
+			display: none; /* Hidden by default */
+			width: 18px;
+			height: 18px;
+			border: 2px solid var(--spinner-color);
+			border-top-color: transparent;
+			border-radius: 50%;
+			animation: spin 0.8s linear infinite;
+		}
+
+		.ai-model-button.loading .ai-model-progress {
+			display: block; /* Show spinner when loading */
+		}
+
+		.ai-model-status-icon {
+			display: none; /* Hidden by default, shown on success */
+			cursor: pointer;
+			position: relative; /* For hover effect positioning */
+			width: 20px;
+			height: 20px;
+			align-items: center;
+			justify-content: center;
+		}
+
+		.ai-model-success-icon,
+		.ai-model-retry-icon {
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			transition: opacity 0.2s ease;
+		}
+
+		.ai-model-success-icon {
+			opacity: 1;
+			color: var(--success-color);
+			font-size: 20px; /* Adjust size as needed */
+			line-height: 1;
+		}
+
+		.ai-model-retry-icon {
+			opacity: 0;
+			color: var(--retry-color);
+			font-size: 18px; /* Adjust size as needed */
+			line-height: 1;
+		}
+
+		.ai-model-status-icon:hover .ai-model-success-icon { opacity: 0; }
+		.ai-model-status-icon:hover .ai-model-retry-icon { opacity: 1; }
+
+		@keyframes spin {
+			to { transform: rotate(360deg); }
 		}
 
 		#ai-output-container {
@@ -352,8 +432,8 @@
 			resize: none;
 			min-height: 150px;
 			box-sizing: border-box;
-						background-color: var(--bg-textarea);
-						color: var(--color-text);
+			background-color: var(--bg-textarea);
+			color: var(--color-text);
 		}
 
 		#ai-custom-prompt-container {
@@ -399,8 +479,8 @@
 			resize: vertical;
 			min-height: 60px;
 			display: none;
-						background-color: var(--bg-textarea);
-						color: var(--color-text);
+			background-color: var(--bg-textarea);
+			color: var(--color-text);
 		}
 
 		#ai-custom-prompt.visible {
@@ -437,7 +517,7 @@
 			cursor: pointer;
 			opacity: 0.8;
 			transition: opacity 0.3s ease;
-						color: var(--color-text);
+			color: var(--color-text);
 		}
 
 		#ai-insert-button:hover {
@@ -504,25 +584,64 @@
 			button.setAttribute("data-model", model.name);
 			button.setAttribute("title", model.tooltip);
 			button.style.backgroundColor = getThemedColor(model.color);
-			button.addEventListener("click", handleGenerateClick);
+			button.addEventListener("click", (e) => handleGenerateClick(e, false));
 
 			// Main container for text content
 			const textContainer = document.createElement("div");
 			textContainer.classList.add("ai-model-text-container");
 
 			// Model name with cleaner display
-			const modelName = document.createElement("span");
-			modelName.classList.add("ai-model-name");
-			modelName.textContent = model.displayName;
+			const modelNameSpan = document.createElement("span");
+			modelNameSpan.classList.add("ai-model-name");
+			modelNameSpan.textContent = model.displayName;
 
 			// Subtitle hidden by default, shown on hover
 			const subtitle = document.createElement("span");
 			subtitle.classList.add("ai-model-subtitle");
 			subtitle.textContent = model.subtitle;
 
-			textContainer.appendChild(modelName);
+			textContainer.appendChild(modelNameSpan);
 			textContainer.appendChild(subtitle);
+
+			// Status container (spinner, checkmark, retry)
+			const statusContainer = document.createElement("div");
+			statusContainer.classList.add("ai-model-status-container");
+
+			const progressSpinner = document.createElement("div");
+			progressSpinner.classList.add("ai-model-progress");
+
+			const statusIcon = document.createElement("div");
+			statusIcon.classList.add("ai-model-status-icon");
+			statusIcon.title = "Retry generation (ignore cache)";
+
+			const successIcon = document.createElement("span");
+			successIcon.classList.add("ai-model-success-icon");
+			successIcon.innerHTML = "&#10004;"; // Checkmark character
+
+			const retryIcon = document.createElement("span");
+			retryIcon.classList.add("ai-model-retry-icon");
+			retryIcon.innerHTML = "&#8634;"; // Reload/Retry character
+
+			statusIcon.appendChild(successIcon);
+			statusIcon.appendChild(retryIcon);
+
+			// Add retry listener to the status icon container
+			statusIcon.addEventListener("click", (e) => {
+				e.stopPropagation(); // Prevent button's main click handler
+				e.preventDefault(); // Prevent any default action
+				// Find the parent button to pass to handleGenerateClick
+				const parentButton = e.currentTarget.closest('.ai-model-button');
+				if (parentButton) {
+					// Simulate the necessary parts of the event or pass the button directly
+					handleGenerateClick({ currentTarget: parentButton }, true); // Pass retry flag
+				}
+			});
+
+			statusContainer.appendChild(progressSpinner);
+			statusContainer.appendChild(statusIcon);
+
 			button.appendChild(textContainer);
+			button.appendChild(statusContainer);
 
 			content.appendChild(button);
 		});
@@ -818,34 +937,53 @@
 		}
 	}
 
-	async function handleGenerateClick(event) {
+	async function handleGenerateClick(event, forceRetry = false) {
+		const button = event.currentTarget;
+		const modelName = button.getAttribute("data-model");
 		const statusText = document.getElementById("ai-status-text");
 		const caption = document.getElementById("ai-caption");
-		outputTextArea.value = ""; // Clear previous output
-		caption.textContent = "Response metadata will appear here"; // Clear caption
-		startTimer(); // Start the timer
 
-		// Get model name from button data attribute
-		const modelName = event.currentTarget.getAttribute("data-model");
-
-		// Get question text from the current website
+		// --- Get Question Info ---
 		const questionElement = getQuestionElement();
 		if (!questionElement) {
 			outputTextArea.value = "Error: Question not found on page. This site might not be supported yet.";
 			stopTimer("Error");
+			updateButtonState(button, 'error'); // Indicate error on button
 			return;
 		}
-
-		let questionIdentifier = currentWebsite.getQuestionIdentifier(questionElement);
 		let questionText = getQuestionText(questionElement);
+		let questionIdentifier;
+		try {
+			// Ensure getQuestionIdentifier exists or fallback gracefully
+			questionIdentifier = currentWebsite?.getQuestionIdentifier
+				? currentWebsite.getQuestionIdentifier(questionElement)
+				: questionText; // Fallback to full text if no identifier function
+			questionIdentifier = hashCode(questionIdentifier || questionText); // Ensure we always have an identifier
+		} catch (err) {
+			console.warn("Error getting question identifier:", err);
+			questionIdentifier = hashCode(questionText); // Fallback hash
+		}
 
-		// Add custom prompt if provided
+
+		// --- Prevent Re-clicking Same Question While Loading ---
+		if (button.classList.contains('loading') && button.dataset.loadingIdentifier === questionIdentifier && !forceRetry) {
+			console.log(`[AnswerIT!!] Still generating for ${modelName} and this question.`);
+			return; // Already processing this specific question
+		}
+
+		// --- Reset UI and Start Loading State ---
+		outputTextArea.value = ""; // Clear previous output
+		caption.textContent = "Response metadata will appear here"; // Clear caption
+		updateButtonState(button, 'loading', questionIdentifier);
+		startTimer(); // Start the main timer
+
+		// --- Add Custom Prompt ---
 		const customPromptArea = document.getElementById("ai-custom-prompt");
 		if (customPromptArea && customPromptArea.value.trim()) {
 			questionText += `\n\n\nuser-prompt:[${customPromptArea.value.trim()}]`;
 		}
 
-		// Check for API key
+		// --- API Key Check ---
 		if (!apiKey) {
 			apiKey = GM_getValue("geminiApiKey");
 			if (!apiKey) {
@@ -853,23 +991,27 @@
 				if (!apiKey) {
 					outputTextArea.value = "API Key is required to use the answer generator. Please follow the instructions to obtain one.";
 					stopTimer("API Key Required");
+					updateButtonState(button, 'error');
 					return;
 				}
 				GM_setValue("geminiApiKey", apiKey);
 			}
 		}
 
-		// Check cache
-		const cacheKey = `gemini-cache-${modelName}-${hashCode(questionIdentifier || questionText)}`;
-		if (modelCache[cacheKey]) {
-			console.log(`Cache hit for ${modelName}.`);
+		// --- Cache Check (Bypass if forceRetry is true) ---
+		const cacheKey = `gemini-cache-${modelName}-${questionIdentifier}`;
+		if (!forceRetry && modelCache[cacheKey]) {
+			console.log(`[AnswerIT!!] Cache hit for ${modelName}.`);
 			outputTextArea.value = modelCache[cacheKey].answer;
-			caption.textContent = `Model: ${modelName} | Cached Response (time taken: ${modelCache[cacheKey].time} ms)`;
+			const timeTaken = modelCache[cacheKey].time;
+			caption.textContent = `Model: ${modelName} | Cached Response (original time: ${timeTaken} ms)`;
 			stopTimer("Loaded from cache");
+			updateButtonState(button, 'success', questionIdentifier); // Show success even for cache
 			return;
 		}
 
-		outputTextArea.value = `Generating response...`;
+		// --- API Call ---
+		outputTextArea.value = `Generating response with ${modelName}...`;
 		const startTime = Date.now();
 
 		try {
@@ -887,52 +1029,53 @@
 				}),
 			});
 
+			const timeTaken = Date.now() - startTime;
+
 			if (!response.ok) {
-				if (response.status === 429) {
-					const errorText = `Model: ${modelName} - Too many requests. You may have spammed the same model past its Quota. Please wait 60 seconds or try another model.`;
-					console.error(errorText);
-					outputTextArea.value = errorText;
-					stopTimer("Rate limited");
-					return;
-				} else if (response.status === 400) {
+				let errorText = `API error for ${modelName}: ${response.status} ${response.statusText}`;
+				let stopStatus = "API Error";
+				try {
 					const errorBody = await response.json();
-					const errorCode = errorBody.error.code;
-					const errorMessage = errorBody.error.message;
-					// Clear the stored API key
-					GM_setValue("geminiApiKey", "");
-					apiKey = "";
-					const fullError = `API error (400):\nError Code: ${errorCode}\nMessage: ${errorMessage}\n\nYour stored API key has been cleared. Please provide a valid API key.`;
-					console.error(fullError);
-					outputTextArea.value = fullError;
-					stopTimer("API Error");
-					return;
-				}
-				const errorText = `API error for ${modelName}: ${response.status} ${response.statusText} - ${await response.text()}`;
+					errorText += ` - ${errorBody?.error?.message || JSON.stringify(errorBody)}`;
+					if (response.status === 429) {
+						errorText = `Model: ${modelName} - Rate limited (429). Wait 60s or try another model.`;
+						stopStatus = "Rate limited";
+					} else if (response.status === 400 && errorBody?.error?.message.includes("API key not valid")) {
+						GM_deleteValue("geminiApiKey"); // Use deleteValue for clarity
+						apiKey = ""; // Clear runtime key
+						errorText = `API Key Error (400): Key rejected. Cleared stored key. Please provide a valid key.`;
+						stopStatus = "Invalid API Key";
+					}
+				} catch (e) { /* Ignore JSON parsing error if body is not JSON */ }
+
 				console.error(errorText);
 				outputTextArea.value = errorText;
-				stopTimer("API Error");
+				stopTimer(stopStatus);
+				updateButtonState(button, 'error');
 				return;
 			}
 
 			const data = await response.json();
-			if (data.candidates && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0].text) {
+			if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
 				const answerText = data.candidates[0].content.parts[0].text;
-				const timeTaken = Date.now() - startTime;
-				modelCache[cacheKey] = { answer: answerText, time: timeTaken };
+				modelCache[cacheKey] = { answer: answerText, time: timeTaken }; // Update cache
 				outputTextArea.value = answerText;
-				caption.textContent = `Model: ${modelName} | Response (time taken: ${timeTaken} ms)`;
+				caption.textContent = `Model: ${modelName} | Response (${timeTaken} ms)`;
 				stopTimer("Response received");
+				updateButtonState(button, 'success', questionIdentifier);
 			} else {
 				const warnText = `Unexpected API response format for ${modelName}: Check console for details.`;
 				console.warn(warnText, data);
 				outputTextArea.value = warnText;
 				stopTimer("Unexpected response");
+				updateButtonState(button, 'error'); // Indicate unexpected response as error visually
 			}
 		} catch (error) {
-			const errorMsg = `Error fetching from Gemini API for ${modelName}: ${error.message}`;
+			const errorMsg = `Network/Fetch Error for ${modelName}: ${error.message}`;
 			console.error(errorMsg, error);
 			outputTextArea.value = errorMsg;
-			stopTimer("Error");
+			stopTimer("Network Error");
+			updateButtonState(button, 'error');
 		}
 	}
 
@@ -985,6 +1128,49 @@
 		}
 		return hash.toString();
 	}
+
+	// Helper function to manage button visual states
+	function updateButtonState(button, state, identifier = null) {
+		const statusContainer = button.querySelector('.ai-model-status-container');
+		const progressSpinner = statusContainer?.querySelector('.ai-model-progress');
+		const statusIcon = statusContainer?.querySelector('.ai-model-status-icon');
+
+		// Clear previous states
+		button.classList.remove('loading', 'success', 'error'); // Added 'error' class possibility
+		button.disabled = false;
+		delete button.dataset.loadingIdentifier;
+		delete button.dataset.successIdentifier;
+		if (progressSpinner) progressSpinner.style.display = 'none';
+		if (statusIcon) statusIcon.style.display = 'none';
+
+
+		switch (state) {
+			case 'loading':
+				button.classList.add('loading');
+				button.disabled = true;
+				if (identifier) button.dataset.loadingIdentifier = identifier;
+				if (progressSpinner) progressSpinner.style.display = 'block';
+				break;
+			case 'success':
+				button.classList.add('success');
+				if (identifier) button.dataset.successIdentifier = identifier;
+				if (statusIcon) {
+					statusIcon.style.display = 'flex'; // Use flex to align center
+					// Ensure the identifier is attached for retry logic if needed elsewhere
+					statusIcon.dataset.questionIdentifier = identifier;
+				}
+				break;
+			case 'error':
+				button.classList.add('error'); // Add error class for potential styling
+				// Optionally display an error icon here
+				break;
+			case 'idle': // Explicitly reset to idle if needed
+			default:
+				// Already cleared states above
+				break;
+		}
+	}
+
 
 	// --- Event Listeners ---
 
