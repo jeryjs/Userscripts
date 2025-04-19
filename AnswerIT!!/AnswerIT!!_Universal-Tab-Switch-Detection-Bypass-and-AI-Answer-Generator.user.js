@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.4.0
+// @version      3.5.0
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
@@ -48,6 +48,13 @@
 			name: "Leetcode",
 			urls: ["leetcode.com"],
 			questionSelectors: ["#qd-content"],
+			getQuestionIdentifier: (element) => element.querySelector('a[href*="/problems/"]').textContent,
+			getQuestionText: (element) => {
+				const questionTitle = element.querySelector('a[href*="/problems/"]').textContent;
+				const questionElement = element.querySelector('div[data-track-load="description_content"]').innerHTML;
+				const codeEditorElement = element.querySelector('.lines-content')?.innerHTML;
+				return `Question Title: ${questionTitle}\n\nQuestion Element: ${questionElement}\n\nCurrent active Code Editor Element: ${codeEditorElement}`;
+			},
 		},
 	];
 
@@ -601,11 +608,6 @@
 		} else {
 			popup.classList.add("visible");
 			config.popupVisible = true;
-
-			// Clear previous output when showing
-			if (outputTextArea) {
-				outputTextArea.value = "";
-			}
 		}
 	}
 
@@ -780,8 +782,9 @@
 			return currentWebsite.getQuestionText(element);
 		}
 
-		// Default implementation - extract HTML content
-		return element.innerHTML || element.textContent || "Unable to extract question text";
+		// Extract HTML content only if its length is reasonable
+		if (element.innerHTML.length < 15000) return element.innerHTML;
+		return element.textContent;
 	}
 
 	let lastFocusedInput = null;
@@ -833,6 +836,7 @@
 			return;
 		}
 
+		let questionIdentifier = currentWebsite.getQuestionIdentifier(questionElement);
 		let questionText = getQuestionText(questionElement);
 
 		// Add custom prompt if provided
@@ -856,7 +860,7 @@
 		}
 
 		// Check cache
-		const cacheKey = `gemini-cache-${modelName}-${hashCode(questionText)}`;
+		const cacheKey = `gemini-cache-${modelName}-${hashCode(questionIdentifier || questionText)}`;
 		if (modelCache[cacheKey]) {
 			console.log(`Cache hit for ${modelName}.`);
 			outputTextArea.value = modelCache[cacheKey].answer;
