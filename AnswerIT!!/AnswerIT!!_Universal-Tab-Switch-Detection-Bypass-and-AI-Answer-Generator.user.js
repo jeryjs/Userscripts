@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.3.0
+// @version      3.4.0
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
@@ -28,6 +28,7 @@
 		hotkeyModifier: "alt", // Currently only supports 'alt'
 		popupVisible: false,
 		aiEnabled: GM_getValue("aiEnabled", true),
+		theme: GM_getValue("theme", "light"), // Default theme is 'light'
 	};
 
 	// --- Website Configurations ---
@@ -134,7 +135,7 @@
 	let outputTextArea;
 	let currentWebsite = null;
 
-	// Model definitions with ranking, subtitles, colors, and tooltips
+	// Model definitions with ranking, subtitles, colors (for light theme), and tooltips
 	const models = [
 		{
 			name: "gemini-2.5-pro-exp-03-25",
@@ -180,227 +181,266 @@
 
 	// CSS for popup UI
 	GM_addStyle(`
-        #ai-answer-popup {
-            position: fixed;
-            top: 50%;
-            right: 0px;
-            transform: translateY(-50%);
-            width: 500px;
-            max-width: 90vw;
-            height: 100vh;
-            background-color: #fff;
-            border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-            z-index: 9999;
-            display: none;
-            flex-direction: column;
-            overflow: hidden;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        }
+		:root {
+			--bg-main: #f5f5f5;
+			--bg-header: #f8f9fa;
+			--bg-textarea: #f9f9f9;
+			--bg-insert-button: #e0e0e0;
+			--color-text: #333;
+			--color-subtitle: #555;
+			--color-caption: #555;
+			--color-footer: #777;
+			--border-color: #ddd;
+			--border-header: #e9ecef;
+			--shadow-popup: 0 4px 20px rgba(0, 0, 0, 0.2);
+			--shadow-button: 0 1px 2px rgba(0,0,0,0.05);
+			--shadow-button-hover: 0 3px 5px rgba(0,0,0,0.1);
+		}
 
-        #ai-answer-popup.visible {
-            display: flex;
-        }
+		#ai-answer-popup.dark {
+			--bg-main: #1e1e1e;
+			--bg-header: #252525;
+			--bg-textarea: #2d2d2d;
+			--bg-insert-button: #3a3a3a;
+			--color-text: #e0e0e0;
+			--color-subtitle: #aaa;
+			--color-caption: #aaa;
+			--color-footer: #aaa;
+			--border-color: #444;
+			--border-header: #333;
+			--shadow-popup: 0 4px 20px rgba(0, 0, 0, 0.5);
+			--shadow-button: 0 1px 2px rgba(0,0,0,0.15);
+			--shadow-button-hover: 0 3px 5px rgba(0,0,0,0.3);
+		}
 
-        #ai-popup-header {
-            padding: 12px 15px;
-            background-color: #f8f9fa;
-            border-bottom: 1px solid #e9ecef;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
+		#ai-answer-popup {
+			position: fixed;
+			top: 50%;
+			right: 0px;
+			transform: translateY(-50%);
+			width: 500px;
+			max-width: 90vw;
+			height: 100vh;
+			background-color: var(--bg-main);
+			border-radius: 8px;
+			box-shadow: var(--shadow-popup);
+			z-index: 9999;
+			display: none;
+			flex-direction: column;
+			overflow: hidden;
+			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+		}
 
-        #ai-popup-title {
-            margin: 0;
-            font-size: 18px;
-            font-weight: 600;
-            color: #333;
-        }
+		#ai-answer-popup.visible {
+			display: flex;
+		}
 
-        #ai-popup-close {
-            background: none;
-            border: none;
-            cursor: pointer;
-            font-size: 20px;
-            color: #666;
-        }
+		#ai-popup-header {
+			padding: 12px 15px;
+			background-color: var(--bg-header);
+			border-bottom: 1px solid var(--border-header);
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+		}
 
-        #ai-caption {
-            font-size: 0.85em;
-            color: #555;
-            margin-bottom: 5px;
-            font-style: italic;
-        }
+		#ai-popup-title {
+			margin: 0;
+			font-size: 18px;
+			font-weight: 600;
+			color: var(--color-text);
+		}
 
-        #ai-popup-content {
-            padding: 15px;
-            overflow-y: auto;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
+		#ai-popup-close {
+			background: none;
+			border: none;
+			cursor: pointer;
+			font-size: 20px;
+			color: var(--color-text);
+		}
 
-        .ai-model-button {
-            width: 100%;
-            text-align: left;
-            border-radius: 6px;
-            border: 1px solid rgba(0,0,0,0.1);
-            padding: 10px 12px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            margin-bottom: 8px;
-            display: flex;
-            align-items: center;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        }
+		#ai-caption {
+			font-size: 0.85em;
+			color: var(--color-caption);
+			margin-bottom: 5px;
+			font-style: italic;
+		}
 
-        .ai-model-button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 3px 5px rgba(0,0,0,0.1);
-        }
+		#ai-popup-content {
+			padding: 15px;
+			overflow-y: auto;
+			flex: 1;
+			display: flex;
+			flex-direction: column;
+			gap: 10px;
+		}
 
-        .ai-model-text-container {
-            display: flex;
-            flex-direction: column;
-            width: 100%;
-        }
+		.ai-model-button {
+			width: 100%;
+			text-align: left;
+			border-radius: 6px;
+			border: 1px solid var(--border-color);
+			padding: 10px 12px;
+			cursor: pointer;
+			transition: all 0.2s ease;
+			margin-bottom: 8px;
+			display: flex;
+			align-items: center;
+			box-shadow: var(--shadow-button);
+						background-color: var(--bg-main);
+						color: var(--color-text);
+		}
 
-        .ai-model-name {
-            font-weight: 500;
-            font-size: 14px;
-        }
+		.ai-model-button:hover {
+			transform: translateY(-2px);
+			box-shadow: var(--shadow-button-hover);
+		}
 
-        .ai-model-subtitle {
-            height: 0;
-            overflow: hidden;
-            font-size: 12px;
-            color: #555;
-            transition: height 0.2s ease, opacity 0.2s ease, margin 0.2s ease;
-            opacity: 0;
-            margin-top: 0;
-        }
+		.ai-model-text-container {
+			display: flex;
+			flex-direction: column;
+			width: 100%;
+		}
 
-        .ai-model-button:hover .ai-model-subtitle {
-            height: auto;
-            opacity: 1;
-            margin-top: 4px;
-        }
+		.ai-model-name {
+			font-weight: 500;
+			font-size: 14px;
+		}
 
-        #ai-output-container {
-            margin-top: 10px;
-            display: flex;
-            flex-direction: column;
-            flex-grow: 1;
-            flex-shrink: 1;
-            flex-basis: auto;
-            overflow: auto;
-            margin-top: auto;
-        }
+		.ai-model-subtitle {
+			height: 0;
+			overflow: hidden;
+			font-size: 12px;
+			color: var(--color-subtitle);
+			transition: height 0.2s ease, opacity 0.2s ease, margin 0.2s ease;
+			opacity: 0;
+			margin-top: 0;
+		}
 
-        #ai-output-textarea {
-            width: 100%;
-            height: 100%;
-            padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-family: monospace;
-            font-size: 12px;
-            resize: none;
-            min-height: 150px;
-            box-sizing: border-box;
-        }
+		.ai-model-button:hover .ai-model-subtitle {
+			height: auto;
+			opacity: 1;
+			margin-top: 4px;
+		}
 
-        #ai-custom-prompt-container {
-            margin-top: 15px;
-            margin-bottom: 5px;
-            display: flex;
-            flex-direction: column;
-            opacity: 0.7;
-            transition: opacity 0.3s ease;
-        }
+		#ai-output-container {
+			margin-top: 10px;
+			display: flex;
+			flex-direction: column;
+			flex-grow: 1;
+			flex-shrink: 1;
+			flex-basis: auto;
+			overflow: auto;
+			margin-top: auto;
+		}
 
-        #ai-custom-prompt-container:hover {
-            opacity: 1;
-        }
+		#ai-output-textarea {
+			width: 100%;
+			height: 100%;
+			padding: 8px;
+			border: 1px solid var(--border-color);
+			border-radius: 4px;
+			font-family: monospace;
+			font-size: 12px;
+			resize: none;
+			min-height: 150px;
+			box-sizing: border-box;
+						background-color: var(--bg-textarea);
+						color: var(--color-text);
+		}
 
-        #ai-custom-prompt-label {
-            font-size: 0.85em;
-            color: #666;
-            margin-bottom: 4px;
-            display: flex;
-            align-items: center;
-            cursor: pointer;
-        }
+		#ai-custom-prompt-container {
+			margin-top: 15px;
+			margin-bottom: 5px;
+			display: flex;
+			flex-direction: column;
+			opacity: 0.7;
+			transition: opacity 0.3s ease;
+		}
 
-        #ai-custom-prompt-label::before {
-            content: "▶";
-            font-size: 0.8em;
-            margin-right: 5px;
-            transition: transform 0.3s ease;
-        }
+		#ai-custom-prompt-container:hover {
+			opacity: 1;
+		}
 
-        #ai-custom-prompt-label.expanded::before {
-            transform: rotate(90deg);
-        }
+		#ai-custom-prompt-label {
+			font-size: 0.85em;
+			color: var(--color-subtitle);
+			margin-bottom: 4px;
+			display: flex;
+			align-items: center;
+			cursor: pointer;
+		}
 
-        #ai-custom-prompt {
-            width: 100%;
-            padding: 6px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-family: monospace;
-            font-size: 12px;
-            resize: vertical;
-            min-height: 60px;
-            display: none;
-        }
+		#ai-custom-prompt-label::before {
+			content: "▶";
+			font-size: 0.8em;
+			margin-right: 5px;
+			transition: transform 0.3s ease;
+		}
 
-        #ai-custom-prompt.visible {
-            display: block;
-        }
+		#ai-custom-prompt-label.expanded::before {
+			transform: rotate(90deg);
+		}
 
-        #ai-timer {
-            font-family: monospace;
-        }
+		#ai-custom-prompt {
+			width: 100%;
+			padding: 6px;
+			border: 1px solid var(--border-color);
+			border-radius: 4px;
+			font-family: monospace;
+			font-size: 12px;
+			resize: vertical;
+			min-height: 60px;
+			display: none;
+						background-color: var(--bg-textarea);
+						color: var(--color-text);
+		}
 
-        #ai-popup-footer {
-            padding: 10px 15px;
-            background-color: #f8f9fa;
-            border-top: 1px solid #e9ecef;
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.8em;
-            color: #777;
-        }
+		#ai-custom-prompt.visible {
+			display: block;
+		}
 
-        #ai-status-text {
-            font-style: italic;
-        }
+		#ai-timer {
+			font-family: monospace;
+		}
 
-        #ai-insert-button {
-            position: absolute;
-            top: 5px;
-            right: 5px;
-            background-color: #f0f0f0;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            padding: 2px 8px;
-            font-size: 0.8em;
-            cursor: pointer;
-            opacity: 0.8;
-            transition: opacity 0.3s ease;
-        }
+		#ai-popup-footer {
+			padding: 10px 15px;
+			background-color: var(--bg-header);
+			border-top: 1px solid var(--border-header);
+			display: flex;
+			justify-content: space-between;
+			font-size: 0.8em;
+			color: var(--color-footer);
+		}
 
-        #ai-insert-button:hover {
-            opacity: 1;
-        }
+		#ai-status-text {
+			font-style: italic;
+		}
 
-        #ai-output-container {
-            position: relative;
-        }
-    `);
+		#ai-insert-button {
+			position: absolute;
+			top: 5px;
+			right: 5px;
+			background-color: var(--bg-insert-button);
+			border: 1px solid var(--border-color);
+			border-radius: 4px;
+			padding: 2px 8px;
+			font-size: 0.8em;
+			cursor: pointer;
+			opacity: 0.8;
+			transition: opacity 0.3s ease;
+						color: var(--color-text);
+		}
+
+		#ai-insert-button:hover {
+			opacity: 1;
+		}
+
+		#ai-output-container {
+			position: relative;
+		}
+	`);
 
 	function createPopupUI() {
 		if (document.getElementById("ai-answer-popup")) {
@@ -410,21 +450,41 @@
 		const popup = document.createElement("div");
 		popup.id = "ai-answer-popup";
 
+		 // Apply theme class based on config
+		if (config.theme === "dark") {
+			popup.classList.add("dark");
+		}
+
 		// Header section
 		const header = document.createElement("div");
 		header.id = "ai-popup-header";
 
 		const title = document.createElement("h3");
 		title.id = "ai-popup-title";
-		title.textContent = "AI Answer Generator";
+		title.textContent = "AnswerIT!!";
+
+		// Container for theme toggle and close buttons
+		const controls = document.createElement("div");
+		controls.id = "ai-popup-controls";
+
+		// Theme toggle button
+		const themeToggle = document.createElement("button");
+		themeToggle.id = "ai-theme-toggle";
+		themeToggle.textContent = config.theme === "dark" ? "☀️" : "🌙";
+		themeToggle.title = config.theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
+		themeToggle.style.marginRight = "6px";
+		themeToggle.addEventListener("click", toggleTheme);
 
 		const closeButton = document.createElement("button");
 		closeButton.id = "ai-popup-close";
 		closeButton.textContent = "×";
 		closeButton.addEventListener("click", togglePopup);
 
+		controls.appendChild(themeToggle);
+		controls.appendChild(closeButton);
+
 		header.appendChild(title);
-		header.appendChild(closeButton);
+		header.appendChild(controls);
 
 		// Content section
 		const content = document.createElement("div");
@@ -436,7 +496,7 @@
 			button.classList.add("ai-model-button");
 			button.setAttribute("data-model", model.name);
 			button.setAttribute("title", model.tooltip);
-			button.style.backgroundColor = model.color;
+			button.style.backgroundColor = getThemedColor(model.color);
 			button.addEventListener("click", handleGenerateClick);
 
 			// Main container for text content
@@ -549,6 +609,15 @@
 		}
 	}
 
+	function getThemedColor(color) {
+		if (config.theme === "light") return color; // No change for light theme
+
+		let n = parseInt(color.slice(1), 16),
+				r = n >> 16, g = n >> 8 & 255, b = n & 255,
+				d = x => (x * 0.3 | 0);  // 30% brightness
+		return "#" + ((1<<24)|(d(r)<<16)|(d(g)<<8)|d(b)).toString(16).slice(1);
+	}
+
 	function toggleCustomPrompt() {
 		const label = document.getElementById("ai-custom-prompt-label");
 		const textarea = document.getElementById("ai-custom-prompt");
@@ -559,6 +628,34 @@
 		if (textarea.classList.contains("visible")) {
 			textarea.focus();
 		}
+	}
+
+	function toggleTheme() {
+		const popup = document.getElementById("ai-answer-popup");
+		const themeToggle = document.getElementById("ai-theme-toggle");
+		
+		if (config.theme === "light") {
+			config.theme = "dark";
+			popup.classList.add("dark");
+			themeToggle.textContent = "☀️";
+			themeToggle.title = "Switch to light theme";
+		} else {
+			config.theme = "light";
+			popup.classList.remove("dark");
+			themeToggle.textContent = "🌙";
+			themeToggle.title = "Switch to dark theme";
+		}
+		
+		// Save the theme preference
+		GM_setValue("theme", config.theme);
+
+		// Update model button colors immediately
+		const modelButtons = popup.querySelectorAll(".ai-model-button");
+		models.forEach((model, index) => {
+			if (modelButtons[index]) {
+				modelButtons[index].style.backgroundColor = getThemedColor(model.color);
+			}
+		});
 	}
 
 	let timerInterval = null;
