@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.6.0
+// @version      3.7.0
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
@@ -62,43 +62,14 @@
 	function setupDetectionBypass() {
 		// Visibility API Overrides
 		Object.defineProperties(document, {
-			"hidden": {
-				get: function () {
-					return false;
-				},
-				configurable: true,
-			},
-			"visibilityState": {
-				get: function () {
-					return "visible";
-				},
-				configurable: true,
-			},
-			"webkitHidden": {
-				get: function () {
-					return false;
-				},
-				configurable: true,
-			},
-			"webkitVisibilityState": {
-				get: function () {
-					return "visible";
-				},
-				configurable: true,
-			},
+			"hidden": { get: function () { return false; }, configurable: true },
+			"visibilityState": { get: function () { return "visible"; }, configurable: true },
+			"webkitHidden": { get: function () { return false; }, configurable: true },
+			"webkitVisibilityState": { get: function () { return "visible"; }, configurable: true },
 		});
 
 		// Block visibility events
-		const eventsToBlock = [
-			"visibilitychange",
-			"webkitvisibilitychange",
-			"blur",
-			"focus",
-			"focusin",
-			"focusout",
-			"fullscreenchange",
-			"webkitfullscreenchange",
-		];
+		const eventsToBlock = ["visibilitychange", "webkitvisibilitychange", "blur", "focus", "focusin", "focusout", "fullscreenchange", "webkitfullscreenchange"];
 		eventsToBlock.forEach((eventType) => {
 			window.addEventListener(
 				eventType,
@@ -136,11 +107,13 @@
 		console.log("[Answer it!!] Enhanced detection bypass activated");
 	}
 
+
 	// --- AI Answer Generator Feature ---
 	let apiKey;
 	const modelCache = {}; // In-memory cache for current session
 	let outputTextArea;
 	let currentWebsite = null;
+    let currentQnIdentifier = null;
 
 	// Model definitions with ranking, subtitles, colors (for light theme), and tooltips
 	const models = [
@@ -711,6 +684,25 @@
 		popup.appendChild(footer);
 
 		document.body.appendChild(popup);
+
+		
+		// --- Events ---
+
+		// Attach keyboard shortcut handler
+		document.addEventListener("keydown", function (event) {
+			// Check if Alt+[configured key] is pressed using event.code for better compatibility
+			if (event.altKey && event.code.toLowerCase() === `key${config.hotkey.toLowerCase()}`) {
+				event.preventDefault();
+				togglePopup();
+			}
+		});
+
+		// Poll for question changes every 200ms to update UI state
+		setInterval(() => {
+			if (config.popupVisible) {
+				checkAndUpdateButtonStates();
+			}
+		}, 200);
 	}
 
 	function togglePopup() {
@@ -893,6 +885,40 @@
 		}
 	}
 
+	// Helper function to check for question change and reset buttons
+	function checkAndUpdateButtonStates() {
+		const currentQnElm = getQuestionElement();
+		if (!currentQnElm) return;
+
+		const newQnIdentifier = getQuestionIdentifier(currentQnElm);
+
+		if (newQnIdentifier !== currentQnIdentifier) {
+			const modelButtons = document.querySelectorAll('#ai-answer-popup .ai-model-button');
+			modelButtons.forEach(button => {
+				const modelName = button.getAttribute('data-model');
+				const cacheKey = `gemini-cache-${modelName}-${newQnIdentifier}`;
+
+				// Restore button state if it exists
+				if (modelCache[cacheKey]?.state) {
+					updateButtonState(button, modelCache[cacheKey].state, newQnIdentifier);
+				} else {
+					updateButtonState(button, 'idle');
+				}
+			});
+
+			// clear the output text area and caption
+			outputTextArea.value = ""; // Clear previous output
+			const caption = document.getElementById("ai-caption");
+			caption.textContent = "Response metadata will appear here";
+
+			currentQnIdentifier = newQnIdentifier; // Update the tracker
+		}
+	}
+
+	function getQuestionIdentifier(element) {
+		return hashCode(currentWebsite?.getQuestionIdentifier(element) || element.textContent);
+	}
+
 	function getQuestionText(element) {
 		if (!element) return "No question found";
 
@@ -940,30 +966,19 @@
 	async function handleGenerateClick(event, forceRetry = false) {
 		const button = event.currentTarget;
 		const modelName = button.getAttribute("data-model");
-		const statusText = document.getElementById("ai-status-text");
 		const caption = document.getElementById("ai-caption");
 
 		// --- Get Question Info ---
-		const questionElement = getQuestionElement();
-		if (!questionElement) {
+		const qElm = getQuestionElement();
+		if (!qElm) {
 			outputTextArea.value = "Error: Question not found on page. This site might not be supported yet.";
 			stopTimer("Error");
 			updateButtonState(button, 'error'); // Indicate error on button
 			return;
 		}
-		let questionText = getQuestionText(questionElement);
-		let questionIdentifier;
-		try {
-			// Ensure getQuestionIdentifier exists or fallback gracefully
-			questionIdentifier = currentWebsite?.getQuestionIdentifier
-				? currentWebsite.getQuestionIdentifier(questionElement)
-				: questionText; // Fallback to full text if no identifier function
-			questionIdentifier = hashCode(questionIdentifier || questionText); // Ensure we always have an identifier
-		} catch (err) {
-			console.warn("Error getting question identifier:", err);
-			questionIdentifier = hashCode(questionText); // Fallback hash
-		}
-
+		let questionIdentifier = getQuestionIdentifier(qElm);
+		let questionText = getQuestionText(qElm);
+		const cacheKey = `gemini-cache-${modelName}-${questionIdentifier}`;
 
 		// --- Prevent Re-clicking Same Question While Loading ---
 		if (button.classList.contains('loading') && button.dataset.loadingIdentifier === questionIdentifier && !forceRetry) {
@@ -971,10 +986,21 @@
 			return; // Already processing this specific question
 		}
 
+		// --- Cache Check (Bypass if forceRetry is true) ---
+		if (!forceRetry && modelCache[cacheKey]?.state === 'success') {
+			console.log(`[AnswerIT!!] Cache hit for ${modelName}.`);
+			outputTextArea.value = modelCache[cacheKey].answer;
+			caption.textContent = `Model: ${modelName} | Cached Response (original time: ${modelCache[cacheKey].time} ms)`;
+			stopTimer("Loaded from cache");
+			updateButtonState(button, modelCache[cacheKey].state, questionIdentifier); // Show success even for cache
+			return;
+		}
+
 		// --- Reset UI and Start Loading State ---
 		outputTextArea.value = ""; // Clear previous output
 		caption.textContent = "Response metadata will appear here"; // Clear caption
-		updateButtonState(button, 'loading', questionIdentifier);
+		updateButtonState(button, 'loading', questionIdentifier);	// update ui immediately
+		modelCache[cacheKey] = { state: 'loading' };
 		startTimer(); // Start the main timer
 
 		// --- Add Custom Prompt ---
@@ -996,18 +1022,6 @@
 				}
 				GM_setValue("geminiApiKey", apiKey);
 			}
-		}
-
-		// --- Cache Check (Bypass if forceRetry is true) ---
-		const cacheKey = `gemini-cache-${modelName}-${questionIdentifier}`;
-		if (!forceRetry && modelCache[cacheKey]) {
-			console.log(`[AnswerIT!!] Cache hit for ${modelName}.`);
-			outputTextArea.value = modelCache[cacheKey].answer;
-			const timeTaken = modelCache[cacheKey].time;
-			caption.textContent = `Model: ${modelName} | Cached Response (original time: ${timeTaken} ms)`;
-			stopTimer("Loaded from cache");
-			updateButtonState(button, 'success', questionIdentifier); // Show success even for cache
-			return;
 		}
 
 		// --- API Call ---
@@ -1032,18 +1046,18 @@
 			const timeTaken = Date.now() - startTime;
 
 			if (!response.ok) {
-				let errorText = `API error for ${modelName}: ${response.status} ${response.statusText}`;
+				let errorText = `API error for ${modelName}: ${response.status} ${response.statusText}\n\n`;
 				let stopStatus = "API Error";
 				try {
 					const errorBody = await response.json();
 					errorText += ` - ${errorBody?.error?.message || JSON.stringify(errorBody)}`;
 					if (response.status === 429) {
-						errorText = `Model: ${modelName} - Rate limited (429). Wait 60s or try another model.`;
+						errorText = `Too many requests. You may have spammed the same model past its Quota. Please wait 60 seconds or try another model.`;
 						stopStatus = "Rate limited";
 					} else if (response.status === 400 && errorBody?.error?.message.includes("API key not valid")) {
 						GM_deleteValue("geminiApiKey"); // Use deleteValue for clarity
 						apiKey = ""; // Clear runtime key
-						errorText = `API Key Error (400): Key rejected. Cleared stored key. Please provide a valid key.`;
+						errorText = `API Key Error (400): Key rejected. Your stored API key has been cleared. Please provide a valid API key.`;
 						stopStatus = "Invalid API Key";
 					}
 				} catch (e) { /* Ignore JSON parsing error if body is not JSON */ }
@@ -1058,24 +1072,26 @@
 			const data = await response.json();
 			if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
 				const answerText = data.candidates[0].content.parts[0].text;
-				modelCache[cacheKey] = { answer: answerText, time: timeTaken }; // Update cache
+				modelCache[cacheKey] = { answer: answerText, time: timeTaken, state: 'success' }; // Update cache
 				outputTextArea.value = answerText;
 				caption.textContent = `Model: ${modelName} | Response (${timeTaken} ms)`;
-				stopTimer("Response received");
 				updateButtonState(button, 'success', questionIdentifier);
+				stopTimer("Response received");
 			} else {
 				const warnText = `Unexpected API response format for ${modelName}: Check console for details.`;
 				console.warn(warnText, data);
 				outputTextArea.value = warnText;
+				modelCache[cacheKey] = { answer: warnText, time: 0, state: 'error' };
+				updateButtonState(button, 'error');
 				stopTimer("Unexpected response");
-				updateButtonState(button, 'error'); // Indicate unexpected response as error visually
 			}
 		} catch (error) {
 			const errorMsg = `Network/Fetch Error for ${modelName}: ${error.message}`;
 			console.error(errorMsg, error);
 			outputTextArea.value = errorMsg;
-			stopTimer("Network Error");
+			modelCache[cacheKey] = { answer: errorMsg, time: 0, state: 'error' };
 			updateButtonState(button, 'error');
+			stopTimer("Network Error");
 		}
 	}
 
@@ -1136,13 +1152,12 @@
 		const statusIcon = statusContainer?.querySelector('.ai-model-status-icon');
 
 		// Clear previous states
-		button.classList.remove('loading', 'success', 'error'); // Added 'error' class possibility
+		button.classList.remove('loading', 'success', 'error');
 		button.disabled = false;
 		delete button.dataset.loadingIdentifier;
 		delete button.dataset.successIdentifier;
 		if (progressSpinner) progressSpinner.style.display = 'none';
 		if (statusIcon) statusIcon.style.display = 'none';
-
 
 		switch (state) {
 			case 'loading':
@@ -1164,24 +1179,16 @@
 				button.classList.add('error'); // Add error class for potential styling
 				// Optionally display an error icon here
 				break;
-			case 'idle': // Explicitly reset to idle if needed
-			default:
-				// Already cleared states above
+			case 'idle':
+				button.classList.remove('loading', 'success', 'error');
+				button.disabled = false;
 				break;
+			default:break;
 		}
 	}
 
 
 	// --- Event Listeners ---
-
-	// Keyboard shortcut handler
-	document.addEventListener("keydown", function (event) {
-		// Check if Alt+[configured key] is pressed using event.code for better compatibility
-		if (event.altKey && event.code.toLowerCase() === `key${config.hotkey.toLowerCase()}`) {
-			event.preventDefault();
-			togglePopup();
-		}
-	});
 
 	// Register Tampermonkey menu commands
 	GM_registerMenuCommand("Toggle AI Popup (Alt+" + config.hotkey.toUpperCase() + ")", togglePopup);
