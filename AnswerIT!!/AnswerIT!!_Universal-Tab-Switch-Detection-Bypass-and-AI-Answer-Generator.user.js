@@ -461,7 +461,7 @@
 
 		const title = document.createElement("h3");
 		title.id = "ai-popup-title";
-		title.textContent = "AI Answer Generator";
+		title.textContent = "AnswerIT!!";
 
 		// Container for theme toggle and close buttons
 		const controls = document.createElement("div");
@@ -472,6 +472,7 @@
 		themeToggle.id = "ai-theme-toggle";
 		themeToggle.textContent = config.theme === "dark" ? "☀️" : "🌙";
 		themeToggle.title = config.theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
+		themeToggle.style.marginRight = "6px";
 		themeToggle.addEventListener("click", toggleTheme);
 
 		const closeButton = document.createElement("button");
@@ -495,7 +496,7 @@
 			button.classList.add("ai-model-button");
 			button.setAttribute("data-model", model.name);
 			button.setAttribute("title", model.tooltip);
-			button.style.backgroundColor = model.color;
+			button.style.backgroundColor = getThemedColor(model.color);
 			button.addEventListener("click", handleGenerateClick);
 
 			// Main container for text content
@@ -608,6 +609,15 @@
 		}
 	}
 
+	function getThemedColor(color) {
+		if (config.theme === "light") return color; // No change for light theme
+
+		let n = parseInt(color.slice(1), 16),
+				r = n >> 16, g = n >> 8 & 255, b = n & 255,
+				d = x => (x * 0.3 | 0);  // 30% brightness
+		return "#" + ((1<<24)|(d(r)<<16)|(d(g)<<8)|d(b)).toString(16).slice(1);
+	}
+
 	function toggleCustomPrompt() {
 		const label = document.getElementById("ai-custom-prompt-label");
 		const textarea = document.getElementById("ai-custom-prompt");
@@ -627,17 +637,25 @@
 		if (config.theme === "light") {
 			config.theme = "dark";
 			popup.classList.add("dark");
-			themeToggle.textContent = "☀️"; // Sun emoji for switching to light theme
+			themeToggle.textContent = "☀️";
 			themeToggle.title = "Switch to light theme";
 		} else {
 			config.theme = "light";
 			popup.classList.remove("dark");
-			themeToggle.textContent = "🌙"; // Moon emoji for switching to dark theme
+			themeToggle.textContent = "🌙";
 			themeToggle.title = "Switch to dark theme";
 		}
 		
 		// Save the theme preference
 		GM_setValue("theme", config.theme);
+
+		// Update model button colors immediately
+		const modelButtons = popup.querySelectorAll(".ai-model-button");
+		models.forEach((model, index) => {
+			if (modelButtons[index]) {
+				modelButtons[index].style.backgroundColor = getThemedColor(model.color);
+			}
+		});
 	}
 
 	let timerInterval = null;
