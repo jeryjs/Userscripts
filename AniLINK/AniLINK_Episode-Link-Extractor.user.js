@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.3.1
+// @version     6.3.2
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -826,49 +826,69 @@ async function extractEpisodes() {
     
     // Renders quality link lists inside a given container element
     function renderQualityLinkLists(sortedLinks, container) {
-        const previousExpandedState = {};
+        // Track expanded state for each quality section
+        const expandedState = {};
         container.querySelectorAll('.anlink-quality-section').forEach(section => {
             const quality = section.dataset.quality;
             const episodeList = section.querySelector('.anlink-episode-list');
-            previousExpandedState[quality] = episodeList.style.maxHeight !== '0px';
+            expandedState[quality] = episodeList && episodeList.style.maxHeight !== '0px';
         });
-
-        container.innerHTML = ''; // Clear existing content
+    
         for (const quality in sortedLinks) {
-            const episodes = sortedLinks[quality].sort((a, b) => a.number - b.number); // Ensure episodes are sorted
+            let qualitySection = container.querySelector(`.anlink-quality-section[data-quality="${quality}"]`);
+            let episodeListElem;
+    
+            const episodes = sortedLinks[quality].sort((a, b) => a.number - b.number);
+    
+            if (!qualitySection) {
+                // Create new section if it doesn't exist
+                qualitySection = document.createElement('div');
+                qualitySection.className = 'anlink-quality-section';
+                qualitySection.dataset.quality = quality;
+    
+                const headerDiv = document.createElement('div'); // Header div for quality-string and buttons - ROW
+                headerDiv.className = 'anlink-quality-header';
+    
+                // Create a span for the clickable header text and icon
+                const qualitySpan = document.createElement('span');
+                qualitySpan.innerHTML = `<i style="opacity: 0.5">(${sortedLinks[quality].length})</i> <i class="material-icons">chevron_right</i> ${quality}`;
+                qualitySpan.addEventListener('click', toggleQualitySection);
+                headerDiv.appendChild(qualitySpan);
+    
 
-            const qualitySection = document.createElement('div');
-            qualitySection.className = 'anlink-quality-section';
-            qualitySection.dataset.quality = quality; // Store quality-string in data attribute
-
-            const headerDiv = document.createElement('div'); // Header div for quality-string and buttons - ROW
-            headerDiv.className = 'anlink-quality-header';
-
-            // Create a span for the clickable header text and icon
-            const qualitySpan = document.createElement('span');
-            qualitySpan.innerHTML = `<i style="opacity: 0.5">(${sortedLinks[quality].length})</i> <i class="material-icons">chevron_right</i> ${quality}`; // Expand icon and quality text
-            qualitySpan.addEventListener('click', toggleQualitySection); // Add click listener to the span
-            headerDiv.appendChild(qualitySpan);
-
-
-            // --- Create Speed Dial Button in the Quality Section ---
-            const headerButtons = document.createElement('div');
-            headerButtons.className = 'anlink-header-buttons';
-            headerButtons.innerHTML = `
-                <button type="button" class="anlink-select-links">Select</button>
-                <button type="button" class="anlink-copy-links">Copy</button>
-                <button type="button" class="anlink-export-links">Export</button>
-                <button type="button" class="anlink-play-links">Play</button>
-            `;
-            headerDiv.appendChild(headerButtons);
-            qualitySection.appendChild(headerDiv);
-
-
-            // --- Populate the quality section with episodes ---
-            const episodeListElem = document.createElement('ul');
-            episodeListElem.className = 'anlink-episode-list';
-            episodeListElem.style.maxHeight = '0px'; // Default to collapsed
-
+                // --- Create Speed Dial Button in the Quality Section ---
+                const headerButtons = document.createElement('div');
+                headerButtons.className = 'anlink-header-buttons';
+                headerButtons.innerHTML = `
+                    <button type="button" class="anlink-select-links">Select</button>
+                    <button type="button" class="anlink-copy-links">Copy</button>
+                    <button type="button" class="anlink-export-links">Export</button>
+                    <button type="button" class="anlink-play-links">Play</button>
+                `;
+                headerDiv.appendChild(headerButtons);
+                qualitySection.appendChild(headerDiv);
+    
+                // --- Add Empty episodes list elm to the quality section ---
+                episodeListElem = document.createElement('ul');
+                episodeListElem.className = 'anlink-episode-list';
+                episodeListElem.style.maxHeight = '0px';
+                qualitySection.appendChild(episodeListElem);
+    
+                container.appendChild(qualitySection);
+    
+                // Attach handlers
+                attachBtnClickListeners(episodes, qualitySection);
+            } else {
+                // Update header count
+                const qualitySpan = qualitySection.querySelector('.anlink-quality-header > span');
+                if (qualitySpan) {
+                    qualitySpan.innerHTML = `<i style="opacity: 0.5">(${sortedLinks[quality].length})</i> <i class="material-icons">chevron_right</i> ${quality}`;
+                }
+                episodeListElem = qualitySection.querySelector('.anlink-episode-list');
+            }
+    
+            // Update episode list items
+            episodeListElem.innerHTML = '';
             episodes.forEach(ep => {
                 const listItem = document.createElement('li');
                 listItem.className = 'anlink-episode-item';
@@ -884,18 +904,12 @@ async function extractEpisodes() {
                 const name = decodeURIComponent(episodeLinkElement.download);
                 listItem.addEventListener('mouseenter', () => window.getSelection().isCollapsed && (episodeLinkElement.textContent = name));
                 listItem.addEventListener('mouseleave', () => episodeLinkElement.textContent = decodeURIComponent(link));
-
                 episodeListElem.appendChild(listItem);
             });
-            qualitySection.appendChild(episodeListElem); // Append ul inside section
-            container.appendChild(qualitySection);
-
-            // Attach handlers to the quality sections
-            attachBtnClickListeners(episodes, qualitySection);
-
-            // Restore expand state
-            if (previousExpandedState[quality]) {
-                const icon = qualitySpan.querySelector('.material-icons');
+    
+            // Restore expand state only if section was previously expanded
+            if (expandedState[quality]) {
+                const icon = qualitySection.querySelector('.material-icons');
                 episodeListElem.style.maxHeight = `${episodeListElem.scrollHeight}px`;
                 icon.classList.add('rotate');
             }
