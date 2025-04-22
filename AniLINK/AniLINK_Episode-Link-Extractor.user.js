@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.4.0
+// @version     6.5.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -488,7 +488,7 @@ const websites = [
         },
         // --- Helper functions adapted from provided code ---
         _reverseIt: (n) => n.split('').reverse().join(''),
-        _base64UrlEncode: (str) => btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+        _base64UrlEncode: (str) => btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),        
         _base64UrlDecode: (n) => { n = n.padEnd(n.length + ((4 - (n.length % 4)) % 4), '=').replace(/-/g, '+').replace(/_/g, '/'); return atob(n); },
         _substitute: (input, keys, values) => { const map = Object.fromEntries(keys.split('').map((key, i) => [key, values[i] || ''])); return input.split('').map(char => map[char] || char).join(''); },
         _transform: (n, t) => { const v = Array.from({ length: 256 }, (_, i) => i); let c = 0, f = ''; for (let w = 0; w < 256; w++) { c = (c + v[w] + n.charCodeAt(w % n.length)) % 256; [v[w], v[c]] = [v[c], v[w]]; } for (let a = (c = 0), w = 0; a < t.length; a++) { w = (w + 1) % 256; c = (c + v[w]) % 256; [v[w], v[c]] = [v[c], v[w]]; f += String.fromCharCode(t.charCodeAt(a) ^ v[(v[w] + v[c]) % 256]); } return f; },
@@ -690,6 +690,11 @@ async function* yieldEpisodesFromPromises(episodePromises) {
     }
 }
 
+/**
+ * encodes a string to base64url format thats safe for URLs
+ */
+const safeBtoa = str => btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
 
 
 // initialize
@@ -745,8 +750,8 @@ async function extractEpisodes() {
         .anlink-episode-list { list-style: none; padding-left: 0; margin-top: 0; overflow: hidden; transition: max-height 0.5s ease-in-out; } /* Transition for max-height */
         .anlink-episode-item { margin-bottom: 5px; padding: 8px; border-bottom: 1px solid #333; display: flex; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* Single line and ellipsis for item */
         .anlink-episode-item:last-child { border-bottom: none; }
-        .anlink-episode-item > label > span { user-select: none; } /* Disable selecting the 'Ep: 1' prefix */
-        .anlink-episode-checkbox { appearance: none; width: 20px; height: 20px; margin-right: 10px; border: 1px solid #26a69a; border-radius: 4px; outline: none; cursor: pointer; transition: background-color 0.3s, border-color 0.3s; }
+        .anlink-episode-item > label > span { user-select: none; cursor: pointer; color: #26a69a; } /* Disable selecting the 'Ep: 1' prefix */
+        .anlink-episode-checkbox { appearance: none; width: 20px; height: 20px; margin-right: 10px; margin-bottom: -5px; border: 1px solid #26a69a; border-radius: 4px; outline: none; cursor: pointer; transition: background-color 0.3s, border-color 0.3s; }
         .anlink-episode-checkbox:checked { background-color: #26a69a; border-color: #26a69a; }
         .anlink-episode-checkbox:checked::after { content: '✔'; display: block; color: white; font-size: 14px; text-align: center; line-height: 20px; animation: checkTilt 0.3s; }
         .anlink-episode-link { color: #ffca28; text-decoration: none; word-break: break-all; overflow: hidden; text-overflow: ellipsis; display: inline; } /* Single line & Ellipsis for long links */
@@ -864,7 +869,7 @@ async function extractEpisodes() {
                     <button type="button" class="anlink-select-links">Select</button>
                     <button type="button" class="anlink-copy-links">Copy</button>
                     <button type="button" class="anlink-export-links">Export</button>
-                    <button type="button" class="anlink-play-links">Play</button>
+                    <button type="button" class="anlink-play-links">Play with MPV</button>
                 `;
                 headerDiv.appendChild(headerButtons);
                 qualitySection.appendChild(headerDiv);
@@ -890,21 +895,36 @@ async function extractEpisodes() {
 
             // Update episode list items
             episodeListElem.innerHTML = '';
-            episodes.forEach(ep => {
+                        episodes.forEach(ep => {
                 const listItem = document.createElement('li');
                 listItem.className = 'anlink-episode-item';
                 listItem.innerHTML = `
                     <label>
                         <input type="checkbox" class="anlink-episode-checkbox" />
-                        <span>Ep ${ep.number.replace(/^0+/, '')}: </span>
+                        <span id="mpv-epnum" title="Play in MPV">Ep ${ep.number.replace(/^0+/, '')}: </span>
                         <a href="${ep.links[quality].stream}" class="anlink-episode-link" download="${encodeURI(ep.name)}" data-epnum="${ep.number}" title="${ep.title.replace(/[<>:"/\\|?*]/g, '')}" ep-title="${ep.title.replace(/[<>:"/\\|?*]/g, '')}">${ep.links[quality].stream}</a>
                     </label>
                 `;
                 const episodeLinkElement = listItem.querySelector('.anlink-episode-link');
+                const epnumSpan = listItem.querySelector('#mpv-epnum');
                 const link = episodeLinkElement.href;
                 const name = decodeURIComponent(episodeLinkElement.download);
-                listItem.addEventListener('mouseenter', () => window.getSelection().isCollapsed && (episodeLinkElement.textContent = name));
-                listItem.addEventListener('mouseleave', () => episodeLinkElement.textContent = decodeURIComponent(link));
+            
+                // On hover, show MPV icon & file name
+                listItem.addEventListener('mouseenter', () => {
+                    window.getSelection().isCollapsed && (episodeLinkElement.textContent = name);
+                    epnumSpan.innerHTML = `<img width="20" height="20" fill="#26a69a" style="vertical-align:middle;" src="https://a.fsdn.com/allura/p/mpv-player-windows/icon?1517058933"> ${ep.number.replace(/^0+/, '')}: `;
+                });
+                listItem.addEventListener('mouseleave', () => {
+                    episodeLinkElement.textContent = decodeURIComponent(link);
+                    epnumSpan.textContent = `Ep ${ep.number.replace(/^0+/, '')}: `;
+                });
+                epnumSpan.addEventListener('click', e => {
+                    e.preventDefault();
+                    location.replace('mpv://play/' + safeBtoa(link) + `/?v_title=${safeBtoa(name)}` + `&cookies=${location.hostname}.txt`);
+                    showToast('Sent to MPV. If nothing happened, install <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a>.');
+                });
+            
                 episodeListElem.appendChild(listItem);
             });
 
@@ -1032,20 +1052,26 @@ async function extractEpisodes() {
             setTimeout(() => { button.textContent = 'Export'; }, 1000);
         }
 
-        // PlayWithVLC click event handler
+        // Play click event handler
         function onPlayBtnClicked(button, episodes, qualitySection) {
             const quality = qualitySection.dataset.quality;
             const selectedEpisodeItems = _getSelectedEpisodeItems(qualitySection);
-
             const items = selectedEpisodeItems.length ? selectedEpisodeItems : Array.from(qualitySection.querySelectorAll('.anlink-episode-item'));
-            const playlist = _preparePlaylist(episodes.filter(ep => items.find(i => i.querySelector(`[data-epnum="${ep.number}"]`))), quality);
-            const file = new Blob([playlist], {type:'application/vnd.apple.mpegurl', });
-            const fileUrl = URL.createObjectURL(file);
-            window.open(fileUrl);
+            const urls = episodes
+                .filter(ep => items.find(i => i.querySelector(`[data-epnum="${ep.number}"]`)))
+                .map(ep => ep.links[quality]?.stream)
+                .filter(Boolean);
+            if (!urls.length) return showToast('No links found for selected episodes.');
 
-            button.textContent = 'Playing Selected';
-            setTimeout(() => { button.textContent = 'Play'; }, 2000);
-            alert("Due to browser limitations, there is a high possibility that this feature may not work correctly.\nIf the video does not automatically play, please utilize the export button and manually open the playlist file manually.");
+            // Use mpv:// protocol (requires mpv-handler installed)
+            const mpvUrl = 'mpv://play/' + safeBtoa(urls.join("|")) + `/?v_title=${safeBtoa(episodes.map(it=>it.name).join('|'))}` + `&cookies=${location.hostname}.txt`;
+            location.replace(mpvUrl);
+            button.textContent = 'Sent to MPV';
+            setTimeout(() => { button.textContent = 'Play with MPV'; }, 2000);
+            // Show install instructions if handler is not installed
+            setTimeout(() => {
+                showToast('If nothing happened, you need to install <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a> to enable this feature.');
+            }, 1000);
         }
     }
 }
@@ -1106,4 +1132,9 @@ function showToast(message) {
             toast.style.top = `${index * toastHeight}px`;
         });
     }
+}
+
+// On overlay open, show a help link for mpv-handler if not detected
+function showMPVHandlerHelp() {
+    showToast('To play directly in MPV, install <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a> and reload this page.');
 }
