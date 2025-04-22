@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.2.3
+// @version     6.3.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -28,6 +28,9 @@
 // @match       https://beta.otaku-streamers.com/title/*/*
 // @match       https://animeheaven.me/anime.php?*
 // @match       https://animez.org/*/*
+// @match       https://*.miruro.to/watch?id=*
+// @match       https://*.miruro.tv/watch?id=*
+// @match       https://*.miruro.online/watch?id=*
 // @match       https://animekai.to/watch/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
@@ -394,6 +397,69 @@ const websites = [
             }
         }
     },
+    {
+        name: 'Miruro',
+        url: ['miruro.to', 'miruro.tv', 'miruro.online'],
+        animeTitle: '.anime-title > a',
+        thumbnail: 'a[href^="/info?id="] > img',
+        baseApiUrl: `${location.origin}/api`,
+        addStartButton: function(id) {
+            const intervalId = setInterval(() => {
+                const target = document.querySelector('.title-actions-container');
+                if (target) {
+                    clearInterval(intervalId);
+                    target.innerHTML += `<button id="${id}" style="display: flex; justify-content: center;" class="sc-dpGNEc eZVSAR">
+                        <i style="font-size: 18px" class="material-icons">download</i>
+                        <div style="display: flex; justify-content: center; align-items: center;">Extract Episode Links</div>
+                    </button>`;
+                    document.getElementById(id)?.addEventListener('click', extractEpisodes);
+                    resolve();
+                }
+            }, 1000);
+        },
+        extractEpisodes: async function* (status) {
+            status.textContent = 'Fetching episode list...';
+            const malId = document.querySelector(`a[href*="/myanimelist.net/anime/"]`)?.href.split('/').pop();
+            if (!malId) return showToast('MAL ID not found.');
+
+            const res = await fetch(`${this.baseApiUrl}/episodes?malId=${malId}`).then(r => r.json());
+            const providers = Object.entries(res).map(([p, s]) => {
+                const v = Object.values(s)[0], ep = v?.episodeList?.episodes || v?.episodeList;
+                return ep && { source: p.toLowerCase(), animeId: Object.keys(s)[0], useEpId: !!v?.episodeList?.episodes, epList: ep };
+            }).filter(Boolean);
+
+            // Get the provider with most episodes to use as base for thumbnails, epTitle, epNumber, etc.
+            const baseProvider = providers.find(p=> p.epList.length == Math.max(...providers.map(p => p.epList.length)));
+
+            if (!baseProvider) return showToast('No episodes found.');
+
+            for (const baseEp of baseProvider.epList) {
+                const num = String(baseEp.number).padStart(3, '0');
+                let title = baseEp.title, thumbnail = baseEp.snapshot; // will try to update with other providers if this is blank
+
+                status.textContent = `Fetching Ep ${num}...`;
+                let links = {};
+                await Promise.all(providers.map(async ({ source, animeId, useEpId, epList }) => {
+                    const ep = epList.find(ep => ep.number == baseEp.number);
+                    title = title || ep.title; // update title if blank
+                    const epId = !useEpId ? `${animeId}/ep-${ep.number}` : ep.id;
+                    try {
+                        const sres = await fetchWithRetry(`${this.baseApiUrl}/sources?episodeId=${epId}&provider=${source}`);
+                        const sresJson = await sres.json();
+                        links[this._getLocalSourceName(source)] = sresJson.streams[0].url;  // TODO: prepend with `https://prxy.miruro.to/m3u8/?url=` after figuring out how to fix CORS issues
+                    } catch (e) { showToast(`Failed to fetch ep-${ep.number} from ${source}: ${e}`); return null; }
+                }));
+
+                if (!title || /^Episode \d+/.test(title)) title = document.querySelector(this.animeTitle).textContent; // use anime title if episode title is blank or just "Episode X"
+                yield new Episode(num, title, links, 'm3u8', thumbnail || document.querySelector(this.thumbnail).src);
+            }
+        },
+        _getLocalSourceName: function (source) {
+            const sourceNames = {'animepahe': 'kiwi', 'animekai': 'arc', 'animez': 'jet', 'zoro': 'zoro'};
+            return sourceNames[source] || source.charAt(0).toUpperCase() + source.slice(1);
+        },
+    },
+    
     // AnimeKai is not fully implemented yet... its a work in progress...
     {
         name: 'AnimeKai',
@@ -590,6 +656,24 @@ async function fetchPage(url) {
 }
 
 /**
+ * Fetches a URL with retry logic for handling rate limits or temporary errors.
+ * 
+ * @returns {Promise<Response>} A promise that resolves to the response object.
+ */
+async function fetchWithRetry(url, options = {}, retries = 3, sleep = 1000) {
+    const response = await fetch(url, options);
+    if (!response.ok) {
+        if (response.status === 503 && retries > 0) {   // 503 is a common status when rate limited
+            console.log(`Retrying ${url}, ${retries} retries remaining`);
+            await new Promise(resolve => setTimeout(resolve, sleep)); // Wait 1 second before retrying
+            return fetchWithRetry(url, options, retries - 1, sleep); // Pass options and sleep to the next call
+        }
+        throw new Error(`${response.status} - ${response.statusText}`);
+    }
+    return response;
+}
+
+/**
  * Asynchronously processes an array of episode promises and yields each resolved episode.
  *
  * @param {Array<Promise>} episodePromises - An array of promises, each resolving to an episode.
@@ -614,7 +698,12 @@ const site = websites.find(site => site.url.some(url => window.location.href.inc
 GM_registerMenuCommand('Extract Episodes', extractEpisodes);
 
 // attach start button to page
-site.addStartButton().addEventListener('click', extractEpisodes);
+try {
+    const startBtnId = "AniLINK_startBtn";
+    (site.addStartButton(startBtnId) || document.getElementById(startBtnId)).addEventListener('click', extractEpisodes);
+} catch (e) {
+    console.error('Error adding start button:', e);
+}
 
 // append site specific css styles
 document.body.style.cssText += (site.styles || '');
@@ -754,7 +843,7 @@ async function extractEpisodes() {
 
             // Create a span for the clickable header text and icon
             const qualitySpan = document.createElement('span');
-            qualitySpan.innerHTML = `<i class="material-icons">chevron_right</i> ${quality}`; // Expand icon and quality text
+            qualitySpan.innerHTML = `<i style="opacity: 0.5">(${sortedLinks[quality].length})</i> <i class="material-icons">chevron_right</i> ${quality}`; // Expand icon and quality text
             qualitySpan.addEventListener('click', toggleQualitySection); // Add click listener to the span
             headerDiv.appendChild(qualitySpan);
 
