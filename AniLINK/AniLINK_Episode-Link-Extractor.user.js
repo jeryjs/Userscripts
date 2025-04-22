@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.3.0
+// @version     6.3.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -40,14 +40,17 @@
 // ==/UserScript==
 
 class Episode {
-    constructor(number, title, links, type, thumbnail) {
+    constructor(number, animeTitle, links, type, thumbnail, epTitle) {
         this.number = number;   // The episode number
-        this.title = title;     // The title of the episode (this can be the specific ep title or just the anime name).
+        this.animeTitle = animeTitle;     // The title of the anime.
+        this.epTitle = epTitle; // The title of the episode (this can be the specific ep title or blank).
         this.links = links;     // An object containing the download links for the episode, keyed by quality (eg: {"source1":"http://linktovideo.mp4", "source2":"vid2.mp4"}).
         this.type = type;       // The file type of the video links (eg: "mp4", "m3u8").
         this.thumbnail = thumbnail; // The URL of the episode's thumbnail image (if unavailable, then just any image is fine. Thumbnail property isnt really used in the script yet).
-        this.name = `${this.title} - ${this.number.padStart(3, '0')}.${this.type}`;   // The formatted name of the episode, combining title and number.
+        this.name = `${this.animeTitle} - ${this.number.padStart(3, '0')}${this.epTitle?` -  ${this.epTitle}`:''}.${this.type}`;   // The formatted name of the episode, combining anime name, number and title.
+        this.title = this.epTitle ?? this.animeTitle;
     }
+    
 }
 
 /**
@@ -435,13 +438,13 @@ const websites = [
 
             for (const baseEp of baseProvider.epList) {
                 const num = String(baseEp.number).padStart(3, '0');
-                let title = baseEp.title, thumbnail = baseEp.snapshot; // will try to update with other providers if this is blank
+                let epTitle = baseEp.title, thumbnail = baseEp.snapshot; // will try to update with other providers if this is blank
 
                 status.textContent = `Fetching Ep ${num}...`;
                 let links = {};
                 await Promise.all(providers.map(async ({ source, animeId, useEpId, epList }) => {
                     const ep = epList.find(ep => ep.number == baseEp.number);
-                    title = title || ep.title; // update title if blank
+                    epTitle = epTitle || ep.title; // update title if blank
                     const epId = !useEpId ? `${animeId}/ep-${ep.number}` : ep.id;
                     try {
                         const sres = await fetchWithRetry(`${this.baseApiUrl}/sources?episodeId=${epId}&provider=${source}`);
@@ -450,8 +453,8 @@ const websites = [
                     } catch (e) { showToast(`Failed to fetch ep-${ep.number} from ${source}: ${e}`); return null; }
                 }));
 
-                if (!title || /^Episode \d+/.test(title)) title = document.querySelector(this.animeTitle).textContent; // use anime title if episode title is blank or just "Episode X"
-                yield new Episode(num, title, links, 'm3u8', thumbnail || document.querySelector(this.thumbnail).src);
+                if (!epTitle || /^Episode \d+/.test(epTitle)) epTitle = undefined; // use remove epTitle if episode title is blank or just "Episode X"
+                yield new Episode(num, document.querySelector(this.animeTitle).textContent, links, 'm3u8', thumbnail || document.querySelector(this.thumbnail).src, epTitle);
             }
         },
         _getLocalSourceName: function (source) {
@@ -741,7 +744,7 @@ async function extractEpisodes() {
         .anlink-episode-list { list-style: none; padding-left: 0; margin-top: 0; overflow: hidden; transition: max-height 0.5s ease-in-out; } /* Transition for max-height */
         .anlink-episode-item { margin-bottom: 5px; padding: 8px; border-bottom: 1px solid #333; display: flex; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* Single line and ellipsis for item */
         .anlink-episode-item:last-child { border-bottom: none; }
-        .anlink-episode-item > label > span { user-select: } /* Disable selecting the 'Ep: 1' prefix */
+        .anlink-episode-item > label > span { user-select: none; } /* Disable selecting the 'Ep: 1' prefix */
         .anlink-episode-checkbox { appearance: none; width: 20px; height: 20px; margin-right: 10px; border: 1px solid #26a69a; border-radius: 4px; outline: none; cursor: pointer; transition: background-color 0.3s, border-color 0.3s; }
         .anlink-episode-checkbox:checked { background-color: #26a69a; border-color: #26a69a; }
         .anlink-episode-checkbox:checked::after { content: '✔'; display: block; color: white; font-size: 14px; text-align: center; line-height: 20px; animation: checkTilt 0.3s; }
@@ -873,7 +876,7 @@ async function extractEpisodes() {
                     <label>
                         <input type="checkbox" class="anlink-episode-checkbox" />
                         <span>Ep ${ep.number.replace(/^0+/, '')}: </span>
-                        <a href="${ep.links[quality]}" class="anlink-episode-link" download="${encodeURI(ep.name)}" data-epnum="${ep.number}" title="${ep.title.replace(/[<>:"/\\|?*]/g, '')}">${ep.links[quality]}</a>
+                        <a href="${ep.links[quality]}" class="anlink-episode-link" download="${encodeURI(ep.name)}" data-epnum="${ep.number}" title="${ep.title.replace(/[<>:"/\\|?*]/g, '')}" ep-title="${ep.title.replace(/[<>:"/\\|?*]/g, '')}">${ep.links[quality]}</a>
                     </label>
                 `;
                 const episodeLinkElement = listItem.querySelector('.anlink-episode-link');
@@ -989,7 +992,7 @@ async function extractEpisodes() {
             
             const items = selectedItems.length ? selectedItems : Array.from(qualitySection.querySelectorAll('.anlink-episode-item'));
             const playlist = _preparePlaylist(episodes.filter(ep => items.find(i => i.querySelector(`[data-epnum="${ep.number}"]`))), quality);
-            const fileName = items[0]?.querySelector('.anlink-episode-link')?.title + `_${quality}.m3u`;
+            const fileName = items[0]?.querySelector('.anlink-episode-link')?.title + ` [${quality}].m3u8`;
             const file = new Blob([playlist], { type: 'application/vnd.apple.mpegurl' });
             const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(file), download: fileName });
             a.click();
