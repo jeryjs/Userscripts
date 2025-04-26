@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.8.0
+// @version      3.8.1
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
@@ -38,13 +38,13 @@
 			urls: ["app.joinsuperset.com/assessments"],
 			questionSelectors: ["#question-container > div.content.flex-1.flexbox.no-h-padding.scrollable > div:nth-child(2) > div"],
 			getQuestionText: (element) => element.innerHTML,
-			getQuestionIdentifier: (element) => element.innerHTML
+			getQuestionIdentifier: (element) => element.textContent
 		},
 		{
 			name: "Talentely",
 			urls: ["lms.talentely.com/test"],
 			questionSelectors: ["#question", ".question-text", () => document.querySelector(".test-question")],
-			getQuestionIdentifier: (element) => element.innerHTML
+			getQuestionIdentifier: (element) => element.textContent
 		},
 		{
 			name: "Leetcode",
