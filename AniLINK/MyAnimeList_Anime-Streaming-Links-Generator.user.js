@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        MyAnimeList - Anime Streaming Links Generator
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.1.1
+// @version     1.2.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=myanimelist.net
 // @author      Jery
@@ -72,11 +72,12 @@ async function fetchJson(url, options = {}) {
                 if (response.status >= 200 && response.status < 300) {
                     resolve(response.response);
                 } else {
-                    reject(new Error(`Failed to fetch ${url}: ${response.statusText}`));
+                    console.error(`Failed to fetch ${url}: ${response.status}`);
+                    reject(new Error(`Failed to fetch: ${response.status} - ${response.statusText}`));
                 }
             },
             onerror: (error) => {
-                reject(new Error(`Network error fetching ${url}: ${error.statusText}`));
+                reject(new Error(`Network error fetching: ${error.status} - ${error.statusText}`));
             },
             ontimeout: () => {
                 reject(new Error(`Timeout fetching ${url}`));
@@ -91,7 +92,7 @@ class Anime {
         this.id = id;               // ID of the anime taken from the sourceSite
         this.title = title;         // Title of the anime series
         this.poster = poster,       // Anime poster
-        this.url = url;             // URL of the anime on the source website
+            this.url = url;             // URL of the anime on the source website
         this.sourceSite = sourceSite; // Name of the website (e.g., 'AnimePahe')
         this.episodes = [];       // Array to hold Episode objects (can be populated later)
     }
@@ -100,14 +101,13 @@ class Anime {
 }
 
 class Episode {
-    constructor(number, title, links, type, thumbnail) {
-        this.number = String(number); // Ensure number is string for padStart
-        this.title = title;     // The title of the episode (this can be the specific ep title or just the anime name).
-        this.links = links;     // An object containing the download links for the episode, keyed by quality (eg: {"source1":"http://linktovideo.mp4", "source2":"vid2.mp4"}).
-        this.type = type;       // The file type of the video links (eg: "mp4", "m3u8").
-        this.thumbnail = thumbnail; // The URL of the episode's thumbnail image (if unavailable, then just any image is fine. Thumbnail property isnt really used in the script yet).
+    constructor(number, epTitle, links, thumbnail) {
+        this.number = String(number);
+        this.epTitle = epTitle; // The episode title (can be blank or undefined)
+        this.links = links; // { source: { stream, type: 'mp4|m3u8', tracks: [] } }
+        this.thumbnail = thumbnail;
         // Use the anime title from the parent Anime object if available, otherwise use the episode title
-        this.name = (parentAnimeTitle, epNum, epType) => `${parentAnimeTitle} - ${String(epNum).padStart(3, '0')}.${epType}`;
+        this.name = (parentAnimeTitle, epNum, epTitle) => `${parentAnimeTitle} - ${String(epNum).padStart(3, '0')}${epTitle ? ` - ${epTitle}` : ''}.${Object.values(this.links)[0]?.type || 'm3u8'}`;
     }
 }
 
@@ -137,7 +137,7 @@ const websites = [
     {
         name: 'AnimePahe',
         domains: ['animepahe.com', 'animepahe.ru', 'animepahe.org'],
-        searchTitles: async function(domain, title) {
+        searchTitles: async function (domain, title) {
             const searchUrl = `https://${domain}/api?m=search&l=8&q=${encodeURIComponent(title)}`;
             const responseData = await fetchJson(searchUrl);
             const resultsData = responseData.data;
@@ -194,10 +194,10 @@ const websites = [
                         }
                         let links = {};
                         for (const elm of [...epPage.querySelectorAll('#resolutionMenu > button')]) {
-                            links[elm.textContent] = await getVideoUrl(elm.getAttribute('data-src'));
+                            links[elm.textContent] = { stream: await getVideoUrl(elm.getAttribute('data-src')), type: 'm3u8' };
                         }
 
-                        return new Episode(epNumber, epTitle, links, 'm3u8', thumbnail);
+                        return new Episode(epNumber, epTitle, links, thumbnail);
                     });
                     // Yield resolved episodes from the current chunk
                     yield* yieldEpisodesFromPromises(episodePromises);
@@ -210,7 +210,7 @@ const websites = [
     {
         name: 'AnimeZ',
         domains: ['animez.org'],
-        searchTitles: async function(domain, title) {
+        searchTitles: async function (domain, title) {
             const searchUrl = `https://${domain}/?act=search&f[status]=all&f[keyword]=${encodeURIComponent(title)}`;
             const sPage = await fetchPage(searchUrl);
             return Array.from(sPage.querySelectorAll('li.TPostMv a')).map(item => {
@@ -235,7 +235,7 @@ const websites = [
                         const thumbnailElement = page.querySelector('.Image > figure > img');
                         const thumbnail = thumbnailElement ? thumbnailElement.src : "";
                         updateStatus(`Extracting ${epTitle} - Ep ${epNumber}...`);
-                        
+
                         // Helper to fetch and parse the video URL from the data-src attribute
                         async function getVideoUrl(kwikUrl) {
                             const response = await fetch(kwikUrl, { headers: { "Referer": `https://${anime.domain}` } });
@@ -245,9 +245,9 @@ const websites = [
                         }
                         let links = {};
                         for (const btn of page.querySelectorAll('#resolutionMenu > button')) {
-                            links[btn.textContent] = await getVideoUrl(btn.getAttribute('data-src'));
+                            links[btn.textContent] = { stream: await getVideoUrl(btn.getAttribute('data-src')), type: 'm3u8' };
                         }
-                        return new Episode(epNumber, epTitle, links, 'm3u8', thumbnail);
+                        return new Episode(epNumber, epTitle, links, thumbnail);
                     } catch (e) {
                         showToast(e);
                         return null;
@@ -256,6 +256,94 @@ const websites = [
                 yield* yieldEpisodesFromPromises(episodePromises);
             }
         }
+    },
+    {
+        name: "Miruro",
+        domains: ['miruro.to', 'miruro.tv', 'miruro.online'],
+        searchTitles: async function (domain, title) {
+            // Use the Miruro API to search for anime by title
+            const url = `https://${domain}/api/search/browse?search=${encodeURIComponent(title)}&page=1&perPage=5&type=ANIME&sort=SEARCH_MATCH`;
+            const results = await fetchJson(url);
+            // Map API results to Anime objects
+            return results.map(item => {
+                const animeId = item.id;
+                const malId = item.idMal;
+                const animeTitle = item.title?.userPreferred || item.title?.romaji || item.title?.english;
+                const poster = item.coverImage?.large || item.coverImage?.medium;
+                const animeUrl = `https://${domain}/anime/${animeId}`;
+                return new Anime(malId || animeId, animeTitle, poster, animeUrl, this.name);
+            });
+        },
+        extractEpisodes: async function* (anime, updateStatus) {
+            updateStatus('Fetching episode list...');
+            // Try to get malId from anime.id or from url
+            let malId = anime.id;
+            if (!/^\d+$/.test(malId)) {
+                // Try to extract from url if not numeric
+                const match = anime.url.match(/id=(\d+)/);
+                if (match) malId = match[1];
+            }
+            if (!malId) return showToast('MAL ID not found for this anime.');
+
+            const apiDomain = anime.domain;
+            const res = await fetchJson(`https://${apiDomain}/api/episodes?malId=${malId}`);
+            if (!res || typeof res !== "object") {
+                showToast('No episodes found.');
+                return;
+            }
+            // Providers: { providerName: { animeId: ..., episodeList: { episodes: [...] } } }
+            const providers = Object.entries(res).map(([p, s]) => {
+                const v = Object.values(s)[0], ep = v?.episodeList?.episodes || v?.episodeList;
+                return ep && { source: p.toLowerCase(), animeId: Object.keys(s)[0], useEpId: !!v?.episodeList?.episodes, epList: ep };
+            }).filter(Boolean);
+
+            // Use the provider with most episodes as base
+            const baseProvider = providers.find(p => p.epList.length === Math.max(...providers.map(p => p.epList.length)));
+            if (!baseProvider) {
+                showToast('No episodes found.');
+                return;
+            }
+
+            for (const baseEp of baseProvider.epList) {
+                const num = String(baseEp.number).padStart(3, '0');
+                let epTitle = baseEp.title, thumbnail = baseEp.snapshot;
+                updateStatus(`Fetching Ep ${num}...`);
+                let links = {};
+                await Promise.all(providers.map(async ({ source, animeId, useEpId, epList }) => {
+                    const ep = epList.find(ep => ep.number == baseEp.number);
+                    if (!ep) return;
+                    epTitle = epTitle || ep.title;
+                    const epId = !useEpId ? `${animeId}/ep-${ep.number}` : ep.id;
+                    try {
+                        let sres;
+                        for (let attempt = 1; attempt <= 3; attempt++) {
+                            // retry with 1 sec delay for total of 3 times in case of 503
+                            try {
+                                sres = await fetchJson(`https://${apiDomain}/api/sources?episodeId=${epId}&provider=${source}`);
+                                break; // Success, exit loop
+                            } catch (err) {
+                                if (err.message.includes(': 503 -') && attempt < 3) {
+                                    await new Promise(res => setTimeout(res, 1000));
+                                } else {
+                                    throw err;
+                                }
+                            }
+                        }
+                        if (sres && sres.streams && sres.streams[0]) {
+                            links[this._getLocalSourceName(source)] = { stream: sres.streams[0].url, type: "m3u8", tracks: sres.tracks || [] };
+                        }
+                    } catch (e) {
+                        showToast(`Failed to fetch ep-${ep.number} from ${source}: ${e}`);
+                    }
+                }));
+                if (!epTitle || /^Episode \d+/.test(epTitle)) epTitle = anime.title;
+                yield new Episode(num, epTitle, links, thumbnail);
+            }
+        },
+        _getLocalSourceName: function (source) {
+            const sourceNames = { 'animepahe': 'kiwi', 'animekai': 'arc', 'animez': 'jet', 'zoro': 'zoro' };
+            return sourceNames[source] || source.charAt(0).toUpperCase() + source.slice(1);
+        },
     }
 ];
 
@@ -349,6 +437,7 @@ async function displayExtractionUI(initialTitle) {
         .anlink-episode-list { list-style: none; padding-left: 0; margin-top: 0; overflow: hidden; transition: max-height 0.5s ease-in-out; } /* Transition for max-height */
         .anlink-episode-item { margin-bottom: 5px; padding: 8px; border-bottom: 1px solid #333; display: flex; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* Single line and ellipsis for item */
         .anlink-episode-item:last-child { border-bottom: none; }
+        .anlink-episode-item span#mpv-epnum { user-select: none; }
         .anlink-episode-checkbox { appearance: none; width: 20px; height: 20px; margin-right: 10px; border: 1px solid #26a69a; border-radius: 4px; outline: none; cursor: pointer; transition: background-color 0.3s, border-color 0.3s; }
         .anlink-episode-checkbox:checked { background-color: #26a69a; border-color: #26a69a; }
         .anlink-episode-checkbox:checked::after { content: '✔'; display: block; color: white; font-size: 14px; text-align: center; line-height: 20px; animation: checkTilt 0.3s; }
@@ -485,26 +574,26 @@ async function displayExtractionUI(initialTitle) {
 
             if (!entries || entries.length === 0) {
                 searchResultsList.innerHTML = '<li>No results found. <button id="anlink-back-search">Try Again</button></li>';
-                 document.getElementById('anlink-back-search').onclick = () => {
+                document.getElementById('anlink-back-search').onclick = () => {
                     searchResultsDiv.classList.add('anlink-hidden');
                     initialSetupDiv.classList.remove('anlink-hidden');
-                 };
+                };
                 return;
             }
 
             entries.forEach(entry => {
                 const li = document.createElement('li');
-                
+
                 // Create an image element with error handling
                 const img = document.createElement('img');
                 img.alt = "Poster";
                 img.style.width = "40px";
                 img.style.height = "60px";
                 img.style.objectFit = "cover";
-                
+
                 // Default fallback image (generic anime icon)
                 img.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23ccc' d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z'/%3E%3Cpath fill='%23ccc' d='M12 6c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 10V8l5 4-5 4z'/%3E%3C/svg%3E";
-                
+
                 // Try to load the actual poster with a proxy
                 if (entry.poster) {
                     // Option 2: Create a background-image with referrer policy
@@ -522,7 +611,7 @@ async function displayExtractionUI(initialTitle) {
                         }
                     `;
                     document.head.appendChild(style);
-                    
+
                     // Instead of using img tag, use the styled div
                     li.innerHTML = `<div class="anime-poster-${entry.id}"></div> ${entry.title}`;
                 } else {
@@ -530,7 +619,7 @@ async function displayExtractionUI(initialTitle) {
                     li.appendChild(img);
                     li.appendChild(document.createTextNode(` ${entry.title}`));
                 }
-                
+
                 li.onclick = () => {
                     currentAnime = entry;
                     searchResultsDiv.classList.add('anlink-hidden');
@@ -620,86 +709,99 @@ async function displayExtractionUI(initialTitle) {
         }
     }
 
-
     // Renders quality link lists inside a given container element
-    function renderQualityLinkLists(sortedLinks, container, animeTitle) { // Accept animeTitle
-        const previousExpandedState = {};
+    function renderQualityLinkLists(sortedLinks, container, animeTitle) {
+        // Track expanded state for each quality section
+        const expandedState = {};
         container.querySelectorAll('.anlink-quality-section').forEach(section => {
             const quality = section.dataset.quality;
             const episodeList = section.querySelector('.anlink-episode-list');
-            previousExpandedState[quality] = episodeList && episodeList.style.maxHeight !== '0px';
+            expandedState[quality] = episodeList && episodeList.style.maxHeight !== '0px';
         });
 
-        container.innerHTML = ''; // Clear existing content
+        // Only add/update sections, don't clear the whole container
         for (const quality in sortedLinks) {
-            // Sort episodes numerically based on the 'number' property
-            const episodes = sortedLinks[quality].sort((a, b) => {
-                const numA = parseFloat(a.number);
-                const numB = parseFloat(b.number);
-                return numA - numB;
-            });
+            let qualitySection = container.querySelector(`.anlink-quality-section[data-quality="${quality}"]`);
+            let episodeListElem;
+            const episodes = sortedLinks[quality].sort((a, b) => parseFloat(a.number) - parseFloat(b.number));
 
-            const qualitySection = document.createElement('div');
-            qualitySection.className = 'anlink-quality-section';
-            qualitySection.dataset.quality = quality; // Store quality-string in data attribute
+            if (!qualitySection) {
+                // Create new section if it doesn't exist
+                qualitySection = document.createElement('div');
+                qualitySection.className = 'anlink-quality-section';
+                qualitySection.dataset.quality = quality;
 
-            const headerDiv = document.createElement('div'); // Header div for quality-string and buttons - ROW
-            headerDiv.className = 'anlink-quality-header';
+                const headerDiv = document.createElement('div');
+                headerDiv.className = 'anlink-quality-header';
 
-            // Create a span for the clickable header text and icon
-            const qualitySpan = document.createElement('span');
-            qualitySpan.innerHTML = `<i class="material-icons">chevron_right</i> ${quality}`; // Expand icon and quality text
-            qualitySpan.addEventListener('click', toggleQualitySection); // Add click listener to the span
-            headerDiv.appendChild(qualitySpan);
+                const qualitySpan = document.createElement('span');
+                qualitySpan.innerHTML = `<i class="material-icons">chevron_right</i> ${quality}`;
+                qualitySpan.addEventListener('click', toggleQualitySection);
+                headerDiv.appendChild(qualitySpan);
 
+                const headerButtons = document.createElement('div');
+                headerButtons.className = 'anlink-header-buttons';
+                headerButtons.innerHTML = `
+                    <button type="button" class="anlink-select-links">Select</button>
+                    <button type="button" class="anlink-copy-links">Copy</button>
+                    <button type="button" class="anlink-export-links">Export</button>
+                    <button type="button" class="anlink-play-links">Play</button>
+                `;
+                headerDiv.appendChild(headerButtons);
+                qualitySection.appendChild(headerDiv);
 
-            // --- Create Speed Dial Button in the Quality Section ---
-            const headerButtons = document.createElement('div');
-            headerButtons.className = 'anlink-header-buttons';
-            headerButtons.innerHTML = `
-                <button type="button" class="anlink-select-links">Select</button>
-                <button type="button" class="anlink-copy-links">Copy</button>
-                <button type="button" class="anlink-export-links">Export</button>
-                <button type="button" class="anlink-play-links">Play</button>
-            `;
-            headerDiv.appendChild(headerButtons);
-            qualitySection.appendChild(headerDiv);
+                episodeListElem = document.createElement('ul');
+                episodeListElem.className = 'anlink-episode-list';
+                episodeListElem.style.maxHeight = '0px';
+                qualitySection.appendChild(episodeListElem);
 
+                container.appendChild(qualitySection);
 
-            // --- Populate the quality section with episodes ---
-            const episodeListElem = document.createElement('ul');
-            episodeListElem.className = 'anlink-episode-list';
-            episodeListElem.style.maxHeight = '0px'; // Default to collapsed
+                attachBtnClickListeners(episodes, qualitySection, animeTitle);
+            } else {
+                // Update header count if needed
+                episodeListElem = qualitySection.querySelector('.anlink-episode-list');
+            }
 
+            // Update episode list items only
+            episodeListElem.innerHTML = '';
             episodes.forEach(ep => {
-                // Generate the episode name using the Episode class's name function
-                const episodeName = ep.name(animeTitle, ep.number, ep.type);
+                const episodeName = ep.name(animeTitle, ep.number, ep.epTitle);
                 const listItem = document.createElement('li');
                 listItem.className = 'anlink-episode-item';
                 listItem.innerHTML = `
-                    <label>
+                    <label style="display:flex;align-items:center;gap:8px;">
                         <input type="checkbox" class="anlink-episode-checkbox" />
-                        <span>Ep ${ep.number.replace(/^0+/, '')}: </span>
-                        <a href="${ep.links[quality]}" class="anlink-episode-link" download="${encodeURI(episodeName)}" data-epnum="${ep.number}" title="${episodeName.replace(/[<>:"/\\|?*]/g, '')}">${ep.links[quality]}</a>
+                        <span id="mpv-epnum" title="Play in MPV">Ep ${ep.number.replace(/^0+/, '')}: </span>
+                        <a href="${ep.links[quality]?.stream}" class="anlink-episode-link" download="${encodeURI(episodeName)}" data-epnum="${ep.number}" title="${episodeName.replace(/[<>:"/\\|?*]/g, '')}" ep-title="${ep.epTitle.replace(/[<>:"/\\|?*]/g, '')}">${ep.links[quality].stream}</a>
                     </label>
                 `;
                 const episodeLinkElement = listItem.querySelector('.anlink-episode-link');
+                const epnumSpan = listItem.querySelector('#mpv-epnum');
                 const link = episodeLinkElement.href;
                 const name = decodeURIComponent(episodeLinkElement.download);
-                listItem.addEventListener('mouseenter', () => window.getSelection().isCollapsed && (episodeLinkElement.textContent = name));
-                listItem.addEventListener('mouseleave', () => episodeLinkElement.textContent = decodeURIComponent(link));
+
+                // On hover, show MPV icon & file name
+                listItem.addEventListener('mouseenter', () => {
+                    window.getSelection().isCollapsed && (episodeLinkElement.textContent = name);
+                    epnumSpan.innerHTML = `<img width="20" height="20" fill="#26a69a" style="vertical-align:middle;" src="https://a.fsdn.com/allura/p/mpv-player-windows/icon?1517058933"> ${ep.number.replace(/^0+/, '')}: `;
+                });
+                listItem.addEventListener('mouseleave', () => {
+                    episodeLinkElement.textContent = decodeURIComponent(link);
+                    epnumSpan.textContent = `Ep ${ep.number.replace(/^0+/, '')}: `;
+                });
+                epnumSpan.addEventListener('click', e => {
+                    e.preventDefault();
+                    location.replace('mpv://play/' + safeBtoa(link) + `/?v_title=${safeBtoa(name)}` + `&cookies=${location.hostname}.txt`);
+                    showToast('Sent to MPV. If nothing happened, install <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a>.');
+                });
 
                 episodeListElem.appendChild(listItem);
             });
-            qualitySection.appendChild(episodeListElem); // Append ul inside section
-            container.appendChild(qualitySection);
 
-            // Attach handlers to the quality sections
-            attachBtnClickListeners(episodes, qualitySection, animeTitle); // Pass animeTitle
-
-            // Restore expand state
-            if (previousExpandedState[quality]) {
-                const icon = qualitySpan.querySelector('.material-icons');
+            // Restore expand state only if section was previously expanded
+            if (expandedState[quality]) {
+                const icon = qualitySection.querySelector('.material-icons');
                 episodeListElem.style.maxHeight = `${episodeListElem.scrollHeight}px`;
                 icon.classList.add('rotate');
             }
@@ -766,7 +868,7 @@ async function displayExtractionUI(initialTitle) {
 
             if (anyUnchecked || allChecked === false) { // If any unchecked OR not all are checked (for the first click when none are checked)
                 checkboxes.forEach(checkbox => { checkbox.checked = true; }); // Check all
-                 // Select all link texts
+                // Select all link texts
                 const range = new Range();
                 range.selectNodeContents(episodeItems[0]);
                 range.setEndAfter(episodeItems[episodeItems.length - 1]);
@@ -778,7 +880,7 @@ async function displayExtractionUI(initialTitle) {
                 window.getSelection().removeAllRanges(); // Clear selection
                 button.textContent = 'Select All'; // Revert button text
             }
-             setTimeout(() => { button.textContent = checkboxes.some(cb => !cb.checked) ? 'Select All' : 'Deselect All'; }, 1500); // slight delay revert text
+            setTimeout(() => { button.textContent = checkboxes.some(cb => !cb.checked) ? 'Select All' : 'Deselect All'; }, 1500); // slight delay revert text
         }
 
         // copySelectedLinks click event handler
@@ -833,7 +935,7 @@ async function displayExtractionUI(initialTitle) {
             }
 
             const playlist = _preparePlaylist(episodesToPlay, quality, animeTitle); // Pass animeTitle
-            const file = new Blob([playlist], {type:'application/vnd.apple.mpegurl', });
+            const file = new Blob([playlist], { type: 'application/vnd.apple.mpegurl', });
             const fileUrl = URL.createObjectURL(file);
             // Try opening the file URL directly, which might prompt download or open in associated player
             window.open(fileUrl);
@@ -849,9 +951,6 @@ async function displayExtractionUI(initialTitle) {
 }
 
 
-/***************************************************************
- * Display a simple toast message on the top right of the screen
- ***************************************************************/
 let toasts = [];
 
 function showToast(message) {
