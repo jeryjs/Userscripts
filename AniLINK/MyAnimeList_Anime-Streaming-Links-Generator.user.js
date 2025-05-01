@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        MyAnimeList - Anime Streaming Links Generator
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     1.2.0
+// @version     1.3.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=myanimelist.net
 // @author      Jery
@@ -85,6 +85,11 @@ async function fetchJson(url, options = {}) {
         });
     });
 }
+
+/**
+ * encodes a string to base64url format thats safe for URLs
+ */
+const safeBtoa = str => btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 
 class Anime {
@@ -773,7 +778,7 @@ async function displayExtractionUI(initialTitle) {
                     <label style="display:flex;align-items:center;gap:8px;">
                         <input type="checkbox" class="anlink-episode-checkbox" />
                         <span id="mpv-epnum" title="Play in MPV">Ep ${ep.number.replace(/^0+/, '')}: </span>
-                        <a href="${ep.links[quality]?.stream}" class="anlink-episode-link" download="${encodeURI(episodeName)}" data-epnum="${ep.number}" title="${episodeName.replace(/[<>:"/\\|?*]/g, '')}" ep-title="${ep.epTitle.replace(/[<>:"/\\|?*]/g, '')}">${ep.links[quality].stream}</a>
+                        <a href="${ep.links[quality]?.stream}" class="anlink-episode-link" download="${encodeURI(episodeName)}" data-epnum="${ep.number}" title="${episodeName.replace(/[<>:"/\\|?*]/g, '')}" ep-title="${ep.epTitle.replace(/[<>:"/\\|?*]/g, '')}">${ep.links[quality]?.stream}</a>
                     </label>
                 `;
                 const episodeLinkElement = listItem.querySelector('.anlink-episode-link');
@@ -854,7 +859,7 @@ async function displayExtractionUI(initialTitle) {
                 // Generate name using the function
                 const episodeName = episode.name(animeTitle, episode.number, episode.type);
                 playlistContent += `#EXTINF:-1,${episodeName}\n`;
-                playlistContent += `${episode.links[quality]}\n`;
+                playlistContent += `${episode.links[quality]?.stream}\n`;
             });
             return playlistContent;
         }
@@ -921,31 +926,27 @@ async function displayExtractionUI(initialTitle) {
         }
 
         // PlayWithVLC click event handler
-        function onPlayBtnClicked(button, episodes, qualitySection, animeTitle) { // Accept animeTitle
+        async function onPlayBtnClicked(button, episodes, qualitySection, animeTitle) { // Accept animeTitle
             const quality = qualitySection.dataset.quality;
             const selectedEpisodeItems = _getSelectedEpisodeItems(qualitySection);
-
             const items = selectedEpisodeItems.length ? selectedEpisodeItems : Array.from(qualitySection.querySelectorAll('.anlink-episode-item'));
-            // Filter the main episodeList based on selected items' episode numbers
             const episodesToPlay = episodes.filter(ep => items.some(item => item.querySelector(`a[data-epnum="${ep.number}"]`)));
+            if (episodesToPlay.length === 0) { showToast("No episodes selected to play."); return; }
 
-            if (episodesToPlay.length === 0) {
-                showToast("No episodes selected to play.");
-                return;
-            }
-
-            const playlist = _preparePlaylist(episodesToPlay, quality, animeTitle); // Pass animeTitle
-            const file = new Blob([playlist], { type: 'application/vnd.apple.mpegurl', });
-            const fileUrl = URL.createObjectURL(file);
-            // Try opening the file URL directly, which might prompt download or open in associated player
-            window.open(fileUrl);
+            button.textContent = 'Processing...';
+            const playlistContent = _preparePlaylist(episodesToPlay, quality, animeTitle); // Pass animeTitle
+            const uploadUrl = await GM_fetch("https://paste.rs/", {
+                method: "POST",
+                body: playlistContent
+            }).then(r => r.text()).then(t => t + '.m3u8');
+            console.log("Playlist URL:", uploadUrl);
+            
+            // Use mpv:// protocol to pass the paste.rs link to mpv (requires mpv-handler installed)
+            const mpvUrl = 'mpv://play/' + safeBtoa(uploadUrl.trim()) + '/?v_title=' + safeBtoa(animeTitle + '.m3u8');
+            location.replace(mpvUrl);
 
             button.textContent = 'Playing Selected';
             setTimeout(() => { button.textContent = 'Play'; }, 2000);
-            // Clean up object URL after a delay, allowing time for the browser/player to access it
-            setTimeout(() => URL.revokeObjectURL(fileUrl), 5000);
-
-            alert("Attempting to open playlist. Due to browser limitations, this may download the file instead of playing directly.\nIf it downloads, open the .m3u file with your preferred media player (like VLC).");
         }
     }
 }
