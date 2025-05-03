@@ -4,7 +4,7 @@
 // @match       https://www.miruro.tv/*
 // @icon        https://www.miruro.tv/icons/favicon-32x32.png
 // @grant       none
-// @version     1.0
+// @version     1.2
 // @author      Jery
 // @description 2/23/2025, 9:39:09 AM
 // ==/UserScript==
@@ -37,7 +37,7 @@ const miruro = {
 	},
 	// Extracts the episode number from the item's specific DOM structure
 	getEpNumber: (item) => {
-		const divs = item.querySelector(".sc-jbAkgO.hKxuDw")?.getElementsByTagName("div");
+		const divs = item.querySelectorAll(`svg[stroke*="currentColor"]`)[2].parentElement.parentElement.getElementsByTagName("div");
 		if (!divs || divs.length < 3) return 0;
 		const text = divs[2].textContent || "";
 		return parseInt(text.split("/")[0].trim(), 10) || 0;
