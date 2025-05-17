@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      5.2.4
+// @version      5.3.0
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -23,6 +23,7 @@ var UNDER_COOLDOWN = GM_getValue("under-cooldown", false);	// Workaround for coo
 var OPEN_RANDOM_LINKS = GM_getValue("open-random-links", true);	// Simulate real human searcg by opening links
 var COLLECT_DAILY_ACTIVITY = GM_getValue("collect-daily-activity", false);	// Automatically collect daily activity points from bingo rewards dashboard page
 var AUTO_CLOSE_TABS = GM_getValue("auto-close-tabs", true);	// Automatically close any tabs/windows opened by the script
+var OPEN_POINTS_BREAKDOWN = GM_getValue("open-points-breakdown", false);	// Open points breakdown page in a new tab
 
 var TIMEOUT = (Math.floor(Math.random() * (TIMEOUT_RANGE[1] - TIMEOUT_RANGE[0]) * 1000) + TIMEOUT_RANGE[0] * 1000);	// Randomize the timeout with given range
 
@@ -80,6 +81,13 @@ const configurations = [
 		type: "checkbox",
 		value: AUTO_CLOSE_TABS,
 		description: "Automatically close any tabs/windows opened by the script. This applies to the search page and any rewards page that were opened as well.<br>Default: True",
+	},
+	{
+		id: "open-points-breakdown",
+		name: "Open Points Breakdown",
+		type: "checkbox",
+		value: OPEN_POINTS_BREAKDOWN,
+		description: "Open the points breakdown page in a new tab on completing searches. This is useful to check how many points you have earned so far.<br>Default: False",
 	}
 ];
 
@@ -221,6 +229,14 @@ settingsIcon.addEventListener("click", () => {
 	settingsOverlay.style.display = "flex";
 });
 
+// Close settings dialog when clicking outside the popup
+settingsOverlay.addEventListener("mousedown", function (event) {
+	// Only close if clicking outside the settingsContent
+	if (event.target === settingsOverlay) {
+		settingsOverlay.style.display = "none";
+	}
+});
+
 // Add logic to enable/disable the cooldown-timeout input
 document.getElementById("under-cooldown").addEventListener("change", (event) => {
     const cooldownInput = document.getElementById("cooldown-timeout");
@@ -299,7 +315,7 @@ function startSearch() {
 /**
  * Wait for elements to appear on the page and execute a callback function when they are found.
  * This function repeatedly checks for the presence of the specified selectors on the page.
- * Once any of the selectors is found, the callback function is called with the selector as a parameter.
+ * Once any of the selectors are found, the callback function is called with the selector as a parameter.
  * @param {Array} selectors - The selectors to wait for.
  * @param {Function} callback - The callback function to execute when the selectors are found.
  */
@@ -433,6 +449,9 @@ if (isSearchPage) {
 				}
 
 				setTimeout(() => {
+					// if this is the final search, then open the points breakdown page in a new tab if OPEN_POINTS_BREAKDOWN is enabled
+					if (searches.length==1 && OPEN_POINTS_BREAKDOWN) window.open("https://rewards.bing.com/pointsbreakdown", "_blank");
+
 					window.open(`https://www.bing.com/search?go=Search&q=${encodeURI(searches.pop())}&qs=ds&form=QBRE`, "_self");
 					// document.querySelector("textarea.b_searchbox").value = searches.pop();
 					// document.querySelector("input.b_searchboxSubmit").click();
