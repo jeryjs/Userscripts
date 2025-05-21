@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.6.1
+// @version     6.6.2
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -422,10 +422,10 @@ const websites = [
                     clearInterval(intervalId);
                     const btn = document.createElement('button');
                     btn.id = id;
-                    btn.style.cssText = "display: flex; justifyContent: center;";
-                    btn.className = "sc-dpGNEc eZVSAR";
+                    btn.style.cssText = `${target.lastChild.style.cssText} display: flex; justify-content: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: auto;`;
+                    btn.className = target.lastChild.className;
                     btn.innerHTML = `
-                        <i style="font-size: 18px" class="material-icons">download</i>
+                        <svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="3 3 18 18"><path fill="currentColor" d="M5 21q-.825 0-1.413-.588T3 19V5q0-.825.588-1.413T5 3h14q.825 0 1.413.588T21 5v14q0 .825-.588 1.413T19 21H5Zm0-2h14V5H5v14Zm3-4.5h2.5v-6H8v6Zm5.25 0h2.5v-6h-2.5v6Zm5.25 0h2.5v-6h-2.5v6Z"/></svg>
                         <div style="display: flex; justify-content: center; align-items: center;">Extract Episode Links</div>
                     `;
                     btn.addEventListener('click', extractEpisodes);
@@ -440,13 +440,26 @@ const websites = [
             if (!malId) return showToast('MAL ID not found.');
 
             const res = await fetch(`${this.baseApiUrl}/episodes?malId=${malId}`).then(r => r.json());
-            const providers = Object.entries(res).map(([p, s]) => {
-                const v = Object.values(s)[0], ep = v?.episodeList?.episodes || v?.episodeList;
-                return ep && { source: p.toLowerCase(), animeId: Object.keys(s)[0], useEpId: !!v?.episodeList?.episodes, epList: ep };
+            const providers = Object.entries(res).flatMap(([p, s]) => {
+                if (p === "ANIMEZ") {
+                    // AnimeZ: treat sub and dub as separate providers
+                    const v = Object.values(s)[0], animeId = Object.keys(s)[0], eps = v?.episodeList?.episodes;
+                    if (!eps) return [];
+                    return ["sub", "dub"].map(type =>
+                        eps[type]?.length
+                            ? { source: `animez-${type}`, animeId, useEpId: true, epList: eps[type] }
+                            : null
+                    )
+                } else {
+                    // Default: original logic
+                    const v = Object.values(s)[0], ep = v?.episodeList?.episodes || v?.episodeList;
+                    return ep && { source: p.toLowerCase(), animeId: Object.keys(s)[0], useEpId: !!v?.episodeList?.episodes, epList: ep };
+                }
             }).filter(Boolean);
 
             // Get the provider with most episodes to use as base for thumbnails, epTitle, epNumber, etc.
-            const baseProvider = providers.find(p => p.epList.length == Math.max(...providers.map(p => p.epList.length)));
+            // Preferred provider is Zoro, if available, since it has the best title format
+            const baseProvider = providers.find(p => p.source === 'zoro') || providers.find(p => p.epList.length == Math.max(...providers.map(p => p.epList.length)));
 
             if (!baseProvider) return showToast('No episodes found.');
 
@@ -461,7 +474,8 @@ const websites = [
                     epTitle = epTitle || ep.title; // update title if blank
                     const epId = !useEpId ? `${animeId}/ep-${ep.number}` : ep.id;
                     try {
-                        const sres = await fetchWithRetry(`${this.baseApiUrl}/sources?episodeId=${epId}&provider=${source}`);
+                        const apiProvider = source.startsWith('animez-') ? 'animez' : source;
+                        const sres = await fetchWithRetry(`${this.baseApiUrl}/sources?episodeId=${epId}&provider=${apiProvider}`);
                         const sresJson = await sres.json();
                         links[this._getLocalSourceName(source)] = { stream: sresJson.streams[0].url, type: "m3u8", tracks: sresJson.tracks || [] };
                     } catch (e) { showToast(`Failed to fetch ep-${ep.number} from ${source}: ${e}`); return null; }
@@ -472,7 +486,7 @@ const websites = [
             }
         },
         _getLocalSourceName: function (source) {
-            const sourceNames = { 'animepahe': 'kiwi', 'animekai': 'arc', 'animez': 'jet', 'zoro': 'zoro' };
+            const sourceNames = { 'animepahe': 'kiwi', 'animekai': 'arc', 'animez-sub': 'jet-sub', 'animez-dub': 'jet-dub', 'zoro': 'zoro' };
             return sourceNames[source] || source.charAt(0).toUpperCase() + source.slice(1);
         },
     },
@@ -709,6 +723,60 @@ async function* yieldEpisodesFromPromises(episodePromises) {
  */
 const safeBtoa = str => btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
+/**
+ * Analyzes the given media url to return duration, size, and resolution of the media.
+ * @param {string} mediaUrl - The URL of the media to analyze.
+ * @return {Promise<{duration: string, size: string, resolution: string}>} A promise that resolves to an object
+ * containing duration (in hh:mm:ss), size of the media (in MB), and resolution (e.g., 1920x1080).
+ * @TODO: Not Yet Implemented
+ */
+async function analyzeMedia(mediaUrl) {
+    if (_analyzedMediaCache.has(mediaUrl)) return _analyzedMediaCache.get(mediaUrl);
+
+    let metadata = { duration: 'N/A', resolution: 'N/A', size: 'N/A' };
+    try {
+        if (mediaUrl.endsWith('.mp4')) {
+            const r = await GM_fetch(mediaUrl, { method: 'HEAD' });
+            if (r.ok) {
+                const sz = parseFloat(r.headers.get('Content-Length')) || 0;
+                metadata.size = `${(sz / 1048576).toFixed(2)} MB`;
+            }
+        } else if (mediaUrl.endsWith('.m3u8')) {
+            const r = await GM_fetch(mediaUrl);
+            if (r.ok) {
+                const t = await r.text();
+                const res = t.match(/RESOLUTION=(\d+x\d+)/i);
+                if (res) metadata.resolution = res[1];
+                let d = 0;
+                for (const m of t.matchAll(/#EXTINF:([\d.]+)/g)) d += parseFloat(m[1]);
+                if (d > 0) {
+                    const h = Math.floor(d / 3600), m = Math.floor((d % 3600) / 60), s = Math.floor(d % 60);
+                    metadata.duration = [h, m, s].map(v => String(v).padStart(2, '0')).join(':');
+                }
+            }
+        }
+        if (metadata.duration === 'N/A' || metadata.resolution === 'N/A') {
+            await new Promise(res => {
+                const v = document.createElement('video');
+                v.src = mediaUrl; v.preload = 'metadata'; v.muted = true;
+                v.onloadedmetadata = () => {
+                    if (v.duration && metadata.duration === 'N/A') {
+                        const h = Math.floor(v.duration / 3600), m = Math.floor((v.duration % 3600) / 60), s = Math.floor(v.duration % 60);
+                        metadata.duration = [h, m, s].map(x => String(x).padStart(2, '0')).join(':');
+                    }
+                    if (v.videoWidth && v.videoHeight && metadata.resolution === 'N/A')
+                        metadata.resolution = `${v.videoWidth}x${v.videoHeight}`;
+                    res();
+                };
+                v.onerror = () => res();
+                setTimeout(res, 2000);
+            });
+        }
+    } catch (e) {}
+    _analyzedMediaCache.set(mediaUrl, metadata);
+    return metadata;
+}
+const _analyzedMediaCache = new Map();  // Cache to store analyzed media results for the above function
 
 
 // initialize
