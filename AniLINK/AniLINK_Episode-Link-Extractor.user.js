@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.6.2
+// @version     6.6.3
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -984,7 +984,7 @@ async function extractEpisodes() {
                     <label>
                         <input type="checkbox" class="anlink-episode-checkbox" />
                         <span id="mpv-epnum" title="Play in MPV">Ep ${ep.number.replace(/^0+/, '')}: </span>
-                        <a href="${ep.links[quality].stream}" class="anlink-episode-link" download="${encodeURI(ep.name)}" data-epnum="${ep.number}" title="${ep.title.replace(/[<>:"/\\|?*]/g, '')}" ep-title="${ep.title.replace(/[<>:"/\\|?*]/g, '')}">${ep.links[quality].stream}</a>
+                        <a href="${ep.links[quality].stream}" class="anlink-episode-link" download="${encodeURI(ep.name)}" data-epnum="${ep.number}" data-ep=${encodeURI(JSON.stringify({ ...ep, links: undefined }))} >${ep.links[quality].stream}</a>
                     </label>
                 `;
                 const episodeLinkElement = listItem.querySelector('.anlink-episode-link');
@@ -1125,7 +1125,7 @@ async function extractEpisodes() {
 
             const items = selectedItems.length ? selectedItems : Array.from(qualitySection.querySelectorAll('.anlink-episode-item'));
             const playlist = _preparePlaylist(episodes.filter(ep => items.find(i => i.querySelector(`[data-epnum="${ep.number}"]`))), quality);
-            const fileName = items[0]?.querySelector('.anlink-episode-link')?.title + ` [${quality}].m3u8`;
+            const fileName = JSON.parse(decodeURI(items[0]?.querySelector('.anlink-episode-link')?.dataset.ep)).animeTitle + ` [${quality}].m3u8`;
             const file = new Blob([playlist], { type: 'application/vnd.apple.mpegurl' });
             const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(file), download: fileName });
             a.click();
@@ -1147,6 +1147,7 @@ async function extractEpisodes() {
                 method: "POST",
                 body: playlistContent
             }).then(r => r.text()).then(t => t + '.m3u8');
+            console.log(`Playlist URL:`, uploadUrl);
 
             // Use mpv:// protocol to pass the paste.rs link to mpv (requires mpv-handler installed)
             const mpvUrl = 'mpv://play/' + safeBtoa(uploadUrl.trim()) + '/?v_title=' + safeBtoa(epList[0].animeTitle);
