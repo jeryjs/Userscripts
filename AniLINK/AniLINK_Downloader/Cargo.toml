@@ -1,0 +1,16 @@
+[package]
+name = "anilink_downloader"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.86"
+confy = "0.6.1"
+crossterm = "0.27.0"
+ratatui = { version = "0.26.3", features = ["crossterm"] }
+regex = "1.10.5"
+serde = { version = "1.0.203", features = ["derive"] }
+tokio = { version = "1.38.0", features = ["full"] }
+unicode-width = "0.1.11"
