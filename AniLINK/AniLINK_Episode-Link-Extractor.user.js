@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.6.3
+// @version     6.7.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -119,7 +119,9 @@ const websites = [
         extractEpisodes: async function* (status) {
             status.textContent = 'Starting...';
             const throttleLimit = 12; // Number of episodes to extract in parallel
-            const epLinks = Array.from(document.querySelectorAll(this.epLinks));
+            const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
+            const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
+            if (!epLinks) return; // User cancelled
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
                 const chunk = epLinks.slice(i, i + throttleLimit);
                 const episodePromises = chunk.map(async epLink => {
@@ -152,7 +154,10 @@ const websites = [
         },
         extractEpisodes: async function* (status) {
             status.textContent = 'Getting list of episodes...';
-            const epLinks = Array.from(document.querySelectorAll(this.epLinks));
+            const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
+            const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
+            if (!epLinks) return; // User cancelled
+
             const throttleLimit = 6;    // Number of episodes to extract in parallel
 
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
@@ -222,7 +227,9 @@ const websites = [
         },
         extractEpisodes: async function* (status) {
             status.textContent = 'Starting...';
-            const epLinks = Array.from(document.querySelectorAll(this.epLinks));
+            const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
+            const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
+            if (!epLinks) return; // User cancelled
             const throttleLimit = 36;  // Setting high throttle limit actually improves performance
 
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
@@ -269,7 +276,9 @@ const websites = [
         },
         extractEpisodes: async function* (status) {
             status.textContent = 'Starting...';
-            const epLinks = Array.from(document.querySelectorAll(this.epLinks));
+            const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
+            const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
+            if (!epLinks) return; // User cancelled
             const throttleLimit = 12;
 
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
@@ -308,7 +317,9 @@ const websites = [
         },
         extractEpisodes: async function* (status) {
             status.textContent = 'Starting...';
-            const epLinks = Array.from(document.querySelectorAll(this.epLinks));
+            const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
+            const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
+            if (!epLinks) return; // User cancelled
             const throttleLimit = 12;    // Number of episodes to extract in parallel
 
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
@@ -347,7 +358,9 @@ const websites = [
         },
         extractEpisodes: async function* (status) {
             status.textContent = 'Starting...';
-            const epLinks = Array.from(document.querySelectorAll(this.epLinks));
+            const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
+            const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
+            if (!epLinks) return; // User cancelled
             const throttleLimit = 12; // Number of episodes to extract in parallel
 
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
@@ -384,8 +397,10 @@ const websites = [
         },
         extractEpisodes: async function* (status) {
             status.textContent = 'Starting...';
-            const epLinks = Array.from(document.querySelectorAll(this.epLinks))
-                .filter((el, index, self) => self.findIndex(e => e.href === el.href && e.textContent.trim() === el.textContent.trim()) === index);;
+            const allEpLinks = Array.from(document.querySelectorAll(this.epLinks))
+                .filter((el, index, self) => self.findIndex(e => e.href === el.href && e.textContent.trim() === el.textContent.trim()) === index);
+            const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
+            if (!epLinks) return; // User cancelled
             const throttleLimit = 12; // Number of episodes to extract in parallel
 
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
@@ -459,7 +474,8 @@ const websites = [
 
             // Get the provider with most episodes to use as base for thumbnails, epTitle, epNumber, etc.
             // Preferred provider is Zoro, if available, since it has the best title format
-            const baseProvider = providers.find(p => p.source === 'zoro') || providers.find(p => p.epList.length == Math.max(...providers.map(p => p.epList.length)));
+            let baseProvider = providers.find(p => p.source === 'zoro') || providers.find(p => p.epList.length == Math.max(...providers.map(p => p.epList.length)));
+            baseProvider = { ...baseProvider, epList: await applyEpisodeRangeFilter(baseProvider.epList, status) };
 
             if (!baseProvider) return showToast('No episodes found.');
 
@@ -772,7 +788,7 @@ async function analyzeMedia(mediaUrl) {
                 setTimeout(res, 2000);
             });
         }
-    } catch (e) {}
+    } catch (e) { }
     _analyzedMediaCache.set(mediaUrl, metadata);
     return metadata;
 }
@@ -1071,9 +1087,9 @@ async function extractEpisodes() {
                     linkObj.tracks.forEach((track, idx) => {
                         // EXT-X-MEDIA for subtitles or alternate audio
                         if (track.kind && track.kind.startsWith('audio')) {
-                            playlistContent += `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio${idx}\",NAME=\"${track.label || 'Audio'}\",DEFAULT=${track.default?'YES':'NO'},URI=\"${track.file}\"\n`;
+                            playlistContent += `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio${idx}\",NAME=\"${track.label || 'Audio'}\",DEFAULT=${track.default ? 'YES' : 'NO'},URI=\"${track.file}\"\n`;
                         } else if ((track.kind && track.kind.startsWith('caption')) || track.kind === 'subtitles' || track.kind === 'captions') {
-                            playlistContent += `#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs${idx}\",NAME=\"${track.label || 'Subtitle'}\",DEFAULT=${track.default?'YES':'NO'},URI=\"${track.file}\"\n`;
+                            playlistContent += `#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs${idx}\",NAME=\"${track.label || 'Subtitle'}\",DEFAULT=${track.default ? 'YES' : 'NO'},URI=\"${track.file}\"\n`;
                         }
                     });
                 }
@@ -1160,6 +1176,197 @@ async function extractEpisodes() {
             }, 1000);
         }
     }
+}
+
+/***************************************************************
+ * Modern Episode Range Selector with Keyboard Navigation
+ ***************************************************************/
+async function showEpisodeRangeSelector(total) {
+    return new Promise(resolve => {
+        const modal = Object.assign(document.createElement('div'), {
+            innerHTML: `
+                <div class="anlink-modal-backdrop">
+                    <div class="anlink-modal">
+                        <div class="anlink-modal-header">
+                            <div class="anlink-modal-icon">📺</div>
+                            <h2>Episode Range</h2>
+                            <div class="anlink-episode-count">${total} episodes found</div>
+                        </div>                        
+                        <div class="anlink-modal-body">
+                            <div class="anlink-range-inputs">
+                                <div class="anlink-input-group">
+                                    <label>From</label>
+                                    <input type="number" id="start" min="1" max="${total}" value="1" tabindex="1">
+                                </div>
+                                <div class="anlink-range-divider">—</div>
+                                <div class="anlink-input-group">
+                                    <label>To</label>
+                                    <input type="number" id="end" min="1" max="${total}" value="${Math.min(24, total)}" tabindex="2">
+                                </div>
+                            </div>
+                            <div class="anlink-quick-select">
+                                <button class="anlink-quick-btn" data-range="1,24" tabindex="3">First 24</button>
+                                <button class="anlink-quick-btn" data-range="${Math.max(1, total - 23)},${total}" tabindex="4">Last 24</button>
+                                <button class="anlink-quick-btn" data-range="1,${total}" tabindex="5">All ${total}</button>
+                            </div>
+                            <div class="anlink-help-text">
+                                Use <kbd>Tab</kbd> to navigate • <kbd>↑↓</kbd> to adjust values • <kbd>Enter</kbd> to extract • <kbd>Esc</kbd> to cancel
+                            </div>
+                        </div>                        
+                        <div class="anlink-modal-footer">
+                            <button class="anlink-btn anlink-btn-cancel" data-key="Escape" tabindex="6"><kbd>Esc</kbd> Cancel</button>
+                            <button class="anlink-btn anlink-btn-primary" data-key="Enter" tabindex="7"><kbd>Enter</kbd> Extract</button>
+                        </div>
+                    </div>
+                </div>
+            `,
+            style: 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:1001;'
+        });
+
+        // Enhanced styling with keyboard indicators
+        GM_addStyle(`
+            .anlink-modal-backdrop { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px); }
+            .anlink-modal { background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%); border-radius: 16px; box-shadow: 0 20px 40px rgba(0,0,0,0.4); width: 420px; max-width: 90vw; color: #fff; overflow: hidden; }
+            .anlink-modal-header { text-align: center; padding: 24px 24px 16px; background: linear-gradient(135deg, #26a69a 0%, #20847a 100%); }
+            .anlink-modal-icon { font-size: 48px; margin-bottom: 8px; }
+            .anlink-modal h2 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
+            .anlink-episode-count { opacity: 0.9; font-size: 14px; }
+            .anlink-modal-body { padding: 24px; }
+            .anlink-range-inputs { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+            .anlink-input-group { flex: 1; }
+            .anlink-input-group label { display: block; margin-bottom: 8px; font-size: 14px; color: #26a69a; font-weight: 500; }
+            .anlink-input-group input { width: 83%; padding: 12px; border: 2px solid #444; border-radius: 8px; background: #1a1a1a; color: #fff; font-size: 16px; text-align: center; transition: all 0.2s; }
+            .anlink-input-group input:focus { outline: none; border-color: #26a69a; box-shadow: 0 0 0 3px rgba(38,166,154,0.1); }
+            .anlink-range-divider { color: #26a69a; font-weight: bold; font-size: 18px; margin-top: 24px; }
+            .anlink-quick-select { display: flex; gap: 8px; margin-bottom: 16px; }
+            .anlink-quick-btn { flex: 1; padding: 8px 12px; border: 1px solid #444; border-radius: 6px; background: transparent; color: #ccc; cursor: pointer; font-size: 12px; transition: all 0.2s; position: relative; }
+            .anlink-quick-btn:hover, .anlink-quick-btn:focus { border-color: #26a69a; color: #26a69a; background: rgba(38,166,154,0.1); outline: none; }            .anlink-help-text { font-size: 11px; color: #888; text-align: center; margin-top: 12px; }
+            .anlink-modal-footer { display: flex; gap: 12px; padding: 0 24px 24px; }
+            .anlink-btn { flex: 1; padding: 12px 24px; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s; position: relative; }
+            .anlink-btn:focus { outline: 2px solid #26a69a; outline-offset: 2px; }
+            .anlink-btn-cancel { background: #444; color: #ccc; }
+            .anlink-btn-cancel:hover, .anlink-btn-cancel:focus { background: #555; }
+            .anlink-btn-primary { background: linear-gradient(135deg, #26a69a 0%, #20847a 100%); color: #fff; }
+            .anlink-btn-primary:hover, .anlink-btn-primary:focus { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(38,166,154,0.3); }
+            kbd { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 3px; padding: 1px 4px; font-size: 10px; margin-right: 4px; }
+        `);
+
+        document.body.appendChild(modal);
+
+        const [startInput, endInput] = modal.querySelectorAll('input');
+        const buttons = modal.querySelectorAll('button');
+        const primaryBtn = modal.querySelector('.anlink-btn-primary');
+        const cancelBtn = modal.querySelector('.anlink-btn-cancel');
+
+        const validate = () => {
+            const s = Math.max(1, Math.min(total, +startInput.value));
+            const e = Math.max(s, Math.min(total, +endInput.value));
+            startInput.value = s; endInput.value = e;
+        };
+
+        const cleanup = () => modal.remove();
+        const accept = () => { validate(); cleanup(); resolve({ start: +startInput.value, end: +endInput.value }); };
+        const cancel = () => { cleanup(); resolve(null); };
+
+        // Keyboard navigation with arrow keys for number inputs
+        modal.addEventListener('keydown', e => {
+            switch (e.key) {
+                case 'Escape': e.preventDefault(); cancel(); break;
+                case 'Enter': e.preventDefault(); accept(); break;
+                case 'f': case 'F':
+                    if (!e.target.matches('input') && !e.ctrlKey && !e.altKey) {
+                        e.preventDefault();
+                        startInput.focus();
+                        startInput.select();
+                    }
+                    break;
+            }
+        });
+
+        // Input validation and arrow key navigation for number inputs
+        [startInput, endInput].forEach(input => {
+            input.addEventListener('input', validate);
+            input.addEventListener('keydown', e => {
+                if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    input.value = Math.min(total, (+input.value || 0) + 1);
+                    validate();
+                } else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    input.value = Math.max(1, (+input.value || 2) - 1);
+                    validate();
+                } else if (e.key === 'Tab' && !e.shiftKey && input === endInput) {
+                    e.preventDefault();
+                    modal.querySelector('.anlink-quick-btn').focus();
+                }
+            });
+        });        
+        // Quick select buttons
+        modal.querySelectorAll('.anlink-quick-btn').forEach((btn, index) => {
+            btn.addEventListener('click', () => {
+                const [s, e] = btn.dataset.range.split(',').map(Number);
+                startInput.value = s;
+                endInput.value = e;
+                validate();
+                // Focus extract button after quick select
+                setTimeout(() => primaryBtn.focus(), 100);
+            });
+
+            // Arrow key navigation between quick select buttons
+            btn.addEventListener('keydown', e => {
+                if (e.key === 'ArrowLeft' && index > 0) {
+                    e.preventDefault();
+                    modal.querySelectorAll('.anlink-quick-btn')[index - 1].focus();
+                } else if (e.key === 'ArrowRight' && index < 2) {
+                    e.preventDefault();
+                    modal.querySelectorAll('.anlink-quick-btn')[index + 1].focus();
+                } else if (e.key === 'Tab' && !e.shiftKey && index === 2) {
+                    e.preventDefault();
+                    cancelBtn.focus();
+                }
+            });
+        });        // Button handlers with enhanced keyboard navigation
+        cancelBtn.addEventListener('click', cancel);
+        cancelBtn.addEventListener('keydown', e => {
+            if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                primaryBtn.focus();
+            }
+        });
+
+        primaryBtn.addEventListener('click', accept);
+        primaryBtn.addEventListener('keydown', e => {
+            if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                cancelBtn.focus();
+            }
+        });
+
+        // Focus management - start with first input and select all text
+        setTimeout(() => {
+            startInput.focus();
+            startInput.select();
+        }, 100);
+    });
+}
+
+/***************************************************************
+ * Apply episode range filtering with modern UI
+ ***************************************************************/
+async function applyEpisodeRangeFilter(allEpLinks, status) {
+    if (allEpLinks.length <= 6) return allEpLinks;
+
+    status.textContent = `Found ${allEpLinks.length} episodes. Waiting for selection...`;
+    const selection = await showEpisodeRangeSelector(allEpLinks.length);
+
+    if (!selection) {
+        status.textContent = 'Cancelled by user.';
+        return null;
+    }
+
+    const filtered = allEpLinks.slice(selection.start - 1, selection.end);
+    status.textContent = `Extracting episodes ${selection.start}-${selection.end} of ${allEpLinks.length}...`;
+    return filtered;
 }
 
 /***************************************************************
