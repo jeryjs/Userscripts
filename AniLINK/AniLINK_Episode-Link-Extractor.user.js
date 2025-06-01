@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.7.0
+// @version     6.7.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -37,6 +37,7 @@
 // @grant       GM.xmlHttpRequest
 // @require     https://cdn.jsdelivr.net/npm/@trim21/gm-fetch@0.2.1
 // @grant       GM_addStyle
+// @grant       GM_getValue
 // ==/UserScript==
 
 class Episode {
@@ -46,7 +47,7 @@ class Episode {
         this.epTitle = epTitle; // The title of the episode (this can be the specific ep title or blank).
         this.links = links;     // An object containing streaming links and tracks for each source: {"source1":{stream:"url", type:"m3u8|mp4", tracks:[{file:"url", kind:"caption|audio", label:"name"}]}}}
         this.thumbnail = thumbnail; // The URL of the episode's thumbnail image (if unavailable, then just any image is fine. Thumbnail property isnt really used in the script yet).
-        this.name = `${this.animeTitle} - ${this.number.padStart(3, '0')}${this.epTitle ? ` - ${this.epTitle}` : ''}.${Object.values(this.links)[0]?.type || 'm3u8'}`;   // The formatted name of the episode, combining anime name, number and title and extension.
+        this.filename = `${this.animeTitle} - ${this.number.padStart(3, '0')}${this.epTitle ? ` - ${this.epTitle}` : ''}.${Object.values(this.links)[0]?.type || 'm3u8'}`;   // The formatted name of the episode, combining anime name, number and title and extension.
         this.title = this.epTitle ?? this.animeTitle;
     }
 }
@@ -386,7 +387,7 @@ const websites = [
     {
         name: 'AnimeZ',
         url: ['animez.org'],
-        epLinks: '.list-chapter .wp-manga-chapter a',
+        epLinks: 'li.wp-manga-chapter a',
         epTitle: '#title-detail-manga',
         epNum: '.wp-manga-chapter.active',
         thumbnail: '.Image > figure > img',
@@ -396,13 +397,28 @@ const websites = [
             return document.getElementById("AniLINK_startBtn");
         },
         extractEpisodes: async function* (status) {
-            status.textContent = 'Starting...';
-            const allEpLinks = Array.from(document.querySelectorAll(this.epLinks))
-                .filter((el, index, self) => self.findIndex(e => e.href === el.href && e.textContent.trim() === el.textContent.trim()) === index);
+            /// work in progress- stopped when animes.org started redirecting to some random manhwa site
+            status.textContent = 'Fetching Episodes List...';
+            const mangaId = (window.location.pathname.match(/-(\d+)(?:\/|$)/) || [])[1] || document.querySelector('[data-manga-id]')?.getAttribute('data-manga-id');
+            if (!mangaId) return showToast('Could not determine manga_id for episode list.');
+            const nav = document.querySelectorAll('#nav_list_chapter_id_detail li').map(e => e.querySelector('i.icon').parentElement.parentElement)
+            const maxPage = Math.max(1, ...Array.from(nav).map(a => +(a.getAttribute('onclick')?.match(/load_list_chapter\((\d+)\)/)?.[1] || 0)).filter(Boolean));
+            // Parse all episode links from all pages in parallel
+            status.textContent = `Loading all ${maxPage} episode pages...`;
+            let allEpLinks = [];
+            try {
+                await Promise.all(Array.from({ length: maxPage }, (_, i) => fetch(`/?act=ajax&code=load_list_chapter&manga_id=${mangaId}&page_num=${i + 1}&chap_id=0&keyword=`).then(r => r.text()).then(t => {
+                    let html = JSON.parse(t).list_chap;
+                    const doc = document.implementation.createHTMLDocument('eps');
+                    doc.body.innerHTML = html;
+                    allEpLinks.push(...doc.querySelectorAll(this.epLinks));
+                })));
+            } catch (e) { showToast('Failed to load Episodes List: ' + e); return null; }
+            // Remove duplicates
+            allEpLinks = allEpLinks.filter((el, idx, self) => self.findIndex(e => e.href === el.href && e.textContent.trim() === el.textContent.trim()) === idx);
             const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
             if (!epLinks) return; // User cancelled
-            const throttleLimit = 12; // Number of episodes to extract in parallel
-
+            const throttleLimit = 12;
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
                 const chunk = epLinks.slice(i, i + throttleLimit);
                 const episodePromises = chunk.map(async epLink => {
@@ -418,9 +434,8 @@ const websites = [
 
                         return new Episode(epNumber, epTitle, links, thumbnail); // Return Episode object
                     } catch (e) { showToast(e); return null; }
-                }); // Handle errors and return null
-
-                yield* yieldEpisodesFromPromises(episodePromises); // Use helper function
+                });
+                yield* yieldEpisodesFromPromises(episodePromises);
             }
         }
     },
@@ -1000,7 +1015,7 @@ async function extractEpisodes() {
                     <label>
                         <input type="checkbox" class="anlink-episode-checkbox" />
                         <span id="mpv-epnum" title="Play in MPV">Ep ${ep.number.replace(/^0+/, '')}: </span>
-                        <a href="${ep.links[quality].stream}" class="anlink-episode-link" download="${encodeURI(ep.name)}" data-epnum="${ep.number}" data-ep=${encodeURI(JSON.stringify({ ...ep, links: undefined }))} >${ep.links[quality].stream}</a>
+                        <a href="${ep.links[quality].stream}" class="anlink-episode-link" download="${encodeURI(ep.filename)}" data-epnum="${ep.number}" data-ep=${encodeURI(JSON.stringify({ ...ep, links: undefined }))} >${ep.links[quality].stream}</a>
                     </label>
                 `;
                 const episodeLinkElement = listItem.querySelector('.anlink-episode-link');
@@ -1093,7 +1108,7 @@ async function extractEpisodes() {
                         }
                     });
                 }
-                playlistContent += `#EXTINF:-1,${episode.name}\n`;
+                playlistContent += `#EXTINF:-1,${episode.filename}\n`;
                 playlistContent += `${linkObj.stream}\n`;
             });
             return playlistContent;
@@ -1141,7 +1156,7 @@ async function extractEpisodes() {
 
             const items = selectedItems.length ? selectedItems : Array.from(qualitySection.querySelectorAll('.anlink-episode-item'));
             const playlist = _preparePlaylist(episodes.filter(ep => items.find(i => i.querySelector(`[data-epnum="${ep.number}"]`))), quality);
-            const fileName = JSON.parse(decodeURI(items[0]?.querySelector('.anlink-episode-link')?.dataset.ep)).animeTitle + ` [${quality}].m3u8`;
+            const fileName = JSON.parse(decodeURI(items[0]?.querySelector('.anlink-episode-link')?.dataset.ep)).animeTitle + `${GM_getValue('include_source_in_filename', true) ? ` [${quality}]` : ''}.m3u8`;
             const file = new Blob([playlist], { type: 'application/vnd.apple.mpegurl' });
             const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(file), download: fileName });
             a.click();
@@ -1191,6 +1206,9 @@ async function showEpisodeRangeSelector(total) {
                             <div class="anlink-modal-icon">📺</div>
                             <h2>Episode Range</h2>
                             <div class="anlink-episode-count">${total} episodes found</div>
+                            <small style="display:block;color:#ccc;font-size:11px;margin-top:2px;">
+                                Note: Range is by episode count, not episode number<br>(e.g., 1-6 means the first 6 episodes listed).
+                            </small>
                         </div>                        
                         <div class="anlink-modal-body">
                             <div class="anlink-range-inputs">
@@ -1235,7 +1253,7 @@ async function showEpisodeRangeSelector(total) {
             .anlink-range-inputs { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
             .anlink-input-group { flex: 1; }
             .anlink-input-group label { display: block; margin-bottom: 8px; font-size: 14px; color: #26a69a; font-weight: 500; }
-            .anlink-input-group input { width: 83%; padding: 12px; border: 2px solid #444; border-radius: 8px; background: #1a1a1a; color: #fff; font-size: 16px; text-align: center; transition: all 0.2s; }
+            .anlink-input-group input { width: 100%; padding: 12px; border: 2px solid #444; border-radius: 8px; background: #1a1a1a; color: #fff; font-size: 16px; text-align: center; transition: all 0.2s; }
             .anlink-input-group input:focus { outline: none; border-color: #26a69a; box-shadow: 0 0 0 3px rgba(38,166,154,0.1); }
             .anlink-range-divider { color: #26a69a; font-weight: bold; font-size: 18px; margin-top: 24px; }
             .anlink-quick-select { display: flex; gap: 8px; margin-bottom: 16px; }
@@ -1300,7 +1318,7 @@ async function showEpisodeRangeSelector(total) {
                     modal.querySelector('.anlink-quick-btn').focus();
                 }
             });
-        });        
+        });
         // Quick select buttons
         modal.querySelectorAll('.anlink-quick-btn').forEach((btn, index) => {
             btn.addEventListener('click', () => {
@@ -1325,7 +1343,8 @@ async function showEpisodeRangeSelector(total) {
                     cancelBtn.focus();
                 }
             });
-        });        // Button handlers with enhanced keyboard navigation
+        });
+        // Button handlers with enhanced keyboard navigation
         cancelBtn.addEventListener('click', cancel);
         cancelBtn.addEventListener('keydown', e => {
             if (e.key === 'ArrowRight') {
@@ -1354,7 +1373,8 @@ async function showEpisodeRangeSelector(total) {
  * Apply episode range filtering with modern UI
  ***************************************************************/
 async function applyEpisodeRangeFilter(allEpLinks, status) {
-    if (allEpLinks.length <= 6) return allEpLinks;
+    const epRangeThreshold = GM_getValue('ep_range_threshold', 12)
+    if (allEpLinks.length <= epRangeThreshold) return allEpLinks;
 
     status.textContent = `Found ${allEpLinks.length} episodes. Waiting for selection...`;
     const selection = await showEpisodeRangeSelector(allEpLinks.length);
