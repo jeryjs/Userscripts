@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.8.1
+// @version      3.9.0
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
@@ -15,6 +15,8 @@
 // @grant        GM_registerMenuCommand
 // @grant        GM_deleteValue
 // @grant        GM_addStyle
+// @grant        GM.xmlHttpRequest
+// @require      https://cdn.jsdelivr.net/npm/@trim21/gm-fetch@0.2.1
 // @updateURL    https://github.com/jeryjs/Userscripts/raw/refs/heads/main/AnswerIT!!/AnswerIT!!_Universal-Tab-Switch-Detection-Bypass-and-AI-Answer-Generator.user.js
 // @downloadURL  https://github.com/jeryjs/Userscripts/raw/refs/heads/main/AnswerIT!!/AnswerIT!!_Universal-Tab-Switch-Detection-Bypass-and-AI-Answer-Generator.user.js
 // ==/UserScript==
@@ -37,7 +39,7 @@
 			name: "Superset Assessments",
 			urls: ["app.joinsuperset.com/assessments"],
 			questionSelectors: ["#question-container > div.content.flex-1.flexbox.no-h-padding.scrollable > div:nth-child(2) > div"],
-			getQuestionText: (element) => element.innerHTML,
+			getQuestionItem: (element) => element.innerHTML,
 			getQuestionIdentifier: (element) => element.textContent
 		},
 		{
@@ -51,7 +53,7 @@
 			urls: ["leetcode.com"],
 			questionSelectors: ["#qd-content"],
 			getQuestionIdentifier: (element) => element.querySelector('a[href*="/problems/"]').textContent,
-			getQuestionText: (element) => {
+			getQuestionItem: (element) => {
 				const questionTitle = element.querySelector('a[href*="/problems/"]').textContent;
 				const questionElement = element.querySelector('div[data-track-load="description_content"]').innerHTML;
 				const codeEditorElement = element.querySelector('.lines-content')?.innerHTML;
@@ -115,7 +117,7 @@
 	const modelCache = {}; // In-memory cache for current session
 	let outputTextArea;
 	let currentWebsite = null;
-    let currentQnIdentifier = null;
+	let currentQnIdentifier = null;
 
 	// Model definitions with ranking, subtitles, colors (for light theme), and tooltips
 	const models = [
@@ -512,7 +514,7 @@
 		const popup = document.createElement("div");
 		popup.id = "ai-answer-popup";
 
-		 // Apply theme class based on config
+		// Apply theme class based on config
 		if (config.theme === "dark") {
 			popup.classList.add("dark");
 		}
@@ -687,7 +689,7 @@
 
 		document.body.appendChild(popup);
 
-		
+
 		// --- Events ---
 
 		// Attach keyboard shortcut handler
@@ -728,9 +730,9 @@
 		if (config.theme === "light") return color; // No change for light theme
 
 		let n = parseInt(color.slice(1), 16),
-				r = n >> 16, g = n >> 8 & 255, b = n & 255,
-				d = x => (x * 0.3 | 0);  // 30% brightness
-		return "#" + ((1<<24)|(d(r)<<16)|(d(g)<<8)|d(b)).toString(16).slice(1);
+			r = n >> 16, g = n >> 8 & 255, b = n & 255,
+			d = x => (x * 0.3 | 0);  // 30% brightness
+		return "#" + ((1 << 24) | (d(r) << 16) | (d(g) << 8) | d(b)).toString(16).slice(1);
 	}
 
 	function toggleCustomPrompt() {
@@ -748,7 +750,7 @@
 	function toggleTheme() {
 		const popup = document.getElementById("ai-answer-popup");
 		const themeToggle = document.getElementById("ai-theme-toggle");
-		
+
 		if (config.theme === "light") {
 			config.theme = "dark";
 			popup.classList.add("dark");
@@ -760,7 +762,7 @@
 			themeToggle.textContent = "🌙";
 			themeToggle.title = "Switch to dark theme";
 		}
-		
+
 		// Save the theme preference
 		GM_setValue("theme", config.theme);
 
@@ -921,17 +923,56 @@
 		return hashCode(currentWebsite?.getQuestionIdentifier(element) || element.textContent);
 	}
 
-	function getQuestionText(element) {
+	function getQuestionItem(element) {
 		if (!element) return "No question found";
 
-		// If currentWebsite has a custom getQuestionText function, use it
-		if (currentWebsite && typeof currentWebsite.getQuestionText === "function") {
-			return currentWebsite.getQuestionText(element);
+		// If currentWebsite has a custom getQuestionItem function, use it
+		if (currentWebsite && typeof currentWebsite.getQuestionItem === "function") {
+			return currentWebsite.getQuestionItem(element);
 		}
 
 		// Extract HTML content only if its length is reasonable
 		if (element.innerHTML.length < 15000) return element.innerHTML;
 		return element.textContent;
+	}
+
+	// Helper function to build content parts for API, handling <img> tags as inline_data, else just text
+	async function buildContentParts(questionItem) {
+		let contentParts = [];
+		let html = questionItem;
+		let lastIndex = 0;
+		const imgRegex = /<img\s+[^>]*src=["']([^"']+)["'][^>]*>/gi;
+		
+		let match;
+		while ((match = imgRegex.exec(html)) !== null) {
+			// Text before <img>
+			if (match.index > lastIndex) {
+				const before = html.slice(lastIndex, match.index);
+				if (before.trim()) contentParts.push({ text: before });
+			}
+			const src = match[1];
+			if (src.startsWith('data:')) {
+				const [mime, data] = src.split(',');
+				contentParts.push({ inline_data: { mime_type: mime.split(':')[1].split(';')[0], data } });
+			} else {
+				try {
+					const blob = await GM_fetch(src).then(r => r.blob());
+					const b64 = await blob.arrayBuffer().then(buf => btoa(String.fromCharCode(...new Uint8Array(buf))));
+					const mime = blob.type || 'image/*';
+					contentParts.push({ inline_data: { mime_type: mime, data: b64 } });
+				} catch {
+					contentParts.push({ text: `[Image at ${src} could not be loaded]` });
+				}
+			}
+			lastIndex = imgRegex.lastIndex;
+		}
+		// Remaining text after last <img>
+		if (lastIndex < html.length) {
+			const after = html.slice(lastIndex);
+			if (after.trim()) contentParts.push({ text: after });
+		}
+		if (!contentParts.length) contentParts = [{ text: questionItem }];
+		return contentParts;
 	}
 
 	let lastFocusedInput = null;
@@ -979,7 +1020,7 @@
 			return;
 		}
 		let questionIdentifier = getQuestionIdentifier(qElm);
-		let questionText = getQuestionText(qElm);
+		let questionItem = getQuestionItem(qElm);
 		const cacheKey = `gemini-cache-${modelName}-${questionIdentifier}`;
 
 		// --- Prevent Re-clicking Same Question While Loading ---
@@ -1008,7 +1049,7 @@
 		// --- Add Custom Prompt ---
 		const customPromptArea = document.getElementById("ai-custom-prompt");
 		if (customPromptArea && customPromptArea.value.trim()) {
-			questionText += `\n\n\nuser-prompt:[${customPromptArea.value.trim()}]`;
+			questionItem += `\n\n\nuser-prompt:[${customPromptArea.value.trim()}]`;
 		}
 
 		// --- API Key Check ---
@@ -1030,6 +1071,9 @@
 		outputTextArea.value = `Generating response with ${modelName}...`;
 		const startTime = Date.now();
 
+		// Build content: handle <img> tags as inline_data, else just text
+		const contentParts = await buildContentParts(questionItem);
+
 		try {
 			const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
 				method: "POST",
@@ -1037,11 +1081,10 @@
 				body: JSON.stringify({
 					"system_instruction": {
 						"parts": {
-							"text":
-								"Answer the question inside this html smartly and concisely. Provide your reasoning and if there are multiple choice options, end with saying the answer number and the answer. If coding question, make sure to provide the fully working code that is error free smartly. Dont use markdown, but format the text neatly keeping in mind that the response will be displayed in a textarea. If question is unclear or requires context from image or other parts of the page, ask for clarification or else provide the right answer to the best of your ability.",
+							"text": "Answer the question inside this html smartly and concisely. Provide your reasoning and if there are multiple choice options, end with saying the answer number and the answer. If coding question, make sure to provide the fully working code that is error free smartly. Dont use markdown, but format the text neatly keeping in mind that the response will be displayed in a textarea. If question is unclear or requires context from image or other parts of the page, ask for clarification or else provide the right answer to the best of your ability.",
 						},
 					},
-					"contents": [{ "parts": [{ "text": questionText }] }],
+					"contents": [{ "parts": contentParts }],
 				}),
 			});
 
@@ -1185,7 +1228,7 @@
 				button.classList.remove('loading', 'success', 'error');
 				button.disabled = false;
 				break;
-			default:break;
+			default: break;
 		}
 	}
 
