@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.10.0
+// @version      3.11.0
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
@@ -130,34 +130,36 @@
 			tooltip: "Latest experimental Gemini 2.5 Pro model with 1M token context window. Best for complex reasoning and detailed responses.",
 		},
 		{
-			name: "gemini-2.0-flash-thinking-exp-01-21",
+			name: "gemini-2.5-flash-preview-04-17-thinking",
 			displayName: "Flash-Thinking",
 			subtitle: "Best Quality | 10 RPM | Recommended for Complex Questions",
 			rank: 2,
 			color: "#E1BEE7", // Faded Lavender
 			tooltip: "Highest quality model, may be slower and has an API quota of 10 requests per minute. Use sparingly.",
 		},
+		// This model now points to the pro-thinking api and is redundant
+		// {
+		// 	name: "gemini-2.0-pro-exp-02-05",
+		// 	displayName: "Pro",
+		// 	subtitle: "Good Quality | 2 RPM | Recommended for knowledge-based Questions",
+		// 	rank: 3,
+		// 	color: "#B2DFDB", // Faded Mint
+		// 	tooltip: "High quality model, good balance of quality and speed. Has an API quota of 2 requests per minute. Moderate usage recommended.",
+		// },
 		{
-			name: "gemini-2.0-pro-exp-02-05",
-			displayName: "Pro",
-			subtitle: "Good Quality | 2 RPM | Recommended for knowledge-based Questions",
-			rank: 3,
-			color: "#B2DFDB", // Faded Mint
-			tooltip: "High quality model, good balance of quality and speed. Has an API quota of 2 requests per minute. Moderate usage recommended.",
-		},
-		{
-			name: "gemini-2.0-flash",
+			name: "gemini-2.5-flash-preview-05-20",
 			displayName: "Flash",
 			subtitle: "Fast Response | 15 RPM | Recommended for General Questions",
-			rank: 4,
+			rank: 3,
 			color: "#FCDF80", // Faded Yellow
 			tooltip: "Faster model, good for quick answers, quality may be slightly lower. Has an API quota of 15 requests per minute.",
+			generationConfig: { thinkingConfig: { thinkingBudget: 0 } }
 		},
 		{
 			name: "gemini-2.0-flash-lite-preview-02-05",
 			displayName: "Flash Lite",
 			subtitle: "Fastest & Cheapest | 30 RPM | Recommended only for very simple questions",
-			rank: 5,
+			rank: 4,
 			color: "#F0F4C3", // Faded Lime
 			tooltip: "Fastest and most cost-effective model, lowest quality, use for simpler questions. Has an API quota of 30 requests per minute.",
 		},
@@ -951,7 +953,7 @@
 		let html = questionItem;
 		let lastIndex = 0;
 		const imgRegex = /<img\s+[^>]*src=["']([^"']+)["'][^>]*>/gi;
-		
+
 		let match;
 		while ((match = imgRegex.exec(html)) !== null) {
 			// Text before <img>
@@ -1031,7 +1033,7 @@
 			}
 			if (!focusedEl) return;
 			cleanup();
-			
+
 			// Try setting value directly if possible
 			if ("value" in focusedEl) {
 				focusedEl.value += text;
@@ -1056,6 +1058,7 @@
 	async function handleGenerateClick(event, forceRetry = false) {
 		const button = event.currentTarget;
 		const modelName = button.getAttribute("data-model");
+		const model = models.find(m => m.name === modelName);
 		const caption = document.getElementById("ai-caption");
 
 		// --- Get Question Info ---
@@ -1132,6 +1135,7 @@
 						},
 					},
 					"contents": [{ "parts": contentParts }],
+					generationConfig: model?.generationConfig || {},
 				}),
 			});
 
