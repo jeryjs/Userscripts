@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.9.1
+// @version      3.10.0
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
@@ -701,6 +701,15 @@
 			}
 		});
 
+		// Change insert button text based on selection state
+		outputTextArea.onselectionchange = function (_) {
+			if (outputTextArea.selectionStart !== outputTextArea.selectionEnd) {
+				insertButton.textContent = "Insert Selection";
+			} else {
+				insertButton.textContent = "Insert";
+			}
+		};
+
 		// Poll for question changes every 200ms to update UI state
 		setInterval(() => {
 			if (config.popupVisible) {
@@ -986,24 +995,62 @@
 		}
 	});
 
-	function handleInsertClick() {
-		if (!lastFocusedInput) {
-			alert("No input field selected to insert the response. Please click on a text field first.");
-			return;
+	async function handleInsertClick(e) {
+		const btn = e.currentTarget;
+		const originalBtn = btn.innerHTML;
+		const text = outputTextArea.value.substring(outputTextArea.selectionStart, outputTextArea.selectionEnd) || outputTextArea.value;
+
+		// Add a global style to force crosshair cursor everywhere
+		const cursorStyleId = "ai-insert-crosshair-style";
+		let cursorStyle = document.getElementById(cursorStyleId);
+		if (!cursorStyle) {
+			cursorStyle = document.createElement("style");
+			cursorStyle.id = cursorStyleId;
+			cursorStyle.textContent = `* { cursor: crosshair !important; }`;
+			document.head.appendChild(cursorStyle);
 		}
 
-		const selectedText = outputTextArea.value.substring(outputTextArea.selectionStart, outputTextArea.selectionEnd);
-		const textToInsert = selectedText || outputTextArea.value;
+		btn.innerHTML = "Click a field to insert.";
 
-		if (lastFocusedInput) {
-			const start = lastFocusedInput.selectionStart;
-			const end = lastFocusedInput.selectionEnd;
-			const currentValue = lastFocusedInput.value;
-
-			lastFocusedInput.value = currentValue.slice(0, start) + textToInsert + currentValue.slice(end);
-			lastFocusedInput.focus();
-			lastFocusedInput.setSelectionRange(start + textToInsert.length, start + textToInsert.length);
+		function cleanup() {
+			// Remove the global crosshair cursor style
+			if (cursorStyle && cursorStyle.parentNode) {
+				cursorStyle.parentNode.removeChild(cursorStyle);
+			}
+			document.removeEventListener("click", onClick, true);
+			btn.innerHTML = originalBtn; // Restore original button
 		}
+
+		async function onClick(ev) {
+			if (document.getElementById("ai-answer-popup")?.contains(ev.target)) return;
+
+			let focusedEl = document.activeElement;
+			if (focusedEl.id == "ai-insert-button") {
+				await new Promise(resolve => setTimeout(resolve, 500)); // Wait for any focus change
+				focusedEl = document.activeElement; // Re-check focused element
+			}
+			if (!focusedEl) return;
+			cleanup();
+			
+			// Try setting value directly if possible
+			if ("value" in focusedEl) {
+				focusedEl.value += text;
+				focusedEl.dispatchEvent(new Event('input', { bubbles: true })); // Trigger input event
+			}
+			// Otherwise, simulate key presses
+			else {
+				text.split('').forEach(async char => {
+					btn.innerHTML = `Typing: ${char}`;
+					focusedEl.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }));
+					focusedEl.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }));
+					focusedEl.dispatchEvent(new InputEvent('input', { data: char, inputType: 'insertText', bubbles: true }));
+					focusedEl.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }));
+					await new Promise(r => setTimeout(r, 15 + Math.random() * 40)); // Simulate typing delay
+				});
+			}
+		}
+
+		document.addEventListener("click", onClick, true);
 	}
 
 	async function handleGenerateClick(event, forceRetry = false) {
