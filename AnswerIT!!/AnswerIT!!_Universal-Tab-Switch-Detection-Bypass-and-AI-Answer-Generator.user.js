@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.9.0
+// @version      3.9.1
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
@@ -56,7 +56,7 @@
 			getQuestionItem: (element) => {
 				const questionTitle = element.querySelector('a[href*="/problems/"]').textContent;
 				const questionElement = element.querySelector('div[data-track-load="description_content"]').innerHTML;
-				const codeEditorElement = element.querySelector('.lines-content')?.innerHTML;
+				const codeEditorElement = element.querySelector('.lines-content')?.innerText;
 				return `Question Title: ${questionTitle}\n\nQuestion Element: ${questionElement}\n\nCurrent active Code Editor Element: ${codeEditorElement}`;
 			},
 		},
