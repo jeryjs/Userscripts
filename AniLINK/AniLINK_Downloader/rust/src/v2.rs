@@ -151,7 +151,7 @@ struct App {
 
 // --- Main Function ---
 #[tokio::main]
-async fn main() -> Result<()> {
+pub async fn run() -> Result<()> {
     // Attempt to load settings, use default if fails or not found
     let settings = Settings::load().unwrap_or_default();
 
