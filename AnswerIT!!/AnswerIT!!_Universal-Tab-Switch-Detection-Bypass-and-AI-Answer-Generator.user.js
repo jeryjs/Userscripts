@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.11.0
+// @version      3.12.0
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
 // @match        https://lms.talentely.com/test/*
 // @match        https://leetcode.com/problems/*
+// @match        https://www.linkedin.com/learning/*/*
 // @icon         https://i.pinimg.com/736x/d9/b5/a6/d9b5a64b2a0f432e41f611ddd410d8be.jpg
 // @license      MIT
 // @run-at       document-start
@@ -60,6 +61,13 @@
 				return `Question Title: ${questionTitle}\n\nQuestion Element: ${questionElement}\n\nCurrent active Code Editor Element: ${codeEditorElement}`;
 			},
 		},
+		{
+			name: "LinkedIn Learning",
+			urls: ["linkedin.com/learning"],
+			questionSelectors: [".ember-view.classroom-layout__media", "section.classroom-quiz__content"],
+			getQuestionIdentifier: (element) => (element.querySelector('.chapter-quiz-question__header') || element).textContent.slice(0, 100).trim(),
+			getQuestionItem: (element) => element.textContent.trim(),
+		}
 	];
 
 	// --- Universal Detection Bypass ---
@@ -1125,7 +1133,7 @@
 		const contentParts = await buildContentParts(questionItem);
 
 		try {
-			const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+			const response = await GM_fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
