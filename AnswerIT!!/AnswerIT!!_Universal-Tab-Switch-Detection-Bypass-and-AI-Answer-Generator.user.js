@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.13.0
+// @version      3.14.0
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
@@ -29,10 +29,9 @@
 	const config = {
 		hotkey: GM_getValue("hotkey", "a"), // Default hotkey is 'a' (used with Alt)
 		hotkeyModifier: "alt", // Currently only supports 'alt'
-		popupVisible: false,
-		aiEnabled: GM_getValue("aiEnabled", true),
+		popupState: { visible: false, snapped: 2, window: { x: 0, y: 0, w: 500, h: 800 } }, // Default popup state (not visible, snapped to right side)
 		theme: GM_getValue("theme", "light"), // Default theme is 'light'
-		autoRun: GM_getValue("autoRun", false),
+		autoRun: false, // Default auto-run to false to avoid wasting api calls
 	};
 
 	// --- Website Configurations ---
@@ -132,7 +131,7 @@
 	// Model definitions with ranking, subtitles, colors (for light theme), and tooltips
 	const models = [
 		{
-			name: "gemini-2.5-pro-exp-03-25",
+			name: "gemini-2.5-pro",
 			displayName: "Pro-Thinking",
 			subtitle: "Highest Quality | 5 RPM | Best for Complex Questions",
 			rank: 1,
@@ -140,12 +139,13 @@
 			tooltip: "Latest experimental Gemini 2.5 Pro model with 1M token context window. Best for complex reasoning and detailed responses.",
 		},
 		{
-			name: "gemini-2.5-flash-preview-04-17-thinking",
+			name: "gemini-2.5-flash-preview-05-20",
 			displayName: "Flash-Thinking",
 			subtitle: "Best Quality | 10 RPM | Recommended for Complex Questions",
 			rank: 2,
 			color: "#E1BEE7", // Faded Lavender
 			tooltip: "Highest quality model, may be slower and has an API quota of 10 requests per minute. Use sparingly.",
+			generationConfig: { thinkingConfig: { thinkingBudget: 8000 } }
 		},
 		// This model now points to the pro-thinking api and is redundant
 		// {
@@ -157,7 +157,7 @@
 		// 	tooltip: "High quality model, good balance of quality and speed. Has an API quota of 2 requests per minute. Moderate usage recommended.",
 		// },
 		{
-			name: "gemini-2.5-flash-preview-05-20",
+			name: "gemini-2.5-flash",
 			displayName: "Flash",
 			subtitle: "Fast Response | 15 RPM | Recommended for General Questions",
 			rank: 3,
@@ -166,7 +166,7 @@
 			generationConfig: { thinkingConfig: { thinkingBudget: 0 } }
 		},
 		{
-			name: "gemini-2.0-flash-lite-preview-02-05",
+			name: "gemini-2.5-flash-lite-preview-06-17",
 			displayName: "Flash Lite",
 			subtitle: "Fastest & Cheapest | 30 RPM | Recommended only for very simple questions",
 			rank: 4,
@@ -219,7 +219,6 @@
 			position: fixed;
 			top: 50%;
 			right: 0px;
-			transform: translateY(-50%);
 			width: 500px;
 			max-width: 90vw;
 			height: 100vh;
@@ -253,7 +252,12 @@
 			color: var(--color-text);
 		}
 
-		#ai-popup-close {
+		#ai-popup-controls {
+			display: flex;
+			align-items: center;
+		}
+
+		#ai-popup-controls > button {
 			background: none;
 			border: none;
 			cursor: pointer;
@@ -275,6 +279,13 @@
 			display: flex;
 			flex-direction: column;
 			gap: 10px;
+		}
+
+		#ai-models-grid {
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+			gap: 10px;
+			transition: all 0.3s ease;
 		}
 
 		.ai-model-button {
@@ -534,49 +545,44 @@
 		// Header section
 		const header = document.createElement("div");
 		header.id = "ai-popup-header";
+		header.ondblclick = toggleSnapping;
 
 		const title = document.createElement("h3");
 		title.id = "ai-popup-title";
 		title.textContent = "AnswerIT!!";
 
-		// Container for theme toggle, auto-run switch, and close buttons
+		// Container for buttons in the header
 		const controls = document.createElement("div");
 		controls.id = "ai-popup-controls";
 
-		// Theme toggle button
-		const themeToggle = document.createElement("button");
-		themeToggle.id = "ai-theme-toggle";
-		themeToggle.textContent = config.theme === "dark" ? "☀️" : "🌙";
-		themeToggle.title = config.theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
-		themeToggle.style.marginRight = "6px";
-		themeToggle.addEventListener("click", toggleTheme);
-
-		// Auto-run switch
-		const autoRunToggle = document.createElement("button");
-		autoRunToggle.id = "ai-auto-run-toggle";
-		autoRunToggle.textContent = config.autoRun ? "⏸️" : "▶️";
-		autoRunToggle.title = config.autoRun
-			? "Disable auto-run (AI will not auto-answer on question change)"
-			: "Enable auto-run (automatically generate an answer with the last used model when the question changes)";
-		autoRunToggle.style.marginRight = "6px";
-		autoRunToggle.addEventListener("click", () => {
-			config.autoRun = !config.autoRun;
-			GM_setValue("autoRun", config.autoRun);
-			autoRunToggle.textContent = config.autoRun ? "⏸️" : "▶️";
-			autoRunToggle.title = config.autoRun
-				? "Disable auto-run (AI will not auto-answer on question change)"
-				: "Enable auto-run (automatically generate an answer with the last used model when the question changes)";
-		});
-
-		// Close button
-		const closeButton = document.createElement("button");
-		closeButton.id = "ai-popup-close";
-		closeButton.textContent = "×";
-		closeButton.addEventListener("click", togglePopup);
-
-		controls.appendChild(themeToggle);
-		controls.appendChild(autoRunToggle);
-		controls.appendChild(closeButton);
+		// --- Header controls ---
+		const btn = (id, txt, title, onclick) => {
+			let b = document.createElement('button');
+			b.id = id;
+			b.textContent = txt;
+			b.title = title;
+			b.onclick = onclick;
+			return b;
+		};
+		controls.appendChild(btn(
+			'ai-theme-toggle',
+			config.theme === 'dark' ? '☀️' : '🌙',
+			config.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme',
+			toggleTheme
+		));
+		controls.appendChild(btn(
+			'ai-auto-run-toggle',
+			config.autoRun ? '⏸️' : '▶️',
+			config.autoRun ? 'Disable auto-run (AI will not auto-answer on question change)' : 'Enable auto-run (automatically generate an answer with the last used model when the question changes)',
+			toggleAutoRun
+		));
+		controls.appendChild(btn(
+			'ai-popup-detach',
+			config.popupState.snapped === 0 ? '🗖' : '🗗',
+			config.popupState.snapped === 0 ? 'Attach to side' : 'Detach (float & drag anywhere)',
+			toggleSnapping
+		));
+		controls.appendChild(btn('ai-popup-close', 'x', 'Close Popup', togglePopup));
 
 		header.appendChild(title);
 		header.appendChild(controls);
@@ -585,7 +591,9 @@
 		const content = document.createElement("div");
 		content.id = "ai-popup-content";
 
-		// Add model buttons
+		// Add model buttons in a two-column grid
+		const modelsGrid = document.createElement("div");
+		modelsGrid.id = "ai-models-grid";
 		models.forEach((model) => {
 			const button = document.createElement("button");
 			button.classList.add("ai-model-button");
@@ -651,8 +659,9 @@
 			button.appendChild(textContainer);
 			button.appendChild(statusContainer);
 
-			content.appendChild(button);
+			modelsGrid.appendChild(button);
 		});
+		content.appendChild(modelsGrid);
 
 		// Custom prompt container
 		const customPromptContainer = document.createElement("div");
@@ -720,9 +729,76 @@
 
 		document.body.appendChild(popup);
 
+		// --- Detach/Attach, Drag, and Resize ---
+		function updatePopupPosition() {
+			const p = popup;
+			// Clamp the header to always stay within viewport
+			let s = config.popupState, w = s.window, minW = 300, minH = 400, headerH = 48;
+			header.style.cursor = s.snapped == 0 ? "move" : "default";
+			if (s.snapped === 0) {
+				// Convert percentage to pixels for x and y
+				let pxW = Math.max(minW, w.w), pxH = Math.max(minH, w.h);
+				let maxX = window.innerWidth - pxW, maxY = window.innerHeight - headerH;
+				let pxX = Math.max(0, Math.min((w.x || 0) * window.innerWidth / 100, maxX));
+				let pxY = Math.max(0, Math.min((w.y || 0) * window.innerHeight / 100, maxY));
+				w.x = (pxX / window.innerWidth) * 100;
+				w.y = (pxY / window.innerHeight) * 100;
+				w.w = pxW; w.h = pxH;
+				Object.assign(p.style, { left: w.x + '%', right: (window.innerWidth - pxW - pxX) + 'px', top: w.y + '%', width: pxW + 'px', height: pxH + 'px', maxHeight: '90vh', minWidth: minW + 'px', minHeight: minH + 'px', bottom: 'auto', resize: 'both' });
+			} else {
+				// Snap to left or right side
+				const snapRight = s.snapped === 2;
+				let pxW = Math.max(minW, w.w);
+				let leftPx = snapRight ? (window.innerWidth - pxW) : 0;
+				let rightPx = snapRight ? 0 : (window.innerWidth - pxW);
+				Object.assign(p.style, { top: '0%', left: leftPx + 'px', right: rightPx + 'px', bottom: 'auto', width: pxW + 'px', height: '100vh', maxHeight: '100vh', minWidth: '300px', resize: 'horizontal' });
+			}
+		}
+		updatePopupPosition();
+		popup.updatePopupPosition = updatePopupPosition; // Expose the function for external calls
+
+		// Drag logic (only when detached)
+		let dragX = 0, dragY = 0, dragging = false;
+		const popupTransition = 'left 0.25s ease-in, right 0.25s ease-in, top 0.25s ease-in, width 0.25s ease-in, height 0.25s ease-in, transform 0.25s ease-in';
+		header.addEventListener("mousedown", e => {
+			if (config.popupState.snapped !== 0) return;
+			dragging = true;
+			dragX = e.clientX - popup.offsetLeft;
+			dragY = e.clientY - popup.offsetTop;
+			document.body.style.userSelect = "none";
+			popup.style.transition = 'none';
+		});
+		document.addEventListener("mousemove", e => {
+			if (!dragging) return;
+			let pxX = Math.max(0, Math.min(e.clientX - dragX, window.innerWidth - popup.offsetWidth));
+			let pxY = Math.max(0, Math.min(e.clientY - dragY, window.innerHeight - 48));
+			config.popupState.window.x = (pxX / window.innerWidth) * 100;
+			config.popupState.window.y = (pxY / window.innerHeight) * 100;
+			updatePopupPosition();
+		});
+		document.addEventListener("mouseup", () => {
+			if (dragging) {
+				dragging = false;
+				document.body.style.userSelect = "";
+				popup.style.transition = popupTransition;
+				GM_setValue("popupState", config.popupState);
+			}
+		});
+
+		// Resize logic
+		popup.addEventListener("mousedown", e => { popup.style.transition = 'none'; }); // Disable transition during resize
+		popup.addEventListener("mouseup", () => {
+			console.log(config.popupState);
+			popup.style.transition = popupTransition; // Re-enable transition after resize
+			config.popupState.window.w = popup.offsetWidth;
+			config.popupState.window.h = popup.offsetHeight;
+			GM_setValue("popupState", config.popupState);
+		});
+
+		// Ensure popup stays attached to edge on window resize
+		window.addEventListener('resize', updatePopupPosition);
 
 		// --- Events ---
-
 		// Attach keyboard shortcut handler
 		document.addEventListener("keydown", function (event) {
 			// Check if Alt+[configured key] is pressed using event.code for better compatibility
@@ -743,7 +819,7 @@
 
 		// Poll for question changes every 200ms to update UI state
 		setInterval(() => {
-			if (config.popupVisible) {
+			if (config.popupState.visible) {
 				checkAndUpdateButtonStates();
 			}
 		}, 200);
@@ -759,10 +835,10 @@
 
 		if (isVisible) {
 			popup.classList.remove("visible");
-			config.popupVisible = false;
+			config.popupState.visible = false;
 		} else {
 			popup.classList.add("visible");
-			config.popupVisible = true;
+			config.popupState.visible = true;
 		}
 	}
 
@@ -813,6 +889,34 @@
 				modelButtons[index].style.backgroundColor = getThemedColor(model.color);
 			}
 		});
+	}
+
+	function toggleAutoRun(e) {
+		const autoRunToggle = e.currentTarget;
+		config.autoRun = !config.autoRun;
+		GM_setValue("autoRun", config.autoRun);
+		autoRunToggle.textContent = config.autoRun ? "⏸️" : "▶️";
+		autoRunToggle.title = config.autoRun
+			? "Disable auto-run (AI will not auto-answer on question change)"
+			: "Enable auto-run (automatically generate an answer with the last used model when the question changes)";
+	}
+
+	function toggleSnapping() {
+		const popup = document.getElementById("ai-answer-popup");
+		if (!popup) return;
+		const detachBtn = popup.querySelector("#ai-popup-detach");
+		if (config.popupState.snapped === 0) {
+			// Snap to whichever side is closer to the edge
+			const rect = popup.getBoundingClientRect();
+			const centerX = rect.left + rect.width / 2;
+			config.popupState.snapped = (centerX < window.innerWidth / 2) ? 1 : 2; // 1=left, 2=right
+		} else {
+			config.popupState.snapped = 0;
+		}
+		GM_setValue("popupState", config.popupState);
+		popup.updatePopupPosition();
+		detachBtn.title = config.popupState.snapped === 0 ? "Attach to side" : "Detach (float & drag anywhere)";
+		detachBtn.textContent = config.popupState.snapped === 0 ? "🗖" : "🗗";
 	}
 
 	let timerInterval = null;
@@ -1030,17 +1134,6 @@
 		if (!contentParts.length) contentParts = [{ text: questionItem }];
 		return contentParts;
 	}
-
-	let lastFocusedInput = null;
-
-	// Track the last focused input or textarea field
-	document.addEventListener("focusin", (event) => {
-		if (event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA") {
-			if (!document.getElementById("ai-answer-popup").contains(event.target)) {
-				lastFocusedInput = event.target;
-			}
-		}
-	});
 
 	async function handleInsertClick(e) {
 		const btn = e.currentTarget;
@@ -1338,22 +1431,25 @@
 	GM_registerMenuCommand("Change API Key", changeApiKey);
 	GM_registerMenuCommand("Clear Response Cache", clearCache);
 	GM_registerMenuCommand("Change Hotkey", changeHotkey);
+	GM_registerMenuCommand("Detach/Attach Popup", () => document.getElementById("ai-popup-detach").click());
 
 	// --- Initialization ---
 	function initialize() {
 		// Run detection bypass
 		setupDetectionBypass();
 
-		// Always disable auto-run on first load to avoid wasting api calls
-		config.autoRun = false;
-		lastUsedModel = models[3]; // Default to the Flash Lite model
+		// Restore popupState separately for better intellisense and config clarity.
+		config.popupState = { ...GM_getValue("popupState", config.popupState), visible: false };
+
+		// Default to the Flash Lite model
+		lastUsedModel = models[3];
 
 		// Detect current website
 		currentWebsite = detectCurrentWebsite();
 
 		// Only create popup on websites with questions when opened
 		document.addEventListener("DOMContentLoaded", function () {
-			if (config.aiEnabled && currentWebsite) {
+			if (currentWebsite) {
 				let attempts = 0;
 				const maxAttempts = 30;
 
