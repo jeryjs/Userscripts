@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.12.0
+// @version      3.13.0
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
@@ -32,6 +32,7 @@
 		popupVisible: false,
 		aiEnabled: GM_getValue("aiEnabled", true),
 		theme: GM_getValue("theme", "light"), // Default theme is 'light'
+		autoRun: GM_getValue("autoRun", false),
 	};
 
 	// --- Website Configurations ---
@@ -126,6 +127,7 @@
 	let outputTextArea;
 	let currentWebsite = null;
 	let currentQnIdentifier = null;
+	let lastUsedModel = null;
 
 	// Model definitions with ranking, subtitles, colors (for light theme), and tooltips
 	const models = [
@@ -537,7 +539,7 @@
 		title.id = "ai-popup-title";
 		title.textContent = "AnswerIT!!";
 
-		// Container for theme toggle and close buttons
+		// Container for theme toggle, auto-run switch, and close buttons
 		const controls = document.createElement("div");
 		controls.id = "ai-popup-controls";
 
@@ -549,12 +551,31 @@
 		themeToggle.style.marginRight = "6px";
 		themeToggle.addEventListener("click", toggleTheme);
 
+		// Auto-run switch
+		const autoRunToggle = document.createElement("button");
+		autoRunToggle.id = "ai-auto-run-toggle";
+		autoRunToggle.textContent = config.autoRun ? "⏸️" : "▶️";
+		autoRunToggle.title = config.autoRun
+			? "Disable auto-run (AI will not auto-answer on question change)"
+			: "Enable auto-run (automatically generate an answer with the last used model when the question changes)";
+		autoRunToggle.style.marginRight = "6px";
+		autoRunToggle.addEventListener("click", () => {
+			config.autoRun = !config.autoRun;
+			GM_setValue("autoRun", config.autoRun);
+			autoRunToggle.textContent = config.autoRun ? "⏸️" : "▶️";
+			autoRunToggle.title = config.autoRun
+				? "Disable auto-run (AI will not auto-answer on question change)"
+				: "Enable auto-run (automatically generate an answer with the last used model when the question changes)";
+		});
+
+		// Close button
 		const closeButton = document.createElement("button");
 		closeButton.id = "ai-popup-close";
 		closeButton.textContent = "×";
 		closeButton.addEventListener("click", togglePopup);
 
 		controls.appendChild(themeToggle);
+		controls.appendChild(autoRunToggle);
 		controls.appendChild(closeButton);
 
 		header.appendChild(title);
@@ -916,6 +937,10 @@
 		const newQnIdentifier = getQuestionIdentifier(currentQnElm);
 
 		if (newQnIdentifier !== currentQnIdentifier) {
+			// Update the tracker
+			currentQnIdentifier = newQnIdentifier;
+
+			// --- Update Button States ---
 			const modelButtons = document.querySelectorAll('#ai-answer-popup .ai-model-button');
 			modelButtons.forEach(button => {
 				const modelName = button.getAttribute('data-model');
@@ -934,7 +959,19 @@
 			const caption = document.getElementById("ai-caption");
 			caption.textContent = "Response metadata will appear here";
 
-			currentQnIdentifier = newQnIdentifier; // Update the tracker
+			// --- Auto-run logic ---
+			if (config.autoRun) {
+				setTimeout(() => {
+					// Only run if question is still the same after a short delay
+					const checkQnElm = getQuestionElement();
+					const checkQnId = checkQnElm ? getQuestionIdentifier(checkQnElm) : null;
+					if (checkQnId === newQnIdentifier) {
+						// Find the last used model button and simulate click
+						const btn = document.querySelector(`.ai-model-button[data-model="${lastUsedModel.name}"]`);
+						if (btn) handleGenerateClick({ currentTarget: btn }, false);
+					}
+				}, 700); // Short delay to ensure question is stable
+			}
 		}
 	}
 
@@ -1068,6 +1105,8 @@
 		const modelName = button.getAttribute("data-model");
 		const model = models.find(m => m.name === modelName);
 		const caption = document.getElementById("ai-caption");
+
+		lastUsedModel = model; // Track last used model for auto-run
 
 		// --- Get Question Info ---
 		const qElm = getQuestionElement();
@@ -1304,6 +1343,10 @@
 	function initialize() {
 		// Run detection bypass
 		setupDetectionBypass();
+
+		// Always disable auto-run on first load to avoid wasting api calls
+		config.autoRun = false;
+		lastUsedModel = models[3]; // Default to the Flash Lite model
 
 		// Detect current website
 		currentWebsite = detectCurrentWebsite();
