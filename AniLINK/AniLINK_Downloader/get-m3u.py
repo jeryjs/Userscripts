@@ -236,7 +236,7 @@ def download_stream(link_info, folder, progress_group, settings):
             duration = None
             start_time = time.time()
             while True:
-                line = process.stdout.readline()
+                line = process.stdout.readline() # type: ignore
                 if not line:
                     break
                 if 'Duration' in line:
