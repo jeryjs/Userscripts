@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.15.0
+// @version      3.16.0
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
@@ -29,7 +29,7 @@
 	const config = {
 		hotkey: GM_getValue("hotkey", "a"), // Default hotkey is 'a' (used with Alt)
 		hotkeyModifier: "alt", // Currently only supports 'alt'
-		popupState: { visible: false, snapped: 2, window: { x: 0, y: 0, w: 500, h: 800 } }, // Default popup state (not visible, snapped to right side)
+		popupState: { visible: false, snapped: 2, window: { x: 0, y: 0, w: 500, h: 800 }, opacity: 1 }, // Default popup state (not visible, snapped to right side)
 		theme: GM_getValue("theme", "light"), // Default theme is 'light'
 		autoRun: false, // Default auto-run to false to avoid wasting api calls
 	};
@@ -274,6 +274,32 @@
 			cursor: pointer;
 			font-size: 20px;
 			color: var(--color-text);
+		}
+
+		#ai-opacity-toggle {
+			transition: all 0.3s ease;
+			position: relative;
+			cursor: move;
+			width: 24px;
+			height: 24px;
+			border-radius: 12px;
+		}
+		#ai-opacity-toggle.slider {
+			height: 72px;
+			width: 24px;
+			background: var(--border-color);
+			font-size: 0;
+		}
+		#ai-opacity-toggle.slider::after {
+			content: '';
+			position: absolute;
+			width: 20px;
+			height: 20px;
+			background: var(--color-text);
+			border-radius: 50%;
+			left: 2px;
+			top: var(--thumb-top, 2px);
+			transition: top 0.2s ease;
 		}
 
 		#ai-caption {
@@ -553,6 +579,9 @@
 			popup.classList.add("dark");
 		}
 
+		// Apply saved opacity
+		popup.style.opacity = config.popupState.opacity;
+
 		// Header section
 		const header = document.createElement("div");
 		header.id = "ai-popup-header";
@@ -575,6 +604,12 @@
 			b.onclick = onclick;
 			return b;
 		};
+		controls.appendChild(btn(
+			'ai-opacity-toggle',
+			'◐',
+			'Adjust opacity',
+			toggleOpacity
+		));
 		controls.appendChild(btn(
 			'ai-theme-toggle',
 			config.theme === 'dark' ? '☀️' : '🌙',
@@ -870,6 +905,57 @@
 
 		if (textarea.classList.contains("visible")) {
 			textarea.focus();
+		}
+	}
+
+	function toggleOpacity() {
+		const popup = document.getElementById("ai-answer-popup");
+		const opacityBtn = document.getElementById("ai-opacity-toggle");
+
+		if (opacityBtn.classList.contains('slider')) {
+			// Close slider
+			opacityBtn.classList.remove('slider');
+			opacityBtn.textContent = '◐';
+			opacityBtn.onclick = toggleOpacity;
+			document.removeEventListener('click', closeOpacitySlider, true);
+		} else {
+			// Open slider
+			const currentOpacity = config.popupState.opacity || 1;
+			opacityBtn.classList.add('slider');
+			opacityBtn.textContent = '';
+			opacityBtn.style.setProperty('--thumb-pos', `${2 + (1 - currentOpacity) * 48 / 0.7}px`);
+			opacityBtn.style.setProperty('--thumb-top', `var(--thumb-pos)`);
+
+			// Add slider interaction
+			const handleSlider = (e) => {
+				e.stopPropagation();
+				const rect = opacityBtn.getBoundingClientRect();
+				const y = Math.max(2, Math.min(50, e.clientY - rect.top));
+				const opacity = 1 - ((y - 2) * 0.7 / 48);
+				config.popupState.opacity = Math.max(0.2, opacity);
+				popup.style.opacity = config.popupState.opacity;
+				opacityBtn.style.setProperty('--thumb-pos', `${y}px`);
+				GM_setValue("popupState", config.popupState);
+			};
+
+			opacityBtn.onmousedown = (e) => {
+				handleSlider(e);
+				document.onmousemove = handleSlider;
+				document.onmouseup = () => {
+					document.onmousemove = null;
+					document.onmouseup = null;
+				};
+			};
+
+			// Close on outside click
+			setTimeout(() => document.addEventListener('click', closeOpacitySlider, true), 10);
+		}
+
+		function closeOpacitySlider(e) {
+			if (!e.target.closest('#ai-opacity-toggle')) {
+				toggleOpacity();
+				document.removeEventListener('click', closeOpacitySlider, true);
+			}
 		}
 	}
 
@@ -1295,20 +1381,20 @@
 					url: `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?key=${apiKey}&alt=sse`,
 					headers: { "Content-Type": "application/json" },
 					data: JSON.stringify({
-							"system_instruction": {
-								"parts": {
-									"text": "You are an expert assistant helping with academic questions and coding problems. Analyze the provided content carefully and provide the most accurate answer.\nNote that the content can sometimes contain html that was directly extracted from the exam page so account that into consideration.\n\nContent Analysis:\n- If this is a multiple choice question, identify all options and select the correct one\n- If this is a coding question, provide complete, working, error-free code in the desired language\n- If this contains current code in the editor, build upon or fix that code as needed\n- If this is a theoretical or puzzle-like question, provide clear reasoning and explanation\n\nResponse Format:\n- For multiple choice: Provide reasoning, then clearly state \"Answer: [number] - [option text]\"\n- For coding: Provide the complete solution with brief explanation without any comments exactly in the format \"The Complete Code is:\n```[language]\n[Code]```\"\n- For other questions: Give concise but thorough explanations, then clearly state \"Short Answer: []\"\n- Format text clearly for textarea display (no markdown)\n- If the question is unclear or missing context, ask for specific clarification\n\nAlways prioritize accuracy over speed. Think through the problem step-by-step before providing your final answer."
-								},
+						"system_instruction": {
+							"parts": {
+								"text": "You are an expert assistant helping with academic questions and coding problems. Analyze the provided content carefully and provide the most accurate answer.\nNote that the content can sometimes contain html that was directly extracted from the exam page so account that into consideration.\n\nContent Analysis:\n- If this is a multiple choice question, identify all options and select the correct one\n- If this is a coding question, provide complete, working, error-free code in the desired language\n- If this contains current code in the editor, build upon or fix that code as needed\n- If this is a theoretical or puzzle-like question, provide clear reasoning and explanation\n\nResponse Format:\n- For multiple choice: Provide reasoning, then clearly state \"Answer: [number] - [option text]\"\n- For coding: Provide the complete solution with brief explanation without any comments exactly in the format \"The Complete Code is:\n```[language]\n[Code]```\"\n- For other questions: Give concise but thorough explanations, then clearly state \"Short Answer: []\"\n- Format text clearly for textarea display (no markdown)\n- If the question is unclear or missing context, ask for specific clarification\n\nAlways prioritize accuracy over speed. Think through the problem step-by-step before providing your final answer."
 							},
-							"contents": [{ "parts": contentParts }],
-							generationConfig: model?.generationConfig || {},
-						}),
+						},
+						"contents": [{ "parts": contentParts }],
+						generationConfig: model?.generationConfig || {},
+					}),
 					responseType: "stream",
 					onprogress: (response) => {
 						if (response.responseText) {
 							const lines = response.responseText.split('\n');
 							for (const line of lines) {
-								if (line.startsWith('data: ')) { 
+								if (line.startsWith('data: ')) {
 									try {
 										const data = JSON.parse(line.slice(6));
 										if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
