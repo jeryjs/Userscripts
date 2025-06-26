@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.14.2
+// @version      3.15.0
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
@@ -799,7 +799,6 @@
 		// Resize logic
 		popup.addEventListener("mousedown", e => { popup.style.transition = 'none'; }); // Disable transition during resize
 		popup.addEventListener("mouseup", () => {
-			console.log(config.popupState);
 			popup.style.transition = popupTransition; // Re-enable transition after resize
 			config.popupState.window.w = popup.offsetWidth;
 			config.popupState.window.h = popup.offsetHeight;
@@ -1244,7 +1243,7 @@
 		if (!forceRetry && modelCache[cacheKey]?.state === 'success') {
 			console.log(`[AnswerIT!!] Cache hit for ${modelName}.`);
 			outputTextArea.value = modelCache[cacheKey].answer;
-			caption.textContent = `Model: ${modelName} | Cached Response (original time: ${modelCache[cacheKey].time} ms)`;
+			caption.textContent = `Model: ${modelName} | Cached (original time: ${modelCache[cacheKey].time} ms)`;
 			stopTimer("Loaded from cache");
 			updateButtonState(button, modelCache[cacheKey].state, questionIdentifier); // Show success even for cache
 			return;
@@ -1286,62 +1285,83 @@
 		const contentParts = await buildContentParts(questionItem);
 
 		try {
-			const response = await GM_fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					"system_instruction": {
-						"parts": {
-							"text": "You are an expert assistant helping with academic questions and coding problems. Analyze the provided content carefully and provide the most accurate answer.\nNote that the content can sometimes contain html that was directly extracted from the exam page so account that into consideration.\n\nContent Analysis:\n- If this is a multiple choice question, identify all options and select the correct one\n- If this is a coding question, provide complete, working, error-free code in the desired language\n- If this contains current code in the editor, build upon or fix that code as needed\n- If this is a theoretical or puzzle-like question, provide clear reasoning and explanation\n\nResponse Format:\n- For multiple choice: Provide reasoning, then clearly state \"Answer: [number] - [option text]\"\n- For coding: Provide the complete solution with brief explanation without any comments exactly in the format \"The Complete Code is:\n```[language]\n[Code]```\"\n- For other questions: Give concise but thorough explanations, then clearly state \"Short Answer: []\"\n- Format text clearly for textarea display (no markdown)\n- If the question is unclear or missing context, ask for specific clarification\n\nAlways prioritize accuracy over speed. Think through the problem step-by-step before providing your final answer."
-						},
+			// Use GM.xmlHttpRequest for cross-origin streaming support
+			let answerText = "";
+			outputTextArea.value = "";
+
+			await new Promise((resolve, reject) => {
+				GM.xmlHttpRequest({
+					method: "POST",
+					url: `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?key=${apiKey}&alt=sse`,
+					headers: { "Content-Type": "application/json" },
+					data: JSON.stringify({
+							"system_instruction": {
+								"parts": {
+									"text": "You are an expert assistant helping with academic questions and coding problems. Analyze the provided content carefully and provide the most accurate answer.\nNote that the content can sometimes contain html that was directly extracted from the exam page so account that into consideration.\n\nContent Analysis:\n- If this is a multiple choice question, identify all options and select the correct one\n- If this is a coding question, provide complete, working, error-free code in the desired language\n- If this contains current code in the editor, build upon or fix that code as needed\n- If this is a theoretical or puzzle-like question, provide clear reasoning and explanation\n\nResponse Format:\n- For multiple choice: Provide reasoning, then clearly state \"Answer: [number] - [option text]\"\n- For coding: Provide the complete solution with brief explanation without any comments exactly in the format \"The Complete Code is:\n```[language]\n[Code]```\"\n- For other questions: Give concise but thorough explanations, then clearly state \"Short Answer: []\"\n- Format text clearly for textarea display (no markdown)\n- If the question is unclear or missing context, ask for specific clarification\n\nAlways prioritize accuracy over speed. Think through the problem step-by-step before providing your final answer."
+								},
+							},
+							"contents": [{ "parts": contentParts }],
+							generationConfig: model?.generationConfig || {},
+						}),
+					responseType: "stream",
+					onprogress: (response) => {
+						if (response.responseText) {
+							const lines = response.responseText.split('\n');
+							for (const line of lines) {
+								if (line.startsWith('data: ')) { 
+									try {
+										const data = JSON.parse(line.slice(6));
+										if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
+											const newText = data.candidates[0].content.parts[0].text;
+											answerText += newText;
+											if (lastUsedModel == model) {
+												outputTextArea.value = answerText;
+												outputTextArea.scrollTop = outputTextArea.scrollHeight;
+											}
+										}
+									} catch (e) { /* Skip invalid JSON lines */ }
+								}
+							}
+						}
 					},
-					"contents": [{ "parts": contentParts }],
-					generationConfig: model?.generationConfig || {},
-				}),
-			});
+					onload: (response) => {
+						const timeTaken = Date.now() - startTime;
+						if (response.status === 200 && answerText) {
+							modelCache[cacheKey] = { answer: answerText, time: timeTaken, state: 'success' };
+							caption.textContent = `Model: ${modelName} | Streamed (${timeTaken} ms)`;
+							updateButtonState(button, 'success', questionIdentifier);
+							stopTimer("Response received");
+						} else {
+							const warnText = `No content received from ${modelName}: Check console for details.`;
+							outputTextArea.value = warnText;
+							modelCache[cacheKey] = { answer: warnText, time: 0, state: 'error' };
+							updateButtonState(button, 'error');
+							stopTimer("No content received");
+						}
+						resolve();
+					},
+					onerror: (response) => {
+						let errorText = `API error for ${modelName}: ${response.status} ${response.statusText}\n\n`;
+						let stopStatus = "API Error";
+						try {
+							const errorBody = JSON.parse(response.responseText);
+							errorText += ` - ${errorBody?.error?.message || JSON.stringify(errorBody)}`;
+							if (response.status === 400 && errorBody?.error?.message.includes("API key not valid")) {
+								GM_deleteValue("geminiApiKey");
+								apiKey = "";
+								errorText = `API Key Error (400): Key rejected. Your stored API key has been cleared. Please provide a valid API key.`;
+								stopStatus = "Invalid API Key";
+							}
+						} catch (e) { /* Ignore JSON parsing error */ }
 
-			const timeTaken = Date.now() - startTime;
-
-			if (!response.ok) {
-				let errorText = `API error for ${modelName}: ${response.status} ${response.statusText}\n\n`;
-				let stopStatus = "API Error";
-				try {
-					const errorBody = await response.json();
-					errorText += ` - ${errorBody?.error?.message || JSON.stringify(errorBody)}`;
-					if (response.status === 429) {
-						errorText = `Too many requests. You may have spammed the same model past its Quota. Please wait 60 seconds or try another model.`;
-						stopStatus = "Rate limited";
-					} else if (response.status === 400 && errorBody?.error?.message.includes("API key not valid")) {
-						GM_deleteValue("geminiApiKey"); // Use deleteValue for clarity
-						apiKey = ""; // Clear runtime key
-						errorText = `API Key Error (400): Key rejected. Your stored API key has been cleared. Please provide a valid API key.`;
-						stopStatus = "Invalid API Key";
+						console.error(errorText);
+						outputTextArea.value = errorText;
+						stopTimer(stopStatus);
+						updateButtonState(button, 'error');
+						reject(new Error(errorText));
 					}
-				} catch (e) { /* Ignore JSON parsing error if body is not JSON */ }
-
-				console.error(errorText);
-				outputTextArea.value = errorText;
-				stopTimer(stopStatus);
-				updateButtonState(button, 'error');
-				return;
-			}
-
-			const data = await response.json();
-			if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
-				const answerText = data.candidates[0].content.parts[0].text;
-				modelCache[cacheKey] = { answer: answerText, time: timeTaken, state: 'success' }; // Update cache
-				outputTextArea.value = answerText;
-				caption.textContent = `Model: ${modelName} | Response (${timeTaken} ms)`;
-				updateButtonState(button, 'success', questionIdentifier);
-				stopTimer("Response received");
-			} else {
-				const warnText = `Unexpected API response format for ${modelName}: Check console for details.`;
-				console.warn(warnText, data);
-				outputTextArea.value = warnText;
-				modelCache[cacheKey] = { answer: warnText, time: 0, state: 'error' };
-				updateButtonState(button, 'error');
-				stopTimer("Unexpected response");
-			}
+				});
+			});
 		} catch (error) {
 			const errorMsg = `Network/Fetch Error for ${modelName}: ${error.message}`;
 			console.error(errorMsg, error);
