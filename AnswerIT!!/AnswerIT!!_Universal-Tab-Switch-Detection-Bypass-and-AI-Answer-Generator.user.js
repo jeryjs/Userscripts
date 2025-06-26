@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.14.1
+// @version      3.14.2
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
-// @match        https://lms.talentely.com/test/*
+// @match        https://lms.talentely.com/*/*
 // @match        https://leetcode.com/problems/*
 // @match        https://www.linkedin.com/learning/*/*
 // @icon         https://i.pinimg.com/736x/d9/b5/a6/d9b5a64b2a0f432e41f611ddd410d8be.jpg
@@ -45,9 +45,19 @@
 		},
 		{
 			name: "Talentely",
-			urls: ["lms.talentely.com/test"],
+			urls: ["lms.talentely.com"],
 			questionSelectors: ["#question", ".question-text", () => document.querySelector(".test-question")],
-			getQuestionIdentifier: (element) => element.textContent
+			getQuestionIdentifier: (element) => element.querySelector("p").parentElement.nextElementSibling.textContent,
+			getQuestionItem: (e) => {
+				const isCodingQn = !!e.querySelector('.ace_content');
+				if (isCodingQn) {
+					const questionHtml = e.querySelector("p").parentElement.nextElementSibling.nextElementSibling.innerHTML;
+					const currentCode = e.querySelector('#editor .ace_content').innerText;
+					const codeLanguage = e.querySelector("input#programming-language-selector").value;
+					return `Question HTML: ${questionHtml}\n\nCurrent active Code Editor Content: \`\`\`${codeLanguage}\n${currentCode}\`\`\``;
+				}
+				return e.innerHTML;
+			}
 		},
 		{
 			name: "Leetcode",
@@ -1173,8 +1183,16 @@
 			if (!focusedEl) return;
 			cleanup();
 
+			// Check if it's an ACE editor (like leetcode or talentely)
+			const aceContainer = focusedEl.closest('.ace_editor');
+			if (aceContainer && (window.ace || ace)) {
+				btn.innerHTML = `Inserting... This may take a few seconds.`;
+				let editor = (window.ace || ace).edit(aceContainer);
+				// workaround for some editors that block pasting
+				text.split('').forEach(char => editor.insert(char));
+			}
 			// Try setting value directly if possible
-			if ("value" in focusedEl) {
+			else if ("value" in focusedEl) {
 				focusedEl.value += text;
 				focusedEl.dispatchEvent(new Event('input', { bubbles: true })); // Trigger input event
 			}
@@ -1189,6 +1207,8 @@
 					await new Promise(r => setTimeout(r, 15 + Math.random() * 40)); // Simulate typing delay
 				});
 			}
+
+			cleanup();
 		}
 
 		document.addEventListener("click", onClick, true);
@@ -1272,7 +1292,7 @@
 				body: JSON.stringify({
 					"system_instruction": {
 						"parts": {
-							"text": "Answer the question inside this html smartly and concisely. Provide your reasoning and if there are multiple choice options, end with saying the answer number and the answer. If coding question, make sure to provide the fully working code that is error free smartly. Dont use markdown, but format the text neatly keeping in mind that the response will be displayed in a textarea. If question is unclear or requires context from image or other parts of the page, ask for clarification or else provide the right answer to the best of your ability.",
+							"text": "You are an expert assistant helping with academic questions and coding problems. Analyze the provided content carefully and provide the most accurate answer.\nNote that the content can sometimes contain html that was directly extracted from the exam page so account that into consideration.\n\nContent Analysis:\n- If this is a multiple choice question, identify all options and select the correct one\n- If this is a coding question, provide complete, working, error-free code in the desired language\n- If this contains current code in the editor, build upon or fix that code as needed\n- If this is a theoretical or puzzle-like question, provide clear reasoning and explanation\n\nResponse Format:\n- For multiple choice: Provide reasoning, then clearly state \"Answer: [number] - [option text]\"\n- For coding: Provide the complete solution with brief explanation without any comments exactly in the format \"The Complete Code is:\n```[language]\n[Code]```\"\n- For other questions: Give concise but thorough explanations, then clearly state \"Short Answer: []\"\n- Format text clearly for textarea display (no markdown)\n- If the question is unclear or missing context, ask for specific clarification\n\nAlways prioritize accuracy over speed. Think through the problem step-by-step before providing your final answer."
 						},
 					},
 					"contents": [{ "parts": contentParts }],
