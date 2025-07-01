@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.10.1
+// @version     6.10.2
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -136,7 +136,6 @@ const websites = [
             const throttleLimit = 12; // Number of episodes to extract in parallel
             const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
             const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
-            if (!epLinks) return; // User cancelled
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
                 const chunk = epLinks.slice(i, i + throttleLimit);
                 const episodePromises = chunk.map(async epLink => {
@@ -171,7 +170,6 @@ const websites = [
             status.textContent = 'Getting list of episodes...';
             const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
             const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
-            if (!epLinks) return; // User cancelled
 
             const throttleLimit = 6;    // Number of episodes to extract in parallel
 
@@ -244,7 +242,6 @@ const websites = [
             status.textContent = 'Starting...';
             const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
             const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
-            if (!epLinks) return; // User cancelled
             const throttleLimit = 36;  // Setting high throttle limit actually improves performance
 
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
@@ -293,7 +290,6 @@ const websites = [
             status.textContent = 'Starting...';
             const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
             const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
-            if (!epLinks) return; // User cancelled
             const throttleLimit = 12;
 
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
@@ -334,7 +330,6 @@ const websites = [
             status.textContent = 'Starting...';
             const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
             const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
-            if (!epLinks) return; // User cancelled
             const throttleLimit = 12;    // Number of episodes to extract in parallel
 
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
@@ -375,7 +370,6 @@ const websites = [
             status.textContent = 'Starting...';
             const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
             const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
-            if (!epLinks) return; // User cancelled
             const throttleLimit = 12; // Number of episodes to extract in parallel
 
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
@@ -415,7 +409,7 @@ const websites = [
             status.textContent = 'Fetching Episodes List...';
             const mangaId = (window.location.pathname.match(/-(\d+)(?:\/|$)/) || [])[1] || document.querySelector('[data-manga-id]')?.getAttribute('data-manga-id');
             if (!mangaId) return showToast('Could not determine manga_id for episode list.');
-            const nav = document.querySelectorAll('#nav_list_chapter_id_detail li').map(e => e.querySelector('i.icon').parentElement.parentElement)
+            const nav = [...document.querySelectorAll('#nav_list_chapter_id_detail li > :not(a.next)')];
             const maxPage = Math.max(1, ...Array.from(nav).map(a => +(a.getAttribute('onclick')?.match(/load_list_chapter\((\d+)\)/)?.[1] || 0)).filter(Boolean));
             // Parse all episode links from all pages in parallel
             status.textContent = `Loading all ${maxPage} episode pages...`;
@@ -431,7 +425,6 @@ const websites = [
             // Remove duplicates
             allEpLinks = allEpLinks.filter((el, idx, self) => self.findIndex(e => e.href === el.href && e.textContent.trim() === el.textContent.trim()) === idx);
             const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
-            if (!epLinks) return; // User cancelled
             const throttleLimit = 12;
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
                 const chunk = epLinks.slice(i, i + throttleLimit);
