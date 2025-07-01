@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.9.1
+// @version     6.10.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -33,6 +33,7 @@
 // @match       https://*.miruro.online/watch?id=*
 // @match       https://anizone.to/anime/*
 // @match       https://anixl.to/title/*
+// @match       https://sudatchi.com/watch/*/*
 // @match       https://animekai.to/watch/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
@@ -579,25 +580,41 @@ const websites = [
     {
         name: 'AniXL',
         url: ['anixl.to/'],
-        animeTitle: document.querySelector('a.link[href^="/title/"]').textContent,
-        epLinks: [...document.querySelectorAll('div[q\\:key^="F0_"] a')].map(e=>e.href),
+        animeTitle: () => document.querySelector('a.link[href^="/title/"]').textContent,
+        epLinks: () => [...document.querySelectorAll('div[q\\:key^="F0_"] a')].map(e=>e.href),
         addStartButton: () => document.querySelector('div.join')?.prepend( Object.assign(document.createElement('button'), {id: "AniLINK_startBtn", className: "btn btn-xs", textContent: "Generate Download Links"}) ),
         extractEpisodes: async function* (status) {
             status.textContent = "Starting...";
-            const epLinks = await applyEpisodeRangeFilter(this.epLinks, status);
+            const epLinks = await applyEpisodeRangeFilter(this.epLinks(), status);
             const throttleLimit = 12; // Limit concurrent requests
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
                 const chunk = epLinks.slice(i, i + throttleLimit);
                 const episodePromises = chunk.map(async epLink => {
-                    return await fetchPage(epLink).then(page => { try {
+                    return await fetchPage(epLink).then(page => {
                         const [, epNum, epTitle] = page.querySelector('a[q\\:id="1s"]').textContent.match(/Ep (\d+) : (.*)/d)
                         status.textContent = `Extracting ${epNum} - ${epTitle}...`;
                         const links = page.querySelector('script[type="qwik/json"]').textContent.match(/"[ds]ub","https:\/\/[^"]+\/media\/[^"]+\/[^"]+\.m3u8"/g)?.map(s => s.split(',').map(JSON.parse)).reduce((acc, [type, url]) => ({ ...acc, [type]: { stream: url, type: 'm3u8', tracks: [] } }), {});
-                        return new Episode(epNum, this.animeTitle, links, null, epTitle);
-                    } catch (e) { showToast(e); return null; } });
+                        return new Episode(epNum, this.animeTitle(), links, null, epTitle);
+                    }).catch(e => { showToast(e); return null; });
                 });
                 yield* yieldEpisodesFromPromises(episodePromises);
             }
+        }
+    },
+    {
+        name: 'Sudatchi',
+        url: ['sudatchi.com/'],
+        epLinks: () => [...document.querySelectorAll('.text-sm.rounded-lg')].map(e => `${location.href}/../${e.textContent}`),
+        extractEpisodes: async function* (status) {
+            status.textContent = "Starting...";
+            for (let i = 0, l = await applyEpisodeRangeFilter(this.epLinks(), status); i < l.length; i += 6)
+                yield* yieldEpisodesFromPromises(l.slice(i, i + 6).map(async link =>
+                    await fetchPage(link).then(p => {
+                        const tracks = JSON.parse([...p.scripts].flatMap(s => s.textContent.match(/\[{.*"}/)).filter(Boolean)[0].replaceAll('\\', '') + ']').map(i => ({ file: i.file.replace('/ipfs/', 'https://sudatchi.com/api/proxy/'), label: i.label, kind: i.kind }));
+                        const links = { 'Sudatchi': { stream: p.querySelector('meta[property="og:video"]').content.replace(/http.*:8888/, location.origin), type: 'm3u8', tracks } };
+                        return new Episode(link.split('/').pop(), p.querySelector('p').textContent, links, p.querySelector('video').poster);
+                    }).catch(e => { showToast(e); return null; })
+                ));
         }
     },
 
