@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.7.1
+// @version     6.8.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -31,6 +31,7 @@
 // @match       https://*.miruro.to/watch?id=*
 // @match       https://*.miruro.tv/watch?id=*
 // @match       https://*.miruro.online/watch?id=*
+// @match       https://anizone.to/anime/*
 // @match       https://animekai.to/watch/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
@@ -40,7 +41,17 @@
 // @grant       GM_getValue
 // ==/UserScript==
 
+/**
+ * Represents an anime episode with metadata and streaming links.
+ */
 class Episode {
+    /**
+     * @param {string} number - The episode number.
+     * @param {string} animeTitle - The title of the anime.
+     * @param {Object.<string, {stream: string, type: 'm3u8'|'mp4', tracks: Array<{file: string, kind: 'caption'|'audio', label: string}>}>} links - An object containing streaming links and tracks for each source.
+     * @param {string} thumbnail - The URL of the episode's thumbnail image.
+     * @param {string} [epTitle] - The title of the episode (optional).
+     */
     constructor(number, animeTitle, links, thumbnail, epTitle) {
         this.number = number;   // The episode number
         this.animeTitle = animeTitle;     // The title of the anime.
@@ -521,6 +532,49 @@ const websites = [
             return sourceNames[source] || source.charAt(0).toUpperCase() + source.slice(1);
         },
     },
+    {
+        name: 'AniZone',
+        url: ['anizone.to/'],
+        animeTitle: 'nav > span',
+        epTitle: 'div.space-y-2 > div.text-center',
+        epNumber: 'a[x-ref="activeEps"] > div > div',
+        thumbnail: 'media-poster',
+        epLinks: () => [...new Set(Array.from(document.querySelectorAll('a[href^="https://anizone.to/anime/"]')).map(a => a.href))],
+        addStartButton: function () {
+            const target = document.querySelector('button > span.truncate')?.parentElement || document.querySelector('.grow + div select');
+            const button = Object.assign(document.createElement('button'), {
+                id: "AniLINK_startBtn",
+                className: target.className,
+                style: "display: flex; justify-content: center; align-items: center; width: 100%;",
+                innerHTML: `<svg xmlns="http://www.w3.org/2000/svg" style="margin-right: 4px;" height="1em" viewBox="3 3 18 18"><path fill="currentColor" d="M5 21q-.825 0-1.413-.588T3 19V5q0-.825.588-1.413T5 3h14q.825 0 1.413.588T21 5v14q0 .825-.588 1.413T19 21H5Zm0-2h14V5H5v14Zm3-4.5h2.5v-6H8v6Zm5.25 0h2.5v-6h-2.5v6Zm5.25 0h2.5v-6h-2.5v6Z"/></svg><span class="truncate">Extract Episode Links</span>`
+            });
+            target.parentElement.appendChild(button);
+            return button;
+        },
+        extractEpisodes: async function* (status) {
+            status.textContent = "Starting...";
+            const epLinks = await applyEpisodeRangeFilter(this.epLinks(), status);
+            const throttleLimit = 12; // Limit concurrent requests
+            for (let i = 0; i < epLinks.length; i += throttleLimit) {
+                const chunk = epLinks.slice(i, i + throttleLimit);
+                const episodePromises = chunk.map(async epLink => {
+                    try {
+                        const page = await fetchPage(epLink);
+                        const animeTitle = page.querySelector(this.animeTitle)?.textContent.trim();
+                        const epNum = page.querySelector(this.epNumber)?.textContent.trim();
+                        const epTitle = page.querySelector(this.epTitle)?.textContent.trim();
+                        const thumbnail = page.querySelector(this.thumbnail)?.src;
+
+                        status.textContent = `Extracting ${epNum} - ${epTitle}...`;
+                        const links = { [page.querySelector('button > span.truncate').textContent]: { stream: page.querySelector("media-player").getAttribute("src"), type: "m3u8", tracks: [...page.querySelectorAll("media-provider>track")].map(t => ({ file: t.src, kind: t.kind, label: t.label })) } };
+
+                        return new Episode(epNum, animeTitle, links, thumbnail, epTitle);
+                    } catch (e) { showToast(e); return null; }
+                });
+                yield* yieldEpisodesFromPromises(episodePromises);
+            }
+        }
+    },
 
     // AnimeKai is not fully implemented yet... its a work in progress...
     {
@@ -820,9 +874,9 @@ GM_registerMenuCommand('Extract Episodes', extractEpisodes);
 // attach start button to page
 try {
     const startBtnId = "AniLINK_startBtn";
-    (site.addStartButton(startBtnId) || document.getElementById(startBtnId)).addEventListener('click', extractEpisodes);
+    (site.addStartButton(startBtnId) || document.getElementById(startBtnId))?.addEventListener('click', extractEpisodes);
 } catch (e) {
-    console.error('Error adding start button:', e);
+    console.warn('Could not add start button to site. This might be due to the function not being implemented for this site.');
 }
 
 // append site specific css styles
