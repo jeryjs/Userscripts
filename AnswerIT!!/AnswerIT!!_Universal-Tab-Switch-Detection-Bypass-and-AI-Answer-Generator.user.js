@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.16.1
+// @version      3.16.2
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
@@ -133,7 +133,8 @@
 	// --- AI Answer Generator Feature ---
 	let apiKey;
 	const modelCache = {}; // In-memory cache for current session
-	let outputTextArea;
+	const popup = document.createElement("div");;
+	const outputTextArea = document.createElement("textarea");
 	let currentWebsite = null;
 	let currentQnIdentifier = null;
 	let lastUsedModel = null;
@@ -279,7 +280,7 @@
 		#ai-opacity-toggle {
 			transition: all 0.3s ease;
 			position: relative;
-			cursor: move;
+			cursor: grab;
 			width: 24px;
 			height: 24px;
 			border-radius: 12px;
@@ -571,7 +572,6 @@
 			return; // Popup already exists
 		}
 
-		const popup = document.createElement("div");
 		popup.id = "ai-answer-popup";
 
 		// Apply theme class based on config
@@ -739,7 +739,6 @@
 		insertButton.textContent = "Insert";
 		insertButton.addEventListener("click", handleInsertClick);
 
-		outputTextArea = document.createElement("textarea");
 		outputTextArea.id = "ai-output-textarea";
 		outputTextArea.placeholder = "AI Response will appear here...";
 		outputTextArea.readOnly = true;
@@ -931,7 +930,7 @@
 				e.stopPropagation();
 				const rect = opacityBtn.getBoundingClientRect();
 				const y = Math.max(2, Math.min(50, e.clientY - rect.top));
-				const opacity = 1 - ((y - 2) * 0.7 / 48);
+				const opacity = 1 - ((y - 2) * 0.95 / 48); // 0.95 = 1 - 0.05 (min 5%)
 				config.popupState.opacity = Math.max(0.05, opacity);
 				popup.style.opacity = config.popupState.opacity;
 				opacityBtn.style.setProperty('--thumb-pos', `${y}px`);
@@ -1497,6 +1496,13 @@
 		}
 	}
 
+	function resetPopupState() {
+		config.popupState = { visible: false, snapped: 2, window: { x: 0, y: 0, w: 500, h: 800 }, opacity: 1 };
+		GM_setValue("popupState", config.popupState);
+		popup.style.opacity = config.popupState.opacity;
+		popup.updatePopupPosition();
+	}
+
 	// Basic string hash function for cache keys
 	function hashCode(str) {
 		let hash = 0;
@@ -1558,7 +1564,7 @@
 	GM_registerMenuCommand("Change API Key", changeApiKey);
 	GM_registerMenuCommand("Clear Response Cache", clearCache);
 	GM_registerMenuCommand("Change Hotkey", changeHotkey);
-	GM_registerMenuCommand("Detach/Attach Popup", () => document.getElementById("ai-popup-detach").click());
+	GM_registerMenuCommand("Reset Popup State", resetPopupState);
 
 	// --- Initialization ---
 	function initialize() {
