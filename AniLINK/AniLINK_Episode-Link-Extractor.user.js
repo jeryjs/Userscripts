@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.9.0
+// @version     6.9.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -961,7 +961,10 @@ async function extractEpisodes() {
     const overlayDiv = document.createElement("div");
     overlayDiv.id = "AniLINK_Overlay";
     document.body.appendChild(overlayDiv);
-    overlayDiv.onclick = event => linksContainer.contains(event.target) ? null : overlayDiv.style.display = "none";
+    overlayDiv.onclick = e => !linksContainer.contains(e.target) &&
+        (document.querySelector('.anlink-status-bar')?.textContent.startsWith("Cancelled") 
+            ? overlayDiv.remove() 
+            : overlayDiv.style.display = "none");
 
     // Create a container for links
     const linksContainer = document.createElement('div');
