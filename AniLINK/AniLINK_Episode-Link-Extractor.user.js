@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.10.0
+// @version     6.10.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -28,6 +28,7 @@
 // @match       https://beta.otaku-streamers.com/title/*/*
 // @match       https://animeheaven.me/anime.php?*
 // @match       https://animez.org/*/*
+// @match       https://animeyy.com/*/*
 // @match       https://*.miruro.to/watch?id=*
 // @match       https://*.miruro.tv/watch?id=*
 // @match       https://*.miruro.online/watch?id=*
@@ -399,7 +400,7 @@ const websites = [
     },
     {
         name: 'AnimeZ',
-        url: ['animez.org'],
+        url: ['animez.org', 'animeyy.com'],
         epLinks: 'li.wp-manga-chapter a',
         epTitle: '#title-detail-manga',
         epNum: '.wp-manga-chapter.active',
