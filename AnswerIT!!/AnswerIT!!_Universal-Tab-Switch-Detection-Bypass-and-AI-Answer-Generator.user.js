@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.16.0
+// @version      3.16.1
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
@@ -932,7 +932,7 @@
 				const rect = opacityBtn.getBoundingClientRect();
 				const y = Math.max(2, Math.min(50, e.clientY - rect.top));
 				const opacity = 1 - ((y - 2) * 0.7 / 48);
-				config.popupState.opacity = Math.max(0.2, opacity);
+				config.popupState.opacity = Math.max(0.05, opacity);
 				popup.style.opacity = config.popupState.opacity;
 				opacityBtn.style.setProperty('--thumb-pos', `${y}px`);
 				GM_setValue("popupState", config.popupState);
