@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.16.2
+// @version      3.17.0
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match        https://app.joinsuperset.com/assessments/*
 // @match        https://lms.talentely.com/*/*
 // @match        https://leetcode.com/problems/*
 // @match        https://www.linkedin.com/learning/*/*
+// @match        https://www.hackerrank.com/*
 // @icon         https://i.pinimg.com/736x/d9/b5/a6/d9b5a64b2a0f432e41f611ddd410d8be.jpg
 // @license      MIT
 // @run-at       document-start
@@ -77,6 +78,21 @@
 			questionSelectors: [".ember-view.classroom-layout__media", "section.classroom-quiz__content"],
 			getQuestionIdentifier: (element) => (element.querySelector('.chapter-quiz-question__header') || element).textContent.slice(0, 100).trim(),
 			getQuestionItem: (element) => element.textContent.trim(),
+		},
+		{
+			name: "HackerRank",
+			urls: ["hackerrank.com"],
+			questionSelectors: ["#main-content.question-view", ".challenge-body", 'div[data-qaas-settings-overlay-container]'],
+			getQuestionIdentifier: (e) => (e.querySelector("h2") || e.querySelector("h1") || e.querySelector("p")).textContent.trim(),
+			getQuestionItem: (element) => {
+				if (element.querySelector(".coding-question")) {
+					const questionHtml = element.querySelector(".question-view__instruction").textContent.trim();
+					const currentCode = window.monaco?.editor?.getModels()?.[0]?.getValue();
+					const codeLanguage = window.monaco?.editor?.getModels()?.[0]?.getLanguageId();
+					return `Question HTML: ${questionHtml}\n\nCurrent active Code Editor Content: \`\`\`${codeLanguage}\n${currentCode}\`\`\``;
+				}
+				return element.textContent.trim();
+			},
 		}
 	];
 
