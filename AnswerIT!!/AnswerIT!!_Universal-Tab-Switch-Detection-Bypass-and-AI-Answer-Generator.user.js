@@ -1,9 +1,11 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.17.0
+// @version      3.18.0
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
+// @match		 https://jeryjs.github.io/Userscripts/AnswerIT!!/*
+// @match		 file:///y%3A/All-Projects/USERSCRIPTS/AnswerIT!!/*
 // @match        https://app.joinsuperset.com/assessments/*
 // @match        https://lms.talentely.com/*/*
 // @match        https://leetcode.com/problems/*
@@ -1064,19 +1066,41 @@
 	}
 
 	function getApiKey() {
-		const info = confirm(
-			"An API key is a secret token that lets our service access the AI API. Get one for FREE from https://aistudio.google.com/app/apikey.\n\nClick OK if you already have an API key.\nClick Cancel to open the key creation page."
+		const setupChoice = confirm(
+			"🎯 Welcome to AnswerIT!!\n\nTo get started, you need to configure your FREE Gemini API key.\n\nClick OK to open our modern setup page with easy instructions.\nClick Cancel to use the quick setup here."
 		);
-		if (!info) {
-			window.open("https://aistudio.google.com/app/apikey", "_blank");
+		
+		if (setupChoice) {
+			// Open the modern setup page
+			window.open("https://jeryjs.github.io/Userscripts/AnswerIT!!/configure.html", "_blank");
 			alert(
-				"Please go to the following site to generate your free key:\n https://aistudio.google.com/app/apikey \n\nAfter creating your API key, return here and click OK."
+				"🔧 Setup page opened in a new tab!\n\n" +
+				"1. Get your FREE API key from Google AI Studio\n" +
+				"2. Configure your preferences\n" +
+				"3. Return here and try again\n\n" +
+				"The setup page has detailed instructions and will save your settings automatically."
 			);
+			return null; // User should configure via setup page
+		} else {
+			// Fallback to quick setup
+			const info = confirm(
+				"Quick Setup: An API key is a secret token that lets our service access the AI API. Get one for FREE from https://aistudio.google.com/app/apikey.\n\nClick OK if you already have an API key.\nClick Cancel to open the key creation page."
+			);
+			if (!info) {
+				window.open("https://aistudio.google.com/app/apikey", "_blank");
+				alert(
+					"Please go to the following site to generate your free key:\n https://aistudio.google.com/app/apikey \n\nAfter creating your API key, return here and click OK."
+				);
+			}
+			const key = prompt(
+				"Please paste your Gemini API Key here.\n\nYour API key is a long alphanumeric string provided by Google. Make sure to copy it exactly."
+			);
+			if (key && key.trim()) {
+				GM_setValue("geminiApiKey", key.trim());
+				return key.trim();
+			}
+			return key;
 		}
-		const key = prompt(
-			"Please paste your Gemini API Key here.\n\nYour API key is a long alphanumeric string provided by Google. Make sure to copy it exactly."
-		);
-		return key;
 	}
 
 	function detectCurrentWebsite() {
@@ -1581,9 +1605,39 @@
 	GM_registerMenuCommand("Clear Response Cache", clearCache);
 	GM_registerMenuCommand("Change Hotkey", changeHotkey);
 	GM_registerMenuCommand("Reset Popup State", resetPopupState);
-
+	GM_registerMenuCommand("🪟 Open Setup Page", () => window.open("https://jeryjs.github.io/Userscripts/AnswerIT!!/configure.html", "_blank"));
+	
 	// --- Initialization ---
+	function exposeConfigToPage() {
+		console.log("[AnswerIT!!] Exposing configuration to integration page");
+		const obj = {
+			supportedSites: websites,
+			getConfig: function() {
+				return {
+					apiKey: GM_getValue("geminiApiKey", ""),
+					hotkey: GM_getValue("hotkey", "a"),
+					theme: GM_getValue("theme", "light"),
+					autoRun: GM_getValue("autoRun", false)
+				};
+			},
+			setConfig: function(newConfig) {
+				if (typeof newConfig !== "object") return;
+				if (typeof newConfig.apiKey === "string") GM_setValue("geminiApiKey", newConfig.apiKey);
+				if (typeof newConfig.hotkey === "string") GM_setValue("hotkey", newConfig.hotkey);
+				if (typeof newConfig.theme === "string") GM_setValue("theme", newConfig.theme);
+				if (typeof newConfig.autoRun !== "undefined") GM_setValue("autoRun", !!newConfig.autoRun);
+			}
+		};
+		window.AnswerIT_Config = obj;
+		unsafeWindow.AnswerIT_Config = obj; // For compatibility with unsafeWindow
+	}
+
 	function initialize() {
+		// Expose config for integration page
+		if (location.pathname.includes("/Userscripts/AnswerIT!!")) {
+			exposeConfigToPage();
+		}
+        
 		// Run detection bypass
 		setupDetectionBypass();
 

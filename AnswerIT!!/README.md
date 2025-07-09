@@ -1,96 +1,177 @@
 # AnswerIT!! - Universal Tab Switch Detection Bypass & AI Answer Generator
 
-This userscript enhances various platforms by disabling tab switch detection and providing an AI-powered answer generator. It allows users to navigate away from the assessment tab without triggering warnings and offers multiple AI models to assist in answering questions.
+This userscript enhances various learning platforms by disabling tab switch detection and providing an AI-powered answer generator. It allows users to navigate away from assessment tabs without triggering warnings and offers multiple AI models to assist in answering questions with a modern, intuitive interface.
 
-## Features
+## ✨ Features
 
-- **Tab Switch Detection Bypass**  
-  Overrides browser visibility APIs and blocks events (e.g., "blur", "visibilitychange") so you can navigate without triggering warnings.
+### 🚫 **Tab Switch Detection Bypass**  
+Overrides browser visibility APIs and blocks events (e.g., "blur", "visibilitychange") so you can navigate away from assessment tabs without triggering warnings or penalties.
 
-- **AI Answer Generator**  
-  - Offers multiple AI models (Pro-Thinking, Flash-Thinking, Pro, Flash, Flash Lite) with distinct quality and request/quota parameters.
-  - Generates answers in real-time while displaying response time.
-  - Caches answers to speed up repeated queries.
-  - Handles request failures gracefully—including custom messages for rate limiting (HTTP 429).
+### 🤖 **AI Answer Generator**  
+- **Multiple AI Models**: Choose from Pro-Thinking, Flash-Thinking, Pro, Flash, and Flash Lite models with distinct quality and performance characteristics
+- **Real-time Streaming**: Watch answers generate in real-time with live response time tracking
+- **Smart Caching**: Automatically caches answers to speed up repeated queries and reduce API usage
+- **Graceful Error Handling**: Handles request failures, rate limiting (HTTP 429), and network issues with helpful messages
+- **Auto-Run Mode**: Optionally generate answers automatically when questions change
 
-- **Custom Prompt Support**  
-  Allows users to add custom instructions for the AI in a subtle, expandable text box.
+### 🎛️ **Advanced Interface**
+- **Modern Popup UI**: Sleek, responsive interface with light/dark themes and opacity controls
+- **Flexible Positioning**: Snap to screen edges or float anywhere with drag-and-drop
+- **Smart Resizing**: Adjustable popup size with persistent state across sessions
+- **Custom Prompts**: Add personalized instructions for the AI in an expandable text area
+- **Direct Insertion**: Insert responses directly into input fields with intelligent detection
 
-- **Insert Response Feature**  
-  - Inserts the generated response directly into the last focused input field.
-  - Supports inserting selected text or the full response.
+### 🔧 **Easy Setup & Configuration**
+- **Modern Setup Page**: Beautiful, responsive configuration interface with step-by-step guidance
+- **Cross-Platform Compatibility**: Automatically detects Mac/Windows for correct keyboard shortcuts
+- **Visual API Testing**: Test your API key with instant validation and feedback
+- **Persistent Settings**: All preferences saved automatically across browser sessions
 
-- **User-Friendly Setup**  
-  Provides guided prompts for obtaining and entering your Google Gemini API key, ensuring even beginners know exactly what to do.
+## 🌐 Supported Platforms
 
-## How It Works
+AnswerIT!! works seamlessly with popular learning and assessment platforms. The configuration page displays all supported sites with their favicons for easy identification.
 
-1. **Bypass Mechanism**  
-   The script intercepts page events to keep the assessment running smoothly without triggering warnings even if you switch tabs or windows.
+## 📥 Installation
 
-2. **AI Answer Generation**  
-   - Click on one of the model buttons in the provided popup interface.
-   - Follow a two-step process if you haven’t provided an API key yet:
-     - First, read a brief explanation of what an API key is and obtain one from [Google's API key page](https://aistudio.google.com/app/apikey) if needed.
-     - Second, paste your API key into the prompt.
-   - Once configured, the script fetches the answer using the selected AI model and displays it along with the response time.
-   - If you exceed the quota or send too many requests (HTTP 429), the script tells you to wait 60 seconds or choose another model.
+### **Step 1: Install a Userscript Manager**
+Choose one of these popular userscript managers:
+- **[Violentmonkey](https://violentmonkey.github.io/get-it/)** (Recommended – Open source, Chrome, Firefox, Edge, Safari)
+- **[Tampermonkey](https://www.tampermonkey.net/)** (Popular alternative)
 
-3. **Custom Prompt and Insertion**  
-   - Add custom instructions for the AI using the expandable text box.
-   - Use the "Insert" button to insert the response into the last focused input field, avoiding detection of copy-pasting.
+### **Step 2: Install AnswerIT!!**
+Click the button below to install the script:
 
-## Installation
+[![Install AnswerIT!! Script](https://img.shields.io/badge/Install-Now-brightgreen?style=for-the-badge&logo=javascript)](https://github.com/jeryjs/Userscripts/raw/refs/heads/main/AnswerIT!!/AnswerIT!!_Universal-Tab-Switch-Detection-Bypass-and-AI-Answer-Generator.user.js)
 
-Make sure you have a userscript manager installed (such as [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/get-it/)). Then install the script via the link below:
+### **Step 3: Configure Your Settings**
+After installation, you'll be guided through the setup process to configure your API key and preferences.
 
-[![Install AnswerIT!! Script](https://img.shields.io/badge/Install-Now-brightgreen)](https://github.com/jeryjs/Userscripts/raw/refs/heads/main/AnswerIT!!/AnswerIT!!_Universal-Tab-Switch-Detection-Bypass-and-AI-Answer-Generator.user.js)
+## ⚙️ Configuration
 
-## Setup Instructions
+### **🔑 Getting Your Free API Key**
 
-1. **Install a Userscript Manager**  
-   Download and install [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/get-it/) for your browser.
+1. **Visit Google AI Studio**: Go to [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
+2. **Sign In**: Use your Google account (create one if needed)
+3. **Create API Key**: Click "Create API key in new project"
+4. **Copy Your Key**: Save the generated key (it's a long alphanumeric string starting with "AIza")
+5. **Enter in AnswerIT!!**: The script will prompt you for the key when first used to generate answers.
+    - You can also enter the key [here in the configuration page](https://jeryjs.github.io/Userscripts/AnswerIT!!/configure.html).
 
-2. **Install the Script**  
-   Click the installation link and confirm the installation in your userscript manager.
-    - [Install AnswerIT!! Script](https://github.com/jeryjs/Userscripts/raw/refs/heads/main/AnswerIT!!/AnswerIT!!_Universal-Tab-Switch-Detection-Bypass-and-AI-Answer-Generator.user.js)
+### **🎨 Setup Page**
+Access the modern configuration interface through:
+- **First-time setup**: Automatically prompted when API key is needed
+- **Menu command**: Right-click the Violentmonkey icon → AnswerIT!! → "🪟 Open Setup Page"
+- **Direct link**: [Configuration Page](https://jeryjs.github.io/Userscripts/AnswerIT!!/configure.html)
 
-3. **Configure Your API Key**
+The setup page includes:
+- **Step-by-step guidance** for getting your API key
+- **API key validation** with instant testing
+- **Preference configuration** (hotkeys, themes, auto-run)
+- **Platform overview** showing all supported sites
 
-    - To use the AI Answer Generator, you'll need a Google Gemini API key. Here’s how to get one:
+### **⌨️ Hotkeys & Controls**
+- **Default**: `Alt + A` (Windows/Linux) or `Cmd + A` (Mac) to toggle popup
+- **Customizable**: Change hotkey in preferences or via menu commands
+- **Mouse Controls**: Drag to reposition, resize from edges, right-click for options
 
-      - **Go to Google AI Studio:** Open your web browser and navigate to [Google AI Studio's API Key Page](https://aistudio.google.com/app/apikey).
+## 🚀 How It Works
 
-      - **Sign In/Sign Up:** If you have a Google account, sign in. If not, you'll need to create one.
+### **Detection Bypass**
+The script intercepts and neutralizes common tab-switching detection methods used by assessment platforms, allowing you to:
+- Switch between browser tabs safely
+- Use other applications without triggering warnings
+- Take breaks without losing progress
+- Research answers in separate tabs
 
-      - **Create a New API Key:** Once you're logged in, look for an option to "Create API key in new project". Click on it. If you've already created a project, you might see an option like "Get an API key".
+### **AI Integration**
+1. **Question Detection**: Automatically identifies questions on supported platforms
+2. **Content Analysis**: Processes text, images, and code from the question
+3. **Model Selection**: Choose the best AI model for your specific needs
+4. **Response Generation**: Streams answers in real-time with metadata
+5. **Smart Insertion**: Directly insert answers into form fields
 
-      - **Copy Your API Key:** After creating the key, it will be displayed on the screen. Copy this key to your clipboard. It’s a long string of alphanumeric characters.
+### **Answer Flow**
+```
+Question Detected → Model Selected → API Request → Streaming Response → Cache Storage → Direct Insertion
+```
 
-      - **Enter the API Key in the Script:** When you first use the AI Answer Generator, the script will prompt you to enter your API key. Paste the API key you copied from Google AI Studio into the prompt.
+## 🎯 Usage Guide
 
-    - **Important Notes:**
-      - Make sure you copy the API key exactly as it is provided. Even a small mistake can cause the script to fail.
-      - Keep your API key secure. Do not share it with others or include it in public code repositories.
+### **Basic Usage**
+1. **Navigate** to any supported assessment platform
+2. **Press** your configured hotkey (default: Alt+A) to open the popup
+3. **Select** an AI model based on your needs:
+   - **Flash Lite**: Fastest responses, basic accuracy
+   - **Flash**: Good balance of speed and quality
+   - **Pro**: Higher accuracy, more detailed responses
+   - **Thinking Models**: Advanced reasoning capabilities
+4. **Review** the generated answer
+5. **Insert** directly into the answer field using the Insert button
 
-4. **Usage**  
-   Navigate to any supported paltform's test page. The script automatically injects a popup interface where you can select an AI model, generate answers, and insert responses.
+### **Advanced Features**
+- **Custom Prompts**: Add specific instructions (e.g., "Explain in simple terms")
+- **Auto-Run**: Enable automatic answer generation when questions change
+- **Theme Control**: Switch between light and dark modes
+- **Opacity Adjustment**: Make popup semi-transparent to see content behind
+- **Caching**: Previously answered questions load instantly from cache
 
-## Troubleshooting
+## 🔧 Troubleshooting
 
-- **API Key Problems:**  
-  Make sure the API key is copied exactly. The script will prompt you until a valid key is provided.
+### **Common Issues**
 
-- **Too Many Requests (429 Error):**  
-  If you see an error indicating that you've exceeded the quota, wait 60 seconds or try a different AI model.
+**❌ API Key Problems**
+- Ensure the key is copied exactly (no extra spaces and match the case)
+- Verify the key is active at [Google AI Studio](https://aistudio.google.com/app/apikey)
+- Check that billing is enabled if you exceed free tier limits
 
-- **UI Not Appearing:**  
-  The interface attaches to the page after a short delay. If it doesn't appear, try refreshing the page.
+**❌ Too Many Requests (429 Error)**
+- Wait 60 seconds before trying again
+- Switch to a different AI model temporarily
+- Change to a new API Key from another account
+- Consider upgrading your Google AI Studio plan
 
-## License
+**❌ UI Not Appearing**
+- Refresh the page and wait for content to load
+- Check that the site is in the supported platforms list
+- Verify Violentmonkey is enabled for the site
+
+**❌ Detection Issues**
+- Some platforms may update their detection methods
+- Try refreshing the page or restarting your browser
+- Report issues on GitHub for quick fixes
+
+### **Getting Help**
+- **GitHub Issues**: [Report bugs or request features](https://github.com/jeryjs/Userscripts/issues/new?title=[AnswerIT!!]%20&body=**Describe%20the%20issue:**%0A%0A**Steps%20to%20reproduce:**%0A%0A**Expected%20behavior:**%0A%0A**Environment:**%0A-%20Browser:%0A-%20OS:%0A)
+- **Console Logs**: Check browser console for detailed error information
+
+## 📊 Model Comparison
+
+| Model | Speed | Accuracy | Use Case |
+|-------|-------|----------|----------|
+| **Flash Lite** | ⚡⚡⚡ | ⭐⭐ | Quick factual questions |
+| **Flash** | ⚡⚡ | ⭐⭐⭐ | General questions, balanced performance |
+| **Flash-Thinking** | ⚡⚡ | ⭐⭐⭐⭐ | Logic puzzles, reasoning tasks |
+| **Pro-Thinking** | ⚡ | ⭐⭐⭐⭐⭐ | Advanced analysis, critical thinking |
+
+## 🛡️ Privacy & Security
+
+- **Local Storage**: API keys and settings stored locally in your browser
+- **No Data Collection**: No personal information sent to external servers
+- **Direct API Communication**: Connects directly to Google's Gemini API
+- **Open Source**: Full source code available for review on GitHub
+
+## 📄 License
 
 This project is released under the [MIT License](https://opensource.org/licenses/MIT).
 
-## Disclaimer
+## ⚠️ Disclaimer
 
-This script is provided for educational and research purposes only. It does not promote or endorse any malicious practices. Understanding how these techniques work is essential for developers to build robust security measures; therefore, this script serves as a proof-of-concept to illustrate one such method. Use it responsibly and ethically. Any misuse of this script is solely the responsibility of the user, and the developer disclaims any liability for adverse effects or consequences arising from its use. Please respect the terms of service of the supported platforms.
+This script is provided for **educational and research purposes only**. It serves as a proof-of-concept to illustrate browser automation techniques and AI integration patterns. 
+
+**Important Notes:**
+- Understanding these techniques helps developers build more robust security measures
+- Use responsibly and ethically in accordance with your institution's policies
+- Respect the terms of service of the platforms you use
+- The developer disclaims liability for any misuse or consequences arising from use
+
+**Academic Integrity:** This tool should be used to supplement learning, not replace it. Always prioritize understanding concepts over simply obtaining answers.
