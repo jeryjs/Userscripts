@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.10.2
+// @version     6.10.3
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -216,34 +216,32 @@ const websites = [
     {
         name: 'AnimePahe',
         url: ['animepahe.ru', 'animepahe.com', 'animepahe.org'],
-        epLinks: (location.pathname.startsWith('/anime/')) ? '.play' : '.dropup.episode-menu .dropdown-item',
+        epLinks: (location.pathname.startsWith('/anime/')) ? 'a.play' : '.dropup.episode-menu a.dropdown-item',
         epTitle: '.theatre-info > h1',
         linkElems: '#resolutionMenu > button',
         thumbnail: '.theatre-info > a > img',
         addStartButton: function () {
             GM_addStyle(`.theatre-settings .col-sm-3 { max-width: 20%; }`);
             (document.location.pathname.startsWith('/anime/'))
-                ? document.querySelector(".col-6.bar").innerHTML += `
-                    <div class="btn-group btn-group-toggle">
-                        <label id="AniLINK_startBtn" class="btn btn-dark btn-sm">Generate Download Links</label>
-                    </div>`
-                : document.querySelector("div.theatre-settings > div.row").innerHTML += `
-                    <div class="col-12 col-sm-3">
-                        <div class="dropup">
-                            <a class="btn btn-secondary btn-block" id="AniLINK_startBtn">
-                                Generate Download Links
-                            </a>
-                        </div>
-                    </div>
-                `;
+                ? document.querySelector(".col-6.bar").innerHTML += `<div class="btn-group btn-group-toggle"><label id="AniLINK_startBtn" class="btn btn-dark btn-sm">Generate Download Links</label></div>`
+                : document.querySelector("div.theatre-settings > div.row").innerHTML += `<div class="col-12 col-sm-3"><div class="dropup"><a class="btn btn-secondary btn-block" id="AniLINK_startBtn">Generate Download Links</a></div></div>`;
             return document.getElementById("AniLINK_startBtn");
         },
         extractEpisodes: async function* (status) {
             status.textContent = 'Starting...';
             const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
             const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
-            const throttleLimit = 36;  // Setting high throttle limit actually improves performance
+            
+            // Resolve the ep numbering offset (sometimes, a 2nd cour can have ep.num=13 while its s2e1)
+            const firstEp = () => document.querySelector(this.epLinks).textContent.match(/.*\s(\d+)/)[1];
+            let firstEpNum = firstEp();
+            if (document.querySelector('.btn.active')?.innerText == 'desc') {
+                document.querySelector('.episode-bar .btn').click();
+                await new Promise(r => { const c = () => firstEp() !== firstEpNum ? r() : setTimeout(c, 500); c(); });
+                firstEpNum = firstEp();
+            }
 
+            const throttleLimit = 36;  // Setting high throttle limit actually improves performance
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
                 const chunk = epLinks.slice(i, i + throttleLimit);
                 const episodePromises = chunk.map(async epLink => {
@@ -251,7 +249,8 @@ const websites = [
                         const page = await fetchPage(epLink.href);
 
                         if (page.querySelector(this.epTitle) == null) return;
-                        const [, animeTitle, epNumber] = page.querySelector(this.epTitle).outerText.split(/Watch (.+) - (\d+(?:\.\d+)?) Online$/);
+                        const [, animeTitle, epNum] = page.querySelector(this.epTitle).outerText.split(/Watch (.+) - (\d+(?:\.\d+)?) Online$/);
+                        const epNumber = (epNum - firstEpNum + 1).toString();
                         const thumbnail = page.querySelector(this.thumbnail).src;
                         status.textContent = `Extracting ${animeTitle} - ${epNumber.padStart(3, "0")}...`;
 
@@ -472,7 +471,7 @@ const websites = [
         },
         extractEpisodes: async function* (status) {
             status.textContent = 'Fetching episode list...';
-            const animeTitle = document.querySelector(this.animeTitle).textContent;
+            const animeTitle = (document.querySelector('p.title-romaji') || document.querySelector(this.animeTitle)).textContent;
             const malId = document.querySelector(`a[href*="/myanimelist.net/anime/"]`)?.href.split('/').pop();
             if (!malId) return showToast('MAL ID not found.');
 
@@ -482,15 +481,13 @@ const websites = [
                     // AnimeZ: treat sub and dub as separate providers
                     const v = Object.values(s)[0], animeId = Object.keys(s)[0], eps = v?.episodeList?.episodes;
                     if (!eps) return [];
-                    return ["sub", "dub"].map(type =>
-                        eps[type]?.length
-                            ? { source: `animez-${type}`, animeId, useEpId: true, epList: eps[type] }
-                            : null
-                    )
+                    return ["sub", "dub"].map(type =>eps[type]?.length ? { source: `animez-${type}`, animeId, useEpId: true, epList: eps[type] } : null);
                 } else {
                     // Default: original logic
-                    const v = Object.values(s)[0], ep = v?.episodeList?.episodes || v?.episodeList;
-                    return ep && { source: p.toLowerCase(), animeId: Object.keys(s)[0], useEpId: !!v?.episodeList?.episodes, epList: ep };
+                    let v = Object.values(s)[0], epl = v?.episodeList?.episodes || v?.episodeList;
+                    // Fix the ep numbering offset for animepahe (sometimes S2 starts from ep 13 instead of ep 1)
+                    if (p === "ANIMEPAHE") epl = epl?.map((e) => ({...e, number: (e.number - epl[0]?.number + 1)}));
+                    return epl && { source: p.toLowerCase(), animeId: Object.keys(s)[0], useEpId: !!v?.episodeList?.episodes, epList: epl };
                 }
             }).filter(Boolean);
 
@@ -503,7 +500,7 @@ const websites = [
 
             for (const baseEp of baseProvider.epList) {
                 const num = String(baseEp.number).padStart(3, '0');
-                let epTitle = baseEp.title, thumbnail = baseEp.snapshot; // will try to update with other providers if this is blank
+                let epTitle = baseEp.jptitle || baseEp.title, thumbnail = baseEp.snapshot; // will try to update with other providers if this is blank
 
                 status.textContent = `Fetching Ep ${num}...`;
                 let links = {};
