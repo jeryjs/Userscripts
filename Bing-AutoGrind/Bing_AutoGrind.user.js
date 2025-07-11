@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      5.3.0
+// @version      5.3.1
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -308,8 +308,8 @@ function startSearch() {
 	const nextSearchTerm = searches.pop();
 	
 	GM_setValue("searches", searches);
-	addTabToClose(`https://www.bing.com/search?go=Search&q=${encodeURI(searches[0])}&qs=ds&form=QBRE`);
-	window.open(`https://www.bing.com/search?go=Search&q=${nextSearchTerm}&qs=ds&form=QBRE`, "_self");
+	addTabToClose(generateSearchUrl(searches[0]));
+	window.open(generateSearchUrl(nextSearchTerm), "_self");
 }
 
 /**
@@ -346,6 +346,16 @@ function addTabToClose(tab, timeout=5000) {
 		{"url": tab, "timeout": timeout}
 	);
 	GM_setValue("tabsToClose", tabsToClose);
+}
+
+/**
+ * Get the Bing search URL for a given search term.
+ * This function constructs the Bing search URL with the specified search term and returns it.
+ * @param {string} searchTerm - The search term to include in the URL.
+ * @returns {string} - The Bing search URL for the given search term.
+ */
+function generateSearchUrl(searchTerm) {
+	return `https://www.bing.com/search?FORM=U523DF&PC=U523&q=${encodeURI(searchTerm)}&FORM=ANNTA1`;
 }
 
 
@@ -451,8 +461,9 @@ if (isSearchPage) {
 				setTimeout(() => {
 					// if this is the final search, then open the points breakdown page in a new tab if OPEN_POINTS_BREAKDOWN is enabled
 					if (searches.length==1 && OPEN_POINTS_BREAKDOWN) window.open("https://rewards.bing.com/pointsbreakdown", "_blank");
-
-					window.open(`https://www.bing.com/search?go=Search&q=${encodeURI(searches.pop())}&qs=ds&form=QBRE`, "_self");
+					
+					// window.open(`https://www.bing.com/search?go=Search&q=${encodeURI(searches.pop())}&qs=ds&form=QBRE`, "_self");
+					window.open(generateSearchUrl(searches.pop()), "_self");
 					// document.querySelector("textarea.b_searchbox").value = searches.pop();
 					// document.querySelector("input.b_searchboxSubmit").click();
 					GM_setValue("searches", searches);
