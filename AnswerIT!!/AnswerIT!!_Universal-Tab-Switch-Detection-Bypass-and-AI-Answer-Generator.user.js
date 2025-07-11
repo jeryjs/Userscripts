@@ -1,11 +1,10 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.18.0
+// @version      3.18.1
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match		 https://jeryjs.github.io/Userscripts/AnswerIT!!/*
-// @match		 file:///y%3A/All-Projects/USERSCRIPTS/AnswerIT!!/*
 // @match        https://app.joinsuperset.com/assessments/*
 // @match        https://lms.talentely.com/*/*
 // @match        https://leetcode.com/problems/*
@@ -1251,7 +1250,7 @@
 				contentParts.push({ inline_data: { mime_type: mime.split(':')[1].split(';')[0], data } });
 			} else {
 				try {
-					const blob = await GM_fetch(src).then(r => r.blob());
+					const blob = await GM_fetch(src).then(r => r.blob()).then(b => b.type && !b.type.startsWith('image/') || b.type.includes('/octet-stream') ? new Promise(resolve => { const img = new Image(); img.onload = () => { const canvas = document.createElement('canvas'); canvas.width = img.width; canvas.height = img.height; const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0); canvas.toBlob(resolve, 'image/png'); }; img.src = URL.createObjectURL(b); }) : b);
 					const b64 = await blob.arrayBuffer().then(buf => btoa(String.fromCharCode(...new Uint8Array(buf))));
 					const mime = blob.type || 'image/*';
 					contentParts.push({ inline_data: { mime_type: mime, data: b64 } });
@@ -1313,7 +1312,7 @@
 				btn.innerHTML = `Inserting... This may take a few seconds.`;
 				let editor = (window.ace || ace).edit(aceContainer);
 				// workaround for some editors that block pasting
-				text.split('').forEach(char => editor.insert(char));
+				for (let i = 0; i < text.length; i += 15) editor.insert(text.slice(i, i + 15));
 			}
 			// Try setting value directly if possible
 			else if ("value" in focusedEl) {
@@ -1458,7 +1457,7 @@
 							stopTimer("Response received");
 						} else {
 							const warnText = `No content received from ${modelName}: Check console for details.`;
-							outputTextArea.value = warnText;
+							outputTextArea.value = warnText + '\n\n' + response.responseText;
 							modelCache[cacheKey] = { answer: warnText, time: 0, state: 'error' };
 							updateButtonState(button, 'error');
 							stopTimer("No content received");
