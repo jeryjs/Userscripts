@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.18.2
+// @version      3.18.3
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match		 https://jeryjs.github.io/Userscripts/AnswerIT!!/*
@@ -49,7 +49,7 @@
 			name: "Talentely",
 			urls: ["lms.talentely.com"],
 			questionSelectors: ["#question", ".question-text", () => document.querySelector(".test-question")],
-			getQuestionIdentifier: (element) => element.querySelector("p").parentElement.nextElementSibling.textContent,
+			getQuestionIdentifier: (element) => [...element.querySelectorAll("#question div>p")].slice(0,5).map(e=>e.textContent).join(),
 			getQuestionItem: (e) => {
 				const isCodingQn = !!e.querySelector('.ace_content');
 				if (isCodingQn) {
@@ -1410,11 +1410,12 @@
 
 		try {
 			// Use GM.xmlHttpRequest for cross-origin streaming support
-			let answerText = "";
-			let processedLength = 0;
-			outputTextArea.value = "";
-
 			await new Promise((resolve, reject) => {
+				const thisQuestionId = questionIdentifier || "unknown";
+				let answerText = "";
+				let processedLength = 0;
+				outputTextArea.value = "";
+
 				GM.xmlHttpRequest({
 					method: "POST",
 					url: `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?key=${apiKey}&alt=sse`,
@@ -1433,8 +1434,8 @@
 							response.responseText.slice(processedLength).split('\n').forEach(line => {
 								if (line.startsWith('data: ')) {
 									const newText = JSON.parse(line.slice(6)).candidates?.[0]?.content?.parts?.[0]?.text;
-									if (newText && lastUsedModel == model) {
-										answerText += newText;
+									answerText += newText;
+									if (newText && lastUsedModel == model && thisQuestionId === currentQnIdentifier) {
 										outputTextArea.value = answerText;
 										// Auto-scroll if current scroll position is near the bottom (within 200px)
 										if (outputTextArea.scrollTop >= outputTextArea.scrollHeight - outputTextArea.clientHeight - 200)
