@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.18.1
+// @version      3.18.2
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match		 https://jeryjs.github.io/Userscripts/AnswerIT!!/*
@@ -1068,7 +1068,7 @@
 		const setupChoice = confirm(
 			"🎯 Welcome to AnswerIT!!\n\nTo get started, you need to configure your FREE Gemini API key.\n\nClick OK to open our modern setup page with easy instructions.\nClick Cancel to use the quick setup here."
 		);
-		
+
 		if (setupChoice) {
 			// Open the modern setup page
 			window.open("https://jeryjs.github.io/Userscripts/AnswerIT!!/configure.html", "_blank");
@@ -1411,6 +1411,7 @@
 		try {
 			// Use GM.xmlHttpRequest for cross-origin streaming support
 			let answerText = "";
+			let processedLength = 0;
 			outputTextArea.value = "";
 
 			await new Promise((resolve, reject) => {
@@ -1427,25 +1428,21 @@
 						"contents": [{ "parts": contentParts }],
 						generationConfig: model?.generationConfig || {},
 					}),
-					responseType: "stream",
 					onprogress: (response) => {
-						if (response.responseText) {
-							const lines = response.responseText.split('\n');
-							for (const line of lines) {
+						if (response.responseText?.length > processedLength) {
+							response.responseText.slice(processedLength).split('\n').forEach(line => {
 								if (line.startsWith('data: ')) {
-									try {
-										const data = JSON.parse(line.slice(6));
-										if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
-											const newText = data.candidates[0].content.parts[0].text;
-											answerText += newText;
-											if (lastUsedModel == model) {
-												outputTextArea.value = answerText;
-												outputTextArea.scrollTop = outputTextArea.scrollHeight;
-											}
-										}
-									} catch (e) { /* Skip invalid JSON lines */ }
+									const newText = JSON.parse(line.slice(6)).candidates?.[0]?.content?.parts?.[0]?.text;
+									if (newText && lastUsedModel == model) {
+										answerText += newText;
+										outputTextArea.value = answerText;
+										// Auto-scroll if current scroll position is near the bottom (within 200px)
+										if (outputTextArea.scrollTop >= outputTextArea.scrollHeight - outputTextArea.clientHeight - 200)
+											outputTextArea.scrollTop = outputTextArea.scrollHeight;
+									}
 								}
-							}
+							});
+							processedLength = response.responseText.length;
 						}
 					},
 					onload: (response) => {
@@ -1457,7 +1454,7 @@
 							stopTimer("Response received");
 						} else {
 							const warnText = `No content received from ${modelName}: Check console for details.`;
-							outputTextArea.value = warnText + '\n\n' + response.responseText;
+							outputTextArea.value = warnText + '\n\n' + `Status: ${response.status}\n\n` + response.responseText;
 							modelCache[cacheKey] = { answer: warnText, time: 0, state: 'error' };
 							updateButtonState(button, 'error');
 							stopTimer("No content received");
@@ -1605,13 +1602,13 @@
 	GM_registerMenuCommand("Change Hotkey", changeHotkey);
 	GM_registerMenuCommand("Reset Popup State", resetPopupState);
 	GM_registerMenuCommand("🪟 Open Setup Page", () => window.open("https://jeryjs.github.io/Userscripts/AnswerIT!!/configure.html", "_blank"));
-	
+
 	// --- Initialization ---
 	function exposeConfigToPage() {
 		console.log("[AnswerIT!!] Exposing configuration to integration page");
 		const obj = {
 			supportedSites: websites,
-			getConfig: function() {
+			getConfig: function () {
 				return {
 					apiKey: GM_getValue("geminiApiKey", ""),
 					hotkey: GM_getValue("hotkey", "a"),
@@ -1619,7 +1616,7 @@
 					autoRun: GM_getValue("autoRun", false)
 				};
 			},
-			setConfig: function(newConfig) {
+			setConfig: function (newConfig) {
 				if (typeof newConfig !== "object") return;
 				if (typeof newConfig.apiKey === "string") GM_setValue("geminiApiKey", newConfig.apiKey);
 				if (typeof newConfig.hotkey === "string") GM_setValue("hotkey", newConfig.hotkey);
@@ -1636,7 +1633,7 @@
 		if (location.pathname.includes("/Userscripts/AnswerIT!!")) {
 			exposeConfigToPage();
 		}
-        
+
 		// Run detection bypass
 		setupDetectionBypass();
 
