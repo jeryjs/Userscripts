@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.10.3
+// @version     6.10.4
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -36,6 +36,10 @@
 // @match       https://anixl.to/title/*
 // @match       https://sudatchi.com/watch/*/*
 // @match       https://animekai.to/watch/*
+// @match       https://hianime.*/watch/*
+// @match       https://hianime.to/watch/*
+// @match       https://hianime.nz/watch/*
+// @match       https://hianimeZ.*/watch/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
 // @grant       GM.xmlHttpRequest
@@ -56,7 +60,7 @@ class Episode {
      * @param {string} [epTitle] - The title of the episode (optional).
      */
     constructor(number, animeTitle, links, thumbnail, epTitle) {
-        this.number = number;   // The episode number
+        this.number = String(number);   // The episode number
         this.animeTitle = animeTitle;     // The title of the anime.
         this.epTitle = epTitle; // The title of the episode (this can be the specific ep title or blank).
         this.links = links;     // An object containing streaming links and tracks for each source: {"source1":{stream:"url", type:"m3u8|mp4", tracks:[{file:"url", kind:"caption|audio", label:"name"}]}}}
@@ -606,6 +610,24 @@ const websites = [
                         return new Episode(link.split('/').pop(), p.querySelector('p').textContent, links, p.querySelector('video').poster);
                     }).catch(e => { showToast(e); return null; })
                 ));
+        }
+    },
+    {
+        name: 'HiAnime',
+        url: ['hianime.to/', 'hianimez.is/', 'hianimez.to/', 'hianime.nz/', 'hianime.bz/', 'hianime.pe/', 'hianime.cx/', 'hianime.gs/'],
+        extractEpisodes: async function* (status) {
+            status.textContent = "Starting...";
+            for (let e of await applyEpisodeRangeFilter($('.ss-list > a').get(), status)) {
+                const [epId, epNum, epTitle] = [$(e).data('id'), $(e).data('number'), $(e).find('.ep-name').text()]; let thumbnail = '';
+                status.textContent = `Extracting Episode ${epNum}...`;
+                const links = await $((await $.get(`/ajax/v2/episode/servers?episodeId=${epId}`, r => $(r).responseJSON)).html).find('.server-item').map((_, i) => [[$(i).text().trim(), $(i).data('type')]] ).get().reduce(async (linkAcc, [server, type]) => {try {
+                    await (new Promise(r => setTimeout(r, 1000))); // Throttle requests to avoid rate limiting
+                    let data = await GM_fetch(`https://hianime.pstream.org/api/v2/hianime/episode/sources?animeEpisodeId=${location.pathname.split('/').pop()}?ep=${epId}&server=${server.toLowerCase()}&category=${type}`, { 'headers': { 'Origin': 'https://pstream.org' } }).then(r => r.json()).then(j => j.data);
+                    thumbnail = data.tracks.find(t => t.lang === 'thumbnails')?.url || '';
+                    return {...await linkAcc, [`${server}-${type}`]: { stream: data.sources[0].url, type: 'm3u8', tracks: data.tracks.filter(t=>t.lang!="thumbnails").map(t=> ({file: t.url, label: t.lang, kind: 'caption'})) }};
+                } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${server}-${type} (you're probably being rate limited)`); return linkAcc; }}, Promise.resolve({}));
+                yield new Episode(epNum, ($('.film-name > a').first().text()), links, thumbnail, epTitle);
+            };
         }
     },
 
