@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.10.4
+// @version     6.12.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -40,6 +40,7 @@
 // @match       https://hianime.to/watch/*
 // @match       https://hianime.nz/watch/*
 // @match       https://hianimeZ.*/watch/*
+// @match       https://aninow.tv/w/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
 // @grant       GM.xmlHttpRequest
@@ -63,10 +64,19 @@ class Episode {
         this.number = String(number);   // The episode number
         this.animeTitle = animeTitle;     // The title of the anime.
         this.epTitle = epTitle; // The title of the episode (this can be the specific ep title or blank).
-        this.links = links;     // An object containing streaming links and tracks for each source: {"source1":{stream:"url", type:"m3u8|mp4", tracks:[{file:"url", kind:"caption|audio", label:"name"}]}}}
+        this.links = this._processLinks(links);     // An object containing streaming links and tracks for each source: {"source1":{stream:"url", type:"m3u8|mp4", tracks:[{file:"url", kind:"caption|audio", label:"name"}]}}}
         this.thumbnail = thumbnail; // The URL of the episode's thumbnail image (if unavailable, then just any image is fine. Thumbnail property isnt really used in the script yet).
         this.filename = `${this.animeTitle} - ${this.number.padStart(3, '0')}${this.epTitle ? ` - ${this.epTitle}` : ''}.${Object.values(this.links)[0]?.type || 'm3u8'}`;   // The formatted name of the episode, combining anime name, number and title and extension.
         this.title = this.epTitle ?? this.animeTitle;
+    }
+    
+    // Processes the links to ensure they are absolute URLs.
+    _processLinks(links) {
+        for (const linkObj of Object.values(links)) {
+            linkObj.stream &&= new URL(linkObj.stream, location.origin).href;
+            linkObj.tracks?.forEach?.(track => track.file &&= new URL(track.file, location.origin).href);
+        }
+        return links;
     }
 }
 
@@ -136,10 +146,9 @@ const websites = [
             return button;
         },
         extractEpisodes: async function* (status) {
-            status.textContent = 'Starting...';
             const throttleLimit = 12; // Number of episodes to extract in parallel
             const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
-            const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
+            const epLinks = await applyEpisodeRangeFilter(allEpLinks);
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
                 const chunk = epLinks.slice(i, i + throttleLimit);
                 const episodePromises = chunk.map(async epLink => {
@@ -173,7 +182,7 @@ const websites = [
         extractEpisodes: async function* (status) {
             status.textContent = 'Getting list of episodes...';
             const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
-            const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
+            const epLinks = await applyEpisodeRangeFilter(allEpLinks);
 
             const throttleLimit = 6;    // Number of episodes to extract in parallel
 
@@ -232,9 +241,8 @@ const websites = [
             return document.getElementById("AniLINK_startBtn");
         },
         extractEpisodes: async function* (status) {
-            status.textContent = 'Starting...';
             const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
-            const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
+            const epLinks = await applyEpisodeRangeFilter(allEpLinks);
             
             // Resolve the ep numbering offset (sometimes, a 2nd cour can have ep.num=13 while its s2e1)
             const firstEp = () => document.querySelector(this.epLinks).textContent.match(/.*\s(\d+)/)[1];
@@ -290,9 +298,8 @@ const websites = [
             return document.getElementById("AniLINK_startBtn");
         },
         extractEpisodes: async function* (status) {
-            status.textContent = 'Starting...';
             const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
-            const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
+            const epLinks = await applyEpisodeRangeFilter(allEpLinks);
             const throttleLimit = 12;
 
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
@@ -330,9 +337,8 @@ const websites = [
             return button;
         },
         extractEpisodes: async function* (status) {
-            status.textContent = 'Starting...';
             const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
-            const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
+            const epLinks = await applyEpisodeRangeFilter(allEpLinks);
             const throttleLimit = 12;    // Number of episodes to extract in parallel
 
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
@@ -370,9 +376,8 @@ const websites = [
             return button;
         },
         extractEpisodes: async function* (status) {
-            status.textContent = 'Starting...';
             const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
-            const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
+            const epLinks = await applyEpisodeRangeFilter(allEpLinks);
             const throttleLimit = 12; // Number of episodes to extract in parallel
 
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
@@ -427,7 +432,7 @@ const websites = [
             } catch (e) { showToast('Failed to load Episodes List: ' + e); return null; }
             // Remove duplicates
             allEpLinks = allEpLinks.filter((el, idx, self) => self.findIndex(e => e.href === el.href && e.textContent.trim() === el.textContent.trim()) === idx);
-            const epLinks = await applyEpisodeRangeFilter(allEpLinks, status);
+            const epLinks = await applyEpisodeRangeFilter(allEpLinks);
             const throttleLimit = 12;
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
                 const chunk = epLinks.slice(i, i + throttleLimit);
@@ -498,7 +503,7 @@ const websites = [
             // Get the provider with most episodes to use as base for thumbnails, epTitle, epNumber, etc.
             // Preferred provider is Zoro, if available, since it has the best title format
             let baseProvider = providers.find(p => p.source === 'zoro') || providers.find(p => p.epList.length == Math.max(...providers.map(p => p.epList.length)));
-            baseProvider = { ...baseProvider, epList: await applyEpisodeRangeFilter(baseProvider.epList, status) };
+            baseProvider = { ...baseProvider, epList: await applyEpisodeRangeFilter(baseProvider.epList) };
 
             if (!baseProvider) return showToast('No episodes found.');
 
@@ -549,8 +554,7 @@ const websites = [
             return button;
         },
         extractEpisodes: async function* (status) {
-            status.textContent = "Starting...";
-            const epLinks = await applyEpisodeRangeFilter(this.epLinks(), status);
+            const epLinks = await applyEpisodeRangeFilter(this.epLinks());
             const throttleLimit = 12; // Limit concurrent requests
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
                 const chunk = epLinks.slice(i, i + throttleLimit);
@@ -579,8 +583,7 @@ const websites = [
         epLinks: () => [...document.querySelectorAll('div[q\\:key^="F0_"] a')].map(e=>e.href),
         addStartButton: () => document.querySelector('div.join')?.prepend( Object.assign(document.createElement('button'), {id: "AniLINK_startBtn", className: "btn btn-xs", textContent: "Generate Download Links"}) ),
         extractEpisodes: async function* (status) {
-            status.textContent = "Starting...";
-            const epLinks = await applyEpisodeRangeFilter(this.epLinks(), status);
+            const epLinks = await applyEpisodeRangeFilter(this.epLinks());
             const throttleLimit = 12; // Limit concurrent requests
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
                 const chunk = epLinks.slice(i, i + throttleLimit);
@@ -601,8 +604,7 @@ const websites = [
         url: ['sudatchi.com/'],
         epLinks: () => [...document.querySelectorAll('.text-sm.rounded-lg')].map(e => `${location.href}/../${e.textContent}`),
         extractEpisodes: async function* (status) {
-            status.textContent = "Starting...";
-            for (let i = 0, l = await applyEpisodeRangeFilter(this.epLinks(), status); i < l.length; i += 6)
+            for (let i = 0, l = await applyEpisodeRangeFilter(this.epLinks()); i < l.length; i += 6)
                 yield* yieldEpisodesFromPromises(l.slice(i, i + 6).map(async link =>
                     await fetchPage(link).then(p => {
                         const tracks = JSON.parse([...p.scripts].flatMap(s => s.textContent.match(/\[{.*"}/)).filter(Boolean)[0].replaceAll('\\', '') + ']').map(i => ({ file: i.file.replace('/ipfs/', 'https://sudatchi.com/api/proxy/'), label: i.label, kind: i.kind }));
@@ -616,8 +618,7 @@ const websites = [
         name: 'HiAnime',
         url: ['hianime.to/', 'hianimez.is/', 'hianimez.to/', 'hianime.nz/', 'hianime.bz/', 'hianime.pe/', 'hianime.cx/', 'hianime.gs/'],
         extractEpisodes: async function* (status) {
-            status.textContent = "Starting...";
-            for (let e of await applyEpisodeRangeFilter($('.ss-list > a').get(), status)) {
+            for (let e of await applyEpisodeRangeFilter($('.ss-list > a').get())) {
                 const [epId, epNum, epTitle] = [$(e).data('id'), $(e).data('number'), $(e).find('.ep-name').text()]; let thumbnail = '';
                 status.textContent = `Extracting Episode ${epNum}...`;
                 const links = await $((await $.get(`/ajax/v2/episode/servers?episodeId=${epId}`, r => $(r).responseJSON)).html).find('.server-item').map((_, i) => [[$(i).text().trim(), $(i).data('type')]] ).get().reduce(async (linkAcc, [server, type]) => {try {
@@ -628,6 +629,23 @@ const websites = [
                 } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${server}-${type} (you're probably being rate limited)`); return linkAcc; }}, Promise.resolve({}));
                 yield new Episode(epNum, ($('.film-name > a').first().text()), links, thumbnail, epTitle);
             };
+        }
+    },
+    {
+        name: 'AniNow',
+        url: ['aninow.tv/'],
+        extractEpisodes: async function* (status) {
+            for (let i = 0, l = await applyEpisodeRangeFilter([...document.querySelectorAll('a.episode-item')]); i < l.length; i+=6)
+                yield* yieldEpisodesFromPromises(l.slice(i, i + 6).map(async a => {
+                    status.textContent = `Extracting Episode ${a.innerText.padStart(3, '0')}...`;
+                    const data = await fetchPage(a.href).then(p => JSON.parse(p.querySelector("#media-sources-data").dataset.mediaSources)).then(d => d.filter(l => !!l.url));
+                    const links = data.reduce((acc, m) => (acc[`${m.providerdisplayname}-${m.language}-${m.quality}`] = {
+                        stream: m.url.startsWith('videos/') ? `/storage/C:/Users/GraceAshby/OneDrive/aninow/media/${m.url}` : m.url,
+                        type: m.url.endsWith('mp4') ? 'mp4' : 'm3u8',
+                        tracks: m.subtitles.map(s => ({ file: s.filename, label: s.displayname, kind: 'caption' }))
+                    }, acc), {});
+                    return new Episode(a.innerText, document.querySelector('h1').innerText, links, document.querySelector('a>img').src);
+                }));
         }
     },
 
@@ -1031,6 +1049,7 @@ async function extractEpisodes() {
 
 
     // --- Process Episodes using Generator ---
+    statusBar.textContent = "Starting...";
     const episodeGenerator = site.extractEpisodes(statusBar);
     const qualityLinkLists = {}; // Stores lists of links for each quality
 
@@ -1212,12 +1231,12 @@ async function extractEpisodes() {
                 }
                 // Add tracks if present (subtitles, audio, etc.)
                 if (linkObj.tracks && Array.isArray(linkObj.tracks) && linkObj.tracks.length > 0) {
-                    linkObj.tracks.forEach((track, idx) => {
+                    linkObj.tracks.forEach(track => {
                         // EXT-X-MEDIA for subtitles or alternate audio
                         if (track.kind && track.kind.startsWith('audio')) {
-                            playlistContent += `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio${idx}\",NAME=\"${track.label || 'Audio'}\",DEFAULT=${track.default ? 'YES' : 'NO'},URI=\"${track.file}\"\n`;
-                        } else if ((track.kind && track.kind.startsWith('caption')) || track.kind === 'subtitles' || track.kind === 'captions') {
-                            playlistContent += `#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs${idx}\",NAME=\"${track.label || 'Subtitle'}\",DEFAULT=${track.default ? 'YES' : 'NO'},URI=\"${track.file}\"\n`;
+                            playlistContent += `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio${episode.number}\",NAME=\"${track.label || 'Audio'}\",DEFAULT=${track.default ? 'YES' : 'NO'},URI=\"${track.file}\"\n`;
+                        } else if (/^(caption|subtitle)s?/.test(track.kind)) {
+                            playlistContent += `#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs${episode.number}\",NAME=\"${track.label || 'Subtitle'}\",DEFAULT=${track.default ? 'YES' : 'NO'},URI=\"${track.file}\"\n`;
                         }
                     });
                 }
@@ -1485,8 +1504,9 @@ async function showEpisodeRangeSelector(total) {
 /***************************************************************
  * Apply episode range filtering with modern UI
  ***************************************************************/
-async function applyEpisodeRangeFilter(allEpLinks, status) {
-    const epRangeThreshold = GM_getValue('ep_range_threshold', 12)
+async function applyEpisodeRangeFilter(allEpLinks) {
+    const status = document.querySelector('.anlink-status-bar');
+    const epRangeThreshold = GM_getValue('ep_range_threshold', 24)
     if (allEpLinks.length <= epRangeThreshold) return allEpLinks;
 
     status.textContent = `Found ${allEpLinks.length} episodes. Waiting for selection...`;
