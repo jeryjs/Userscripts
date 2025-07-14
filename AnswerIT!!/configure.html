@@ -5,90 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AnswerIT!! - Setup & Configuration</title>
     <link rel="icon" href="https://i.pinimg.com/736x/d9/b5/a6/d9b5a64b2a0f432e41f611ddd410d8be.jpg">
-    <style>
-        :root {
-            --primary: #667eea;
-            --success: #10b981;
-            --error: #ef4444;
-            --warning: #f59e0b;
-            --bg: #f8fafc;
-            --card: #ffffff;
-            --text: #1f2937;
-            --text-light: #6b7280;
-            --border: #e5e7eb;
-            --shadow: 0 10px 25px -5px rgba(0,0,0,0.1);
-        }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
-        .hero { background: linear-gradient(135deg, var(--primary), #764ba2); padding: 3rem 1rem; text-align: center; color: white; position: relative; }
-        .theme-toggle { position: absolute; top: 1rem; right: 1rem; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 0.5rem; border-radius: 8px; cursor: pointer; font-size: 1.25rem; transition: all 0.3s ease; backdrop-filter: blur(10px); }
-        .theme-toggle:hover { background: rgba(255,255,255,0.2); transform: scale(1.1); }
-        .detection-status { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.9); padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.9rem; margin-top: 1rem; backdrop-filter: blur(10px); }
-        .detection-status.success { background: rgba(16,185,129,0.2); border-color: rgba(16,185,129,0.3); }
-        .detection-status.warning { background: rgba(245,158,11,0.2); border-color: rgba(245,158,11,0.3); }
-        .hero h1 { font-size: clamp(2.5rem, 5vw, 4rem); font-weight: 800; margin-bottom: 1rem; }
-        .hero p { font-size: 1.25rem; opacity: 0.9; margin-bottom: 2rem; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 2rem 1rem; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 2rem; margin-top: -4rem; position: relative; z-index: 2; }
-        .preferences-section { margin-top: 3rem; }
-        .preferences-section .card { max-width: 800px; margin: 0 auto; }
-        .card { background: var(--card); border-radius: 20px; padding: 2rem; box-shadow: var(--shadow); border: 1px solid var(--border); transition: all 0.3s ease; position: relative; overflow: hidden; }
-        .card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(135deg, var(--primary), #764ba2); }
-        .card:hover { transform: translateY(-5px); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); }
-        .card-icon { width: 60px; height: 60px; background: linear-gradient(135deg, var(--primary), #764ba2); border-radius: 15px; display: flex; align-items: center; justify-content: center; margin-bottom: 1.5rem; font-size: 1.5rem; }
-        .card h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 1rem; }
-        .card p { color: var(--text-light); margin-bottom: 1.5rem; }
-        .form-group { margin-bottom: 1.5rem; }
-        .preferences-grid { display: grid; grid-template-columns: 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
-        .toggle-label { display: flex; align-items: center; gap: 1rem; cursor: pointer; padding: 1rem; border: 2px solid var(--border); border-radius: 12px; transition: all 0.3s ease; background: rgba(102,126,234,0.02); }
-        .toggle-label:hover { border-color: var(--primary); background: rgba(102,126,234,0.05); }
-        .toggle-input { display: none; }
-        .toggle-slider { width: 48px; height: 24px; background: var(--border); border-radius: 24px; position: relative; transition: all 0.3s ease; flex-shrink: 0; }
-        .toggle-slider::before { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; background: white; border-radius: 50%; transition: all 0.3s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .toggle-input:checked + .toggle-slider { background: var(--primary); }
-        .toggle-input:checked + .toggle-slider::before { transform: translateX(24px); }
-        .toggle-text { font-weight: 600; font-size: 1rem; }
-        .form-label { display: block; font-weight: 600; margin-bottom: 0.5rem; }
-        .form-input { width: 100%; padding: 0.875rem 1rem; border: 2px solid var(--border); border-radius: 12px; font-size: 1rem; transition: all 0.3s ease; background: #fff; }
-        .form-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(102,126,234,0.1); }
-        .form-input.error { border-color: var(--error); }
-        .form-input.success { border-color: var(--success); }
-        .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.875rem 1.5rem; border: none; border-radius: 12px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: all 0.3s ease; text-decoration: none; min-height: 48px; }
-        .btn-primary { background: var(--primary); color: white; }
-        .btn-primary:hover { background: #5a67d8; transform: translateY(-2px); }
-        .btn-secondary { background: var(--border); color: var(--text); margin-left: 0.5rem; }
-        .btn-secondary:hover { background: #d1d5db; }
-        .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important; }
-        .status { padding: 1rem; border-radius: 12px; margin-bottom: 1rem; display: none; align-items: center; gap: 0.5rem; }
-        .status.success { background: rgba(16,185,129,0.1); color: var(--success); border: 1px solid rgba(16,185,129,0.2); }
-        .status.error { background: rgba(239,68,68,0.1); color: var(--error); border: 1px solid rgba(239,68,68,0.2); }
-        .status.warning { background: rgba(245,158,11,0.1); color: var(--warning); border: 1px solid rgba(245,158,11,0.2); }
-        .help-text { font-size: 0.875rem; color: var(--text-light); margin-top: 0.5rem; }
-        .quick-links { display: flex; gap: 1rem; margin-top: 1rem; flex-wrap: wrap; }
-        .quick-link { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: rgba(102,126,234,0.1); color: var(--primary); border-radius: 8px; text-decoration: none; font-size: 0.875rem; font-weight: 500; transition: all 0.3s ease; }
-        .quick-link:hover { background: rgba(102,126,234,0.2); transform: translateY(-1px); }
-        .sites-section { margin-top: 4rem; }
-        .sites-section h2 { text-align: center; font-size: 2rem; font-weight: 700; margin-bottom: 1rem; }
-        .sites-section p { text-align: center; color: var(--text-light); margin-bottom: 2rem; max-width: 600px; margin-left: auto; margin-right: auto; }
-        .sites-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1.5rem; }
-        .site-card { background: var(--card); padding: 1.5rem; border-radius: 15px; border: 1px solid var(--border); text-align: center; transition: all 0.3s ease; text-decoration: none; color: inherit; display: block; }
-        .site-card:hover { transform: translateY(-5px); box-shadow: var(--shadow); border-color: var(--primary); }
-        .site-favicon { width: 32px; height: 32px; margin: 0 auto 1rem; border-radius: 8px; }
-        .site-card h3 { margin-bottom: 0.5rem; font-size: 1.25rem; }
-        .spinner { width: 20px; height: 20px; border: 2px solid transparent; border-top: 2px solid currentColor; border-radius: 50%; animation: spin 1s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @media (max-width: 768px) {
-            .grid { grid-template-columns: 1fr; margin-top: -2rem; }
-            .preferences-grid { grid-template-columns: 1fr; gap: 1rem; }
-            .hero { padding: 2rem 1rem; }
-            .container { padding: 1rem; }
-            .card { padding: 1.5rem; }
-            .quick-links { flex-direction: column; }
-        }
-        @media (prefers-color-scheme: dark) {
-            :root { --bg: #0f172a; --card: #1e293b; --text: #f1f5f9; --text-light: #94a3b8; --border: #334155; }
-        }
-    </style>
+    <link rel="stylesheet" href="configure.css">
 </head>
 <body>
     <div class="hero">
@@ -124,11 +41,13 @@
                 <form id="apiForm">
                     <div class="form-group">
                         <label class="form-label">Gemini API Key</label>
-                        <input type="password" id="apiKey" class="form-input" placeholder="Enter your Gemini API key..." autocomplete="off">
+                        <input type="password" id="apiKey" class="form-input" placeholder="Enter your Gemini API key..."
+                            autocomplete="off">
                         <div class="help-text">Your API key is stored securely and never sent to our servers.</div>
                     </div>
                     <div class="quick-links">
-                        <a href="https://aistudio.google.com/app/apikey" target="_blank" class="quick-link">🔗 Get Free API Key</a>
+                        <a href="https://aistudio.google.com/app/apikey" target="_blank" class="quick-link">🔗 Get Free
+                            API Key</a>
                         <a href="#" id="testKey" class="quick-link">🧪 Test API Key</a>
                     </div>
                     <button type="submit" class="btn btn-primary" id="saveApi" style="margin-top: 1rem;">
@@ -181,6 +100,40 @@
                     </button>
                 </form>
             </div>
+
+            <!-- Reflector Mode Setup Section -->
+            <div class="card" id="reflectorCard">
+                <div class="card-icon">🖥️</div>
+                <h2>Reflector Mode Setup</h2>
+                <p>Mirror your host device's question area to another device in real time.<br>Use this section to set up and connect your devices.</p>
+                <div class="status" id="reflectorStatus"></div>
+                <div class="form-group">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="reflectorEnable" class="toggle-input">
+                        <span class="toggle-slider"></span>
+                        <span class="toggle-text">Enable Reflector Mode (Host)</span>
+                    </label>
+                    <div class="help-text">Turn on to start broadcasting your question area.</div>
+                </div>
+                <div id="reflectorOfferSection" style="display:none;">
+                    <label class="form-label">Your Offer (Host)</label>
+                    <textarea id="reflectorOffer" class="form-input" rows="4" readonly></textarea>
+                    <div style="margin:0.5rem 0;">
+                        <button class="btn btn-secondary" id="copyOfferBtn">Copy Offer</button>
+                        <button class="btn btn-secondary" id="showOfferQRBtn">Show QR</button>
+                        <span id="offerQRContainer" style="display:none; margin-left:1rem;"></span>
+                    </div>
+                    <div class="help-text">Share this offer with your reflector device (scan QR or copy text).</div>
+                </div>
+                <div id="reflectorAnswerSection" style="display:none; margin-top:1rem;">
+                    <label class="form-label">Paste Answer from Reflector Device</label>
+                    <textarea id="reflectorAnswer" class="form-input" rows="4" placeholder="Paste answer here..."></textarea>
+                    <button class="btn btn-primary" id="submitAnswerBtn" style="margin-top:0.5rem;">Submit Answer</button>
+                    <div class="help-text">Paste the answer code from the reflector device to complete the connection.</div>
+                </div>
+                <div id="reflectorStatusMsg" style="margin-top:1rem; font-weight:600;"></div>
+                <button class="btn btn-primary" id="gotoReflectorBtn" style="margin-top:2rem;">Open Reflector Page</button>
+            </div>
         </div>
 
         <div class="sites-section">
@@ -190,6 +143,9 @@
         </div>
     </div>
 
+    <!-- Include jQuery from a CDN -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
     <script>
         class ConfigManager {
             constructor() {
@@ -202,10 +158,129 @@
                 this.detectUserscript();
             }
 
+            // --- Reflector Mode Setup Logic ---
+            reflectorInit() {
+                // Elements
+                const $enable = $('#reflectorEnable');
+                const $offerSection = $('#reflectorOfferSection');
+                const $offer = $('#reflectorOffer');
+                const $copyOfferBtn = $('#copyOfferBtn');
+                const $showOfferQRBtn = $('#showOfferQRBtn');
+                const $offerQRContainer = $('#offerQRContainer');
+                const $answerSection = $('#reflectorAnswerSection');
+                const $answer = $('#reflectorAnswer');
+                const $submitAnswerBtn = $('#submitAnswerBtn');
+                const $statusMsg = $('#reflectorStatusMsg');
+                const $gotoReflectorBtn = $('#gotoReflectorBtn');
+
+                // Load initial state
+                let reflectorConfig = window.AnswerIT_Config?.getConfig()?.reflector;
+                let reflectorHost = window.AnswerIT_Config?.reflectorHost;
+                let offer = reflectorConfig?.offer || '';
+                let answer = reflectorConfig?.answer || '';
+                let enabled = reflectorConfig?.enabled || false;
+                $enable.prop('checked', enabled);
+
+                function updateOfferDisplay() {
+                    if (enabled && offer) {
+                        $offerSection.show();
+                        $offer.val(offer);
+                        $showOfferQRBtn.show();
+                        $copyOfferBtn.show();
+                    } else {
+                        $offerSection.hide();
+                        $offer.val('');
+                        $showOfferQRBtn.hide();
+                        $copyOfferBtn.hide();
+                        $offerQRContainer.hide();
+                    }
+                }
+
+                function updateAnswerDisplay() {
+                    if (enabled && offer) {
+                        $answerSection.show();
+                        $answer.val(answer || '');
+                    } else {
+                        $answerSection.hide();
+                        $answer.val('');
+                    }
+                }
+
+                function updateStatus(msg, type) {
+                    $statusMsg.text(msg);
+                    $statusMsg.css('color', type === 'success' ? '#10b981' : (type === 'error' ? '#ef4444' : '#f59e0b'));
+                }
+
+                // Enable/disable reflector mode
+                $enable.on('change', function() {
+                    enabled = $enable.prop('checked');
+                    reflectorHost = enabled ? reflectorHost?.setup() : reflectorHost?.teardown();
+                    reflectorConfig.enabled = enabled;
+                    window.AnswerIT_Config.setConfig({ reflector: reflectorConfig });
+                    updateOfferDisplay();
+                    updateAnswerDisplay();
+                    updateStatus(enabled ? 'Reflector mode enabled. Waiting for offer...' : 'Reflector mode disabled.', enabled ? 'warning' : 'error');
+                });
+
+                // Copy offer
+                $copyOfferBtn.on('click', function() {
+                    if (offer) {
+                        navigator.clipboard.writeText(offer).then(function() {
+                            $copyOfferBtn.text('Copied!');
+                            setTimeout(function() { $copyOfferBtn.text('Copy Offer'); }, 1200);
+                        });
+                    }
+                });
+
+                // Show QR code
+                $showOfferQRBtn.on('click', function() {
+                    if (offer) {
+                        if ($offerQRContainer.is(':visible')) {
+                            $offerQRContainer.hide();
+                            $offerQRContainer.html('');
+                            $showOfferQRBtn.text('Show QR');
+                        } else {
+                            $offerQRContainer.show();
+                            $offerQRContainer.html('');
+                            QRCode.toCanvas(offer, { width: 180 }, function (err, canvas) {
+                                if (!err) $offerQRContainer.append(canvas);
+                            });
+                            $showOfferQRBtn.text('Hide QR');
+                        }
+                    }
+                });
+
+                // Submit answer
+                $submitAnswerBtn.on('click', function() {
+                    answer = $answer.val().trim();
+                    if (!answer) { updateStatus('Please paste the answer from the reflector device.', 'error'); return; }
+                    reflectorConfig.answer = answer;
+                    window.AnswerIT_Config.setConfig({ reflector: reflectorConfig });
+                    updateStatus('Answer submitted. Connection should complete on host.', 'success');
+                });
+
+                // Open reflector page
+                $gotoReflectorBtn.on('click', function() {
+                    window.open('reflector.html', '_blank');
+                });
+
+                // Initial display
+                updateOfferDisplay();
+                updateAnswerDisplay();
+                updateStatus(enabled ? 'Reflector mode enabled. Waiting for offer...' : 'Reflector mode disabled.', enabled ? 'warning' : 'error');
+
+                // Poll for offer/answer updates from userscript
+                setInterval(function() {
+                    let newConfig = window.AnswerIT_Config?.getConfig()?.reflector;
+                    if (newConfig.offer !== offer) { offer = newConfig.offer || ''; updateOfferDisplay(); }
+                    if (newConfig.answer !== answer) { answer = newConfig.answer || ''; updateAnswerDisplay(); }
+                }, 1000);
+            }
+
             async detectUserscript() {
                 console.log('[ConfigPage] Starting userscript detection...');
                 this.updateDetectionStatus('🔍 Detecting userscript...', '');
-                
+
                 // Method 1: Check if already available
                 if (window.AnswerIT_Config?.getConfig) {
                     console.log('[ConfigPage] Userscript detected immediately');
@@ -217,11 +292,11 @@
                 // Method 2: Wait for custom event
                 const eventListener = (e) => {
                     console.log('[ConfigPage] Userscript detected via event');
-                    window.removeEventListener('AnswerIT_ConfigReady', eventListener);
+                    $(window).off('AnswerIT_ConfigReady', eventListener); // Use jQuery .off()
                     this.updateDetectionStatus('✅ Userscript connected!', 'success');
                     this.onConfigDetected();
                 };
-                window.addEventListener('AnswerIT_ConfigReady', eventListener);
+                $(window).on('AnswerIT_ConfigReady', eventListener); // Use jQuery .on()
 
                 // Method 3: Polling with exponential backoff
                 let attempts = 0;
@@ -230,41 +305,42 @@
                     attempts++;
                     console.log(`[ConfigPage] Polling attempt ${attempts}/${maxAttempts}`);
                     this.updateDetectionStatus(`🔍 Checking for userscript... (${attempts}/${maxAttempts})`, '');
-                    
+
                     if (window.AnswerIT_Config?.getConfig) {
                         console.log('[ConfigPage] Userscript detected via polling');
-                        window.removeEventListener('AnswerIT_ConfigReady', eventListener);
+                        $(window).off('AnswerIT_ConfigReady', eventListener);
                         this.updateDetectionStatus('✅ Userscript connected!', 'success');
                         this.onConfigDetected();
                         return;
                     }
-                    
+
                     if (attempts < maxAttempts) {
                         // Exponential backoff: 100ms, 200ms, 400ms, 800ms, etc.
                         const delay = Math.min(100 * Math.pow(2, attempts - 1), 2000);
                         setTimeout(pollForConfig, delay);
                     } else {
                         console.log('[ConfigPage] Userscript not detected, using fallback');
-                        window.removeEventListener('AnswerIT_ConfigReady', eventListener);
+                        $(window).off('AnswerIT_ConfigReady', eventListener);
                         this.updateDetectionStatus('⚠️ Using local storage mode', 'warning');
                         this.onConfigDetected(); // Load with fallback
                     }
                 };
-                
+
                 // Start polling after a short delay
                 setTimeout(pollForConfig, 100);
             }
 
             updateDetectionStatus(message, type) {
-                const status = document.getElementById('detectionStatus');
-                status.textContent = message;
-                status.className = `detection-status ${type}`;
-                
+                const $status = $('#detectionStatus'); // Use jQuery selector
+                $status.text(message); // Use jQuery .text()
+                $status.attr('class', `detection-status ${type}`); // Use jQuery .attr()
+
                 // Hide status after successful connection
                 if (type === 'success') {
                     setTimeout(() => {
-                        status.style.opacity = '0';
-                        setTimeout(() => status.style.display = 'none', 300);
+                        $status.animate({ opacity: 0 }, 300, () => { // Use jQuery .animate()
+                            $status.hide(); // Use jQuery .hide()
+                        });
                     }, 2000);
                 }
             }
@@ -279,41 +355,43 @@
 
             initTheme() {
                 this.applyTheme(this.currentTheme);
-                const toggle = document.getElementById('themeToggle');
-                toggle.textContent = this.currentTheme === 'light' ? '🌙' : '☀️';
-                toggle.title = `Switch to ${this.currentTheme === 'light' ? 'dark' : 'light'} theme`;
+                const $toggle = $('#themeToggle'); // Use jQuery selector
+                $toggle.text(this.currentTheme === 'light' ? '🌙' : '☀️'); // Use jQuery .text()
+                $toggle.attr('title', `Switch to ${this.currentTheme === 'light' ? 'dark' : 'light'} theme`); // Use jQuery .attr()
             }
 
             initModifierKeys() {
                 const modifierKey = this.isMac ? 'Cmd' : 'Alt';
-                document.getElementById('modifierKey').textContent = modifierKey;
+                $('#modifierKey').text(modifierKey); // Use jQuery .text()
                 // Update hotkey options
-                const hotkeySelect = document.getElementById('hotkey');
-                Array.from(hotkeySelect.options).forEach(option => {
-                    const key = option.value.toUpperCase();
-                    option.textContent = `${modifierKey} + ${key}`;
+                $('#hotkey option').each(function () { // Use jQuery .each()
+                    const $option = $(this);
+                    const key = $option.val().toUpperCase();
+                    $option.text(`${modifierKey} + ${key}`); // Use jQuery .text()
                 });
             }
 
             initEventListeners() {
-                document.getElementById('themeToggle').addEventListener('click', () => this.toggleTheme());
-                document.getElementById('apiForm').addEventListener('submit', (e) => { e.preventDefault(); this.saveApiKey(); });
-                document.getElementById('settingsForm').addEventListener('submit', (e) => { e.preventDefault(); this.saveSettings(); });
-                document.getElementById('testKey').addEventListener('click', (e) => { e.preventDefault(); this.testApiKey(); });
-                document.getElementById('apiKey').addEventListener('input', (e) => this.validateApiKey(e.target.value));
+                $('#themeToggle').on('click', () => this.toggleTheme()); // Use jQuery .on()
+                $('#apiForm').on('submit', (e) => { e.preventDefault(); this.saveApiKey(); }); // Use jQuery .on()
+                $('#settingsForm').on('submit', (e) => { e.preventDefault(); this.saveSettings(); }); // Use jQuery .on()
+                $('#testKey').on('click', (e) => { e.preventDefault(); this.testApiKey(); }); // Use jQuery .on()
+                $('#apiKey').on('input', (e) => this.validateApiKey($(e.target).val())); // Use jQuery .val() and .on()
             }
 
             toggleTheme() {
                 this.currentTheme = this.currentTheme === 'light' ? 'dark' : 'light';
                 this.applyTheme(this.currentTheme);
                 localStorage.setItem('answerIT_pageTheme', this.currentTheme);
-                const toggle = document.getElementById('themeToggle');
-                toggle.textContent = this.currentTheme === 'light' ? '🌙' : '☀️';
-                toggle.title = `Switch to ${this.currentTheme === 'light' ? 'dark' : 'light'} theme`;
+                const $toggle = $('#themeToggle');
+                $toggle.text(this.currentTheme === 'light' ? '🌙' : '☀️');
+                $toggle.attr('title', `Switch to ${this.currentTheme === 'light' ? 'dark' : 'light'} theme`);
             }
 
             applyTheme(theme) {
                 const isDark = theme === 'dark';
+                // Using jQuery to set CSS variables is less direct. Native JS is better for this.
+                // Keeping original for direct CSS variable manipulation.
                 document.documentElement.style.setProperty('--bg', isDark ? '#0f172a' : '#f8fafc');
                 document.documentElement.style.setProperty('--card', isDark ? '#1e293b' : '#ffffff');
                 document.documentElement.style.setProperty('--text', isDark ? '#f1f5f9' : '#1f2937');
@@ -335,26 +413,26 @@
                 }
                 if (config) {
                     if (config.apiKey) {
-                        document.getElementById('apiKey').value = config.apiKey;
+                        $('#apiKey').val(config.apiKey); // Use jQuery .val()
                         this.validateApiKey(config.apiKey);
                         this.showStatus('apiStatus', window.AnswerIT_Config ? 'API key loaded from userscript!' : 'API key loaded from storage!', 'success');
                     }
-                    document.getElementById('hotkey').value = config.hotkey || 'a';
-                    document.getElementById('theme').value = config.theme || 'light';
-                    document.getElementById('autoRun').checked = config.autoRun || false;
+                    $('#hotkey').val(config.hotkey || 'a'); // Use jQuery .val()
+                    $('#theme').val(config.theme || 'light'); // Use jQuery .val()
+                    $('#autoRun').prop('checked', config.autoRun || false); // Use jQuery .prop() for checkboxes
                 }
             }
 
             validateApiKey(key) {
-                const input = document.getElementById('apiKey');
-                if (!key) { input.className = 'form-input'; return false; }
+                const $input = $('#apiKey'); // Use jQuery selector
+                if (!key) { $input.attr('class', 'form-input'); return false; } // Use jQuery .attr()
                 const valid = /^AIza[0-9A-Za-z-_]{35}$/.test(key);
-                input.className = valid ? 'form-input success' : 'form-input error';
+                $input.attr('class', valid ? 'form-input success' : 'form-input error'); // Use jQuery .attr()
                 return valid;
             }
 
             async testApiKey() {
-                const apiKey = document.getElementById('apiKey').value.trim();
+                const apiKey = $('#apiKey').val().trim(); // Use jQuery .val()
                 if (!apiKey) { this.showStatus('apiStatus', 'Please enter an API key first!', 'error'); return; }
                 if (!this.validateApiKey(apiKey)) { this.showStatus('apiStatus', 'API key format invalid', 'warning'); return; }
                 this.showStatus('apiStatus', 'Testing API key...', 'warning');
@@ -367,7 +445,7 @@
             }
 
             async saveApiKey() {
-                const apiKey = document.getElementById('apiKey').value.trim();
+                const apiKey = $('#apiKey').val().trim(); // Use jQuery .val()
                 if (!apiKey) { this.showStatus('apiStatus', 'Please enter an API key!', 'error'); return; }
                 this.setButtonLoading('saveApi', true);
                 try {
@@ -389,9 +467,9 @@
 
             async saveSettings() {
                 const settings = {
-                    hotkey: document.getElementById('hotkey').value,
-                    theme: document.getElementById('theme').value,
-                    autoRun: document.getElementById('autoRun').checked
+                    hotkey: $('#hotkey').val(), // Use jQuery .val()
+                    theme: $('#theme').val(), // Use jQuery .val()
+                    autoRun: $('#autoRun').prop('checked') // Use jQuery .prop()
                 };
                 this.setButtonLoading('saveSettings', true);
                 try {
@@ -411,7 +489,7 @@
             }
 
             renderSites() {
-                const grid = document.getElementById('sitesGrid');
+                const $grid = $('#sitesGrid'); // Use jQuery selector
                 const sites = window.AnswerIT_Config?.supportedSites || [];
                 const fallback = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" rx="8" fill="%23e5e7eb"/><text x="16" y="22" text-anchor="middle" font-size="18" fill="%23667eea" font-family="Arial">🌐</text></svg>';
                 const getDomain = url => {
@@ -425,39 +503,44 @@
                     const faviconUrls = [
                         `https://www.google.com/s2/favicons?domain=${domain}&sz=32`,
                         `https://${domain}/favicon.ico`,
-                        `https://${domain}/favicon.png`
+                        `https://${domain}/favicon.png`,
+                        `https://${domain.replace(/^[^.]+\./, '')}/favicon.ico`,
+                        `https://${domain.replace(/^[^.]+\./, '')}/favicon.png`,
                     ];
                     let favicon = fallback;
                     for (let url of faviconUrls) {
                         try {
                             const res = await fetch(url, { method: 'HEAD', mode: 'no-cors' });
                             if (res.ok || res.type === 'opaque') { favicon = url; break; }
-                        } catch {}
+                        } catch { }
                     }
-                    const card = document.createElement('a');
-                    card.className = 'site-card';
-                    card.href = `https://${site.urls[0]}`;
-                    card.target = '_blank';
-                    card.innerHTML = `<img class="site-favicon" src="${favicon}" alt="${site.name}"><h3>${site.name}</h3>`;
-                    grid.appendChild(card);
+                    // Create element using jQuery
+                    const $card = $('<a>')
+                        .addClass('site-card')
+                        .attr('href', `https://${site.urls[0]}`)
+                        .attr('target', '_blank')
+                        .html(`<img class="site-favicon" src="${favicon}" alt="${site.name}"><h3>${site.name}</h3>`);
+                    $grid.append($card); // Use jQuery .append()
                 }));
             }
 
             setButtonLoading(btnId, loading) {
-                const btn = document.getElementById(btnId);
-                const text = document.getElementById(btnId + 'Text');
-                const spinner = document.getElementById(btnId + 'Spinner');
-                btn.disabled = loading;
-                text.textContent = loading ? 'Saving...' : (btnId === 'saveApi' ? 'Save API Key' : '💾 Save Settings');
-                spinner.style.display = loading ? 'block' : 'none';
+                const $btn = $(`#${btnId}`); // Use jQuery selector
+                const $text = $(`#${btnId}Text`); // Use jQuery selector
+                const $spinner = $(`#${btnId}Spinner`); // Use jQuery selector
+                $btn.prop('disabled', loading); // Use jQuery .prop()
+                $text.text(loading ? 'Saving...' : (btnId === 'saveApi' ? 'Save API Key' : '💾 Save Settings')); // Use jQuery .text()
+                $spinner.css('display', loading ? 'block' : 'none'); // Use jQuery .css()
             }
 
             showStatus(id, message, type) {
-                const el = document.getElementById(id);
-                el.textContent = message;
-                el.className = `status ${type}`;
-                el.style.display = 'flex';
-                if (type === 'success') setTimeout(() => el.style.display = 'none', 5000);
+                const $el = $(`#${id}`); // Use jQuery selector
+                $el.text(message); // Use jQuery .text()
+                $el.attr('class', `status ${type}`); // Use jQuery .attr()
+                $el.css('display', 'flex'); // Use jQuery .css()
+                if (type === 'success') {
+                    setTimeout(() => $el.css('display', 'none'), 5000); // Use jQuery .css()
+                }
             }
 
             getLocalConfig() {
@@ -470,20 +553,13 @@
             }
         }
 
-        // Initialize when DOM is ready
-        document.addEventListener('DOMContentLoaded', () => {
-            console.log('[ConfigPage] DOM loaded, initializing ConfigManager');
-            new ConfigManager();
+        // Initialize when DOM is ready using jQuery's ready function
+        $(function () {
+            console.log('[ConfigPage] DOM loaded via jQuery ready, initializing ConfigManager');
+            const cm = new ConfigManager();
+            cm.reflectorInit();
         });
-
-        // Fallback initialization for when DOMContentLoaded already fired
-        if (document.readyState === 'loading') {
-            // DOM hasn't loaded yet
-        } else {
-            // DOM already loaded
-            console.log('[ConfigPage] DOM already ready, initializing ConfigManager');
-            new ConfigManager();
-        }
     </script>
 </body>
+
 </html>
