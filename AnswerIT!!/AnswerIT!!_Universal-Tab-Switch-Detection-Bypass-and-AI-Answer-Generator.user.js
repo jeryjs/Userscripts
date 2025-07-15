@@ -5,6 +5,7 @@
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match		 https://jeryjs.github.io/Userscripts/AnswerIT!!/*
+// @match		 file:///*/USERSCRIPTS/AnswerIT!!/*
 // @match        https://app.joinsuperset.com/assessments/*
 // @match        https://lms.talentely.com/*/*
 // @match        https://leetcode.com/problems/*
@@ -34,6 +35,7 @@
 		popupState: { visible: false, snapped: 2, window: { x: 0, y: 0, w: 500, h: 800 }, opacity: 1 }, // Default popup state (not visible, snapped to right side)
 		theme: GM_getValue("theme", "light"), // Default theme is 'light'
 		autoRun: false, // Default auto-run to false to avoid wasting api calls
+		reflector: { enabled: false, offer: null, answer: null },
 	};
 
 	// --- Website Configurations ---
@@ -155,6 +157,74 @@
 	let currentWebsite = null;
 	let currentQnIdentifier = null;
 	let lastUsedModel = null;
+
+	const isScriptPage = {
+		get: location.href.includes("/AnswerIT"),
+		configure: location.href.includes("/AnswerIT!!/configure.html"),
+		reflector: location.href.includes("/AnswerIT!!/reflector.html"),
+	}
+	const reflectorHost = {
+		peer: null,
+		dataChannel: null,
+		offer: null,
+		answer: null,
+		setup: function () {
+			this.peer = new RTCPeerConnection();
+			this.dataChannel = this.peer.createDataChannel("reflector");
+			this.dataChannel.onopen = () => console.log("[AnswerIT!! > Reflector] DataChannel open!");
+			this.dataChannel.onclose = () => console.log("[AnswerIT!! > Reflector] DataChannel closed.");
+			this.dataChannel.onerror = (e) => console.error("[AnswerIT!! > Reflector] DataChannel error:", e);
+			this.peer.onicecandidate = (ev) => {
+				if (!ev.candidate && this.peer.localDescription) {
+					this.offer = JSON.stringify(this.peer.localDescription);
+					GM_setValue("reflector", {...config.reflector, offer: this.offer });
+					console.log("[AnswerIT!! > Reflector] Offer generated:", this.offer);
+				}
+			};
+			this.peer.createOffer().then(offer => {
+				this.peer.setLocalDescription(offer);
+			});
+			// --- Watch for answer and set remote description ---
+			this._answerInterval = setInterval(() => {
+				const stored = GM_getValue("reflector", {});
+				if (stored.answer && stored.answer !== this.answer) {
+					this.answer = stored.answer;
+					try {
+						this.peer.setRemoteDescription(new RTCSessionDescription(JSON.parse(this.answer)));
+						console.log("[AnswerIT!! > Reflector] Answer set, connection should complete.");
+						clearInterval(this._answerInterval);
+					} catch (e) {
+						console.error("[AnswerIT!! > Reflector] Failed to set remote description:", e);
+					}
+				}
+			}, 1000);
+			
+			return this;
+		},
+		teardown: function () {
+			if (this.dataChannel) {
+				this.dataChannel.close();
+				this.dataChannel = null;
+			}
+			if (this.peer) {
+				this.peer.close();
+				this.peer = null;
+			}
+			this.offer = null;
+			this.answer = null;
+			if (this._answerInterval) clearInterval(this._answerInterval);
+			GM_setValue("reflector", {...config.reflector, offer: null, answer: null });
+			console.log("[AnswerIT!! > Reflector] Teardown complete.");
+			return this;
+		},
+		broadcast: function (data) {
+			if (this.dataChannel && this.dataChannel.readyState === "open") {
+				this.dataChannel.send(data);
+			} else {
+				console.warn("[AnswerIT!! > Reflector] DataChannel not open, cannot broadcast data.");
+			}
+		}
+	};
 
 	// Model definitions with ranking, subtitles, colors (for light theme), and tooltips
 	const models = [
@@ -883,6 +953,9 @@
 			if (config.popupState.visible) {
 				checkAndUpdateButtonStates();
 			}
+			if (config.reflector.enabled) {
+				broadcastReflector();
+			}
 		}, 200);
 	}
 
@@ -1348,7 +1421,7 @@
 		// --- Get Question Info ---
 		const qElm = getQuestionElement();
 		if (!qElm) {
-			outputTextArea.value = "Error: Question not found on page. This site might not be supported yet.";
+			outputTextArea.value = "Error: Question not found on page. This page might not be supported yet.";
 			stopTimer("Error");
 			updateButtonState(button, 'error'); // Indicate error on button
 			return;
@@ -1609,12 +1682,14 @@
 		console.log("[AnswerIT!!] Exposing configuration to integration page");
 		const obj = {
 			supportedSites: websites,
+			reflectorHost: reflectorHost,
 			getConfig: function () {
 				return {
 					apiKey: GM_getValue("geminiApiKey", ""),
 					hotkey: GM_getValue("hotkey", "a"),
 					theme: GM_getValue("theme", "light"),
-					autoRun: GM_getValue("autoRun", false)
+					autoRun: GM_getValue("autoRun", false),
+					reflector: GM_getValue("reflector", config.reflector),
 				};
 			},
 			setConfig: function (newConfig) {
@@ -1623,17 +1698,35 @@
 				if (typeof newConfig.hotkey === "string") GM_setValue("hotkey", newConfig.hotkey);
 				if (typeof newConfig.theme === "string") GM_setValue("theme", newConfig.theme);
 				if (typeof newConfig.autoRun !== "undefined") GM_setValue("autoRun", !!newConfig.autoRun);
+				if (typeof newConfig.reflector === "object") GM_setValue("reflector", newConfig.reflector);
 			}
 		};
 		window.AnswerIT_Config = obj;
 		unsafeWindow.AnswerIT_Config = obj; // For compatibility with unsafeWindow
 	}
 
+	function broadcastReflector() {
+		// if (isScriptPage.reflector || !config.reflector.enabled || !reflectorHost.dataChannel || reflectorHost.dataChannel.readyState !== "open") return;
+		try {
+			const msg = JSON.stringify({ 
+				config: config,
+				url: location.href,
+				html: getQuestionElement()?.outerHTML,
+			});
+			reflectorHost.broadcast(msg);
+		} catch (e) {
+			console.error("[AnswerIT] Reflector Broadcast error:", e);
+		}
+	}
+
 	function initialize() {
 		// Expose config for integration page
-		if (location.pathname.includes("/Userscripts/AnswerIT!!")) {
+		if (isScriptPage.configure) {
 			exposeConfigToPage();
 		}
+		// reflectorHost.setup();
+		config.reflector = GM_getValue("reflector", config.reflector);
+		broadcastReflector();
 
 		// Run detection bypass
 		setupDetectionBypass();
