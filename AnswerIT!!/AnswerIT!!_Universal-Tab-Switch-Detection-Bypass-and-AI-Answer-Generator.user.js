@@ -290,7 +290,7 @@ function createPopupUI() {
 
 	// Construct the HTML structure for the popup
 	popup.innerHTML = `
-		<div id="ait-popup-header" data-dblclick="controls.toggleSnapping">
+		<div id="ait-popup-header">
 			<h3 id="ait-popup-title">AnswerIT!!</h3>
 			<div id="ait-popup-controls">
 				<button id="ait-opacity-toggle" title="Adjust opacity" data-action="controls.toggleOpacity">◐</button>
@@ -325,7 +325,7 @@ function createPopupUI() {
 	`;
 	// workaround to bypass the CSP to block unsafe-inline on some sites like linkedin-learning
 	popup.querySelectorAll('[data-action]').forEach(e => e.onclick = () => e.dataset.action.split('.').reduce((a, c) => a?.[c], popup)(e));
-	popup.querySelectorAll('[data-dblclick]').forEach(e => e.ondblclick = () => e.dataset.dblclick.split('.').reduce((a, c) => a?.[c], popup)(e));
+	popup.querySelector('#ait-popup-header').ondblclick = () => popup.controls.toggleSnapping();
 
 	// --- Setup Popup Controls ---
 	popup.toggleUi = () => {
@@ -343,8 +343,6 @@ function createPopupUI() {
 		}
 	};
 
-	popup.generateAnswer = handleGenerateAnswer;
-	
 	popup.controls = {
 		toggleTheme: () => {
 			const themeToggle = popup.querySelector("#ait-theme-toggle");
@@ -441,7 +439,7 @@ function createPopupUI() {
 				config.popupState.snapped = 0;
 			}
 			GM_setValue("popupState", config.popupState);
-			popup.updatePopupPosition();
+			popup.updatePosition();
 			detachBtn.title = config.popupState.snapped === 0 ? "Attach to side" : "Detach (float & drag anywhere)";
 			detachBtn.textContent = config.popupState.snapped === 0 ? "🗖" : "🗗";
 		},
@@ -525,39 +523,9 @@ function createPopupUI() {
 	};
 
 	popup.outputArea = popup.querySelector("#ait-output-textarea");
-	popup.outputArea.onselectionchange = function (_) {
-		const insertBtn = popup.querySelector("#ait-insert-button");
-		if (popup.outputArea.selectionStart !== popup.outputArea.selectionEnd) {
-			insertBtn.textContent = "Insert Selection";
-		} else {
-			insertBtn.textContent = "Insert";
-		}
-	};
-
-	document.body.appendChild(popup);
-
-	// --- Populate models grid dynamically ---
-	models.forEach((model) => {
-		popup.querySelector("#ait-models-grid").innerHTML += `
-			<button class="ait-model-button" data-model="${model.name}" title="${model.tooltip}" style="background-color: ${getThemedColor(model.color)};" onclick="Window.aitPopup.generateAnswer('${model.name}');">
-				<div class="ait-model-text-container">
-					<span class="ait-model-name">${model.displayName}</span>
-					<span class="ait-model-subtitle">${model.subtitle}</span>
-				</div>
-				<div class="ait-model-status-container">
-					<span class="ait-model-progress">⠋</span>
-					<div class="ait-model-status-icon" title="Retry generation (ignore cache)" onclick="event.stopPropagation();Window.aitPopup.generateAnswer('${model.name}', true);">
-						<span class="ait-model-success-icon">✔</span>
-						<span class="ait-model-retry-icon">↺</span>
-					</div>
-				</div>
-			</button>
-		`;
-		popup.modelBtn[model.name] = popup.querySelector(`#ait-models-grid .ait-model-button[data-model="${model.name}"]`);
-	});
 
 	// --- Detach/Attach, Drag, and Resize ---
-	function updatePopupPosition() {
+	popup.updatePosition = () => {
 		const p = popup;
 		// Clamp the header to always stay within viewport
 		let s = config.popupState, w = s.window, minW = 300, minH = 400, headerH = 48;
@@ -581,8 +549,7 @@ function createPopupUI() {
 			Object.assign(p.style, { top: '0%', left: leftPx + 'px', right: rightPx + 'px', bottom: 'auto', width: pxW + 'px', height: '100vh', maxHeight: '100vh', minWidth: '300px', resize: 'horizontal' });
 		}
 	}
-	updatePopupPosition();
-	popup.updatePopupPosition = updatePopupPosition; // Expose the function for external calls
+	popup.updatePosition(); // Restore initial position
 
 	// Drag logic (only when detached)
 	let dragX = 0, dragY = 0, dragging = false;
@@ -601,7 +568,7 @@ function createPopupUI() {
 		let pxY = Math.max(0, Math.min(e.clientY - dragY, window.innerHeight - 48));
 		config.popupState.window.x = (pxX / window.innerWidth) * 100;
 		config.popupState.window.y = (pxY / window.innerHeight) * 100;
-		updatePopupPosition();
+		popup.updatePosition();
 	});
 	document.addEventListener("mouseup", () => {
 		if (dragging) {
@@ -622,7 +589,65 @@ function createPopupUI() {
 	});
 
 	// Ensure popup stays attached to edge on window resize
-	window.addEventListener('resize', updatePopupPosition);
+	window.addEventListener('resize', popup.updatePosition);
+
+	// --- Populate models grid dynamically ---
+	models.forEach((model) => {
+		const btn = Object.assign(document.createElement('button'), {innerHTML: `
+			<button class="ait-model-button" data-model="${model.name}" title="${model.tooltip}" style="background-color: ${getThemedColor(model.color)};">
+				<div class="ait-model-text-container">
+					<span class="ait-model-name">${model.displayName}</span>
+					<span class="ait-model-subtitle">${model.subtitle}</span>
+				</div>
+				<div class="ait-model-status-container">
+					<span class="ait-model-progress">⠋</span>
+					<div class="ait-model-status-icon" title="Retry generation (ignore cache)" style="display: none;">
+						<span class="ait-model-success-icon">✔</span>
+						<span class="ait-model-retry-icon">↺</span>
+					</div>
+				</div>
+			</button>
+		`}).firstElementChild;
+		btn.onclick = () => handleGenerateAnswer(model.name);
+		btn.querySelector('.ait-model-status-icon').onclick = (e) => { e.stopPropagation(); handleGenerateAnswer(model.name, true) };
+		btn.updateState = (state, identifier = null) => {
+			const progressSpinner = btn?.querySelector('.ait-model-progress');
+			const statusIcon = btn?.querySelector('.ait-model-status-icon');
+			
+			// Clear previous states
+			btn.classList.remove('loading', 'success', 'error');
+			btn.disabled = false;
+			delete btn.dataset.loadingIdentifier;
+			delete btn.dataset.successIdentifier;
+			progressSpinner.style.display = 'none';
+			statusIcon.style.display = 'none';
+			
+			switch (state) {
+				case 'loading':
+					btn.classList.add('loading');
+					btn.disabled = true;
+					if (identifier) btn.dataset.loadingIdentifier = identifier;
+					progressSpinner.style.display = 'block';
+					break;
+				case 'success':
+					btn.classList.add('success');
+					if (identifier) btn.dataset.successIdentifier = identifier;
+					statusIcon.style.display = 'flex'; // Use flex to align center
+					break;
+				case 'error':
+					btn.classList.add('error'); // Add error class for potential styling
+					// Optionally display an error icon here
+					break;
+				case 'idle':
+					btn.classList.remove('loading', 'success', 'error');
+					btn.disabled = false;
+					break;
+				default: break;
+			}
+		};
+		popup.modelBtn[model.name] = btn;
+		popup.querySelector("#ait-models-grid").appendChild(btn);
+	});
 
 	// --- Events ---
 	// Attach keyboard shortcut handler
@@ -633,6 +658,15 @@ function createPopupUI() {
 			popup.toggleUi();
 		}
 	});
+	// Set insert button text based on selection
+	popup.outputArea.onselectionchange = function (_) {
+		const insertBtn = popup.querySelector("#ait-insert-button");
+		if (popup.outputArea.selectionStart !== popup.outputArea.selectionEnd) {
+			insertBtn.textContent = "Insert Selection";
+		} else {
+			insertBtn.textContent = "Insert";
+		}
+	};
 
 	// Poll for question changes every 200ms to update UI state
 	setInterval(() => {
@@ -643,9 +677,10 @@ function createPopupUI() {
 			broadcastReflector();
 		}
 	}, 200);
-
+	
+	// Update exposed popup reference
 	Window.aitPopup = popup;
-	Window.aitCtl = popup.controls;
+	document.body.appendChild(popup);
 }
 
 function getThemedColor(color) {
@@ -805,16 +840,15 @@ function checkAndUpdateButtonStates() {
 		currentQnIdentifier = newQnIdentifier;
 
 		// --- Update Button States ---
-		const modelButtons = document.querySelectorAll('#ait-answer-popup .ait-model-button');
-		modelButtons.forEach(button => {
+		Object.values(popup.modelBtn).forEach(button => {
 			const modelName = button.getAttribute('data-model');
-			const cacheKey = `gemini-cache-${modelName}-${newQnIdentifier}`;
+			const cacheKey = `${modelName}-${newQnIdentifier}`;
 
 			// Restore button state if it exists
 			if (modelState[cacheKey]?.state) {
-				updateButtonState(button, modelState[cacheKey].state, newQnIdentifier);
+				button.updateState(modelState[cacheKey].state, newQnIdentifier);
 			} else {
-				updateButtonState(button, 'idle');
+				button.updateState('idle');
 			}
 		});
 
@@ -905,12 +939,12 @@ async function handleGenerateAnswer(modelName, forceRetry = false) {
 	if (!qElm) {
 		popup.outputArea.value = "Error: Question not found on page. This page might not be supported yet.";
 		stopTimer("Error");
-		updateButtonState(button, 'error'); // Indicate error on button
+		button.updateState('error'); // Indicate error on button
 		return;
 	}
 	let questionIdentifier = getQuestionIdentifier(qElm);
 	let questionItem = getQuestionItem(qElm);
-	const cacheKey = `gemini-cache-${modelName}-${questionIdentifier}`;
+	const cacheKey = `${modelName}-${questionIdentifier}`;
 
 	// --- Prevent Re-clicking Same Question While Loading ---
 	if (button.classList.contains('loading') && button.dataset.loadingIdentifier === questionIdentifier && !forceRetry) {
@@ -924,14 +958,14 @@ async function handleGenerateAnswer(modelName, forceRetry = false) {
 		popup.outputArea.value = modelState[cacheKey].answer;
 		caption.textContent = `Model: ${modelName} | Cached (original time: ${modelState[cacheKey].time} ms)`;
 		stopTimer("Loaded from cache");
-		updateButtonState(button, modelState[cacheKey].state, questionIdentifier); // Show success even for cache
+		button.updateState(modelState[cacheKey].state, questionIdentifier); // Show success even for cache
 		return;
 	}
 
 	// --- Reset UI and Start Loading State ---
 	popup.outputArea.value = ""; // Clear previous output
 	caption.textContent = "Response metadata will appear here"; // Clear caption
-	updateButtonState(button, 'loading', questionIdentifier);	// update ui immediately
+	button.updateState('loading', questionIdentifier);	// update ui immediately
 	modelState[cacheKey] = { state: 'loading' };
 	startTimer(); // Start the main timer
 
@@ -949,7 +983,7 @@ async function handleGenerateAnswer(modelName, forceRetry = false) {
 			if (!apiKey) {
 				popup.outputArea.value = "API Key is required to use the answer generator. Please follow the instructions to obtain one.";
 				stopTimer("API Key Required");
-				updateButtonState(button, 'error');
+				button.updateState('error');
 				return;
 			}
 			GM_setValue("geminiApiKey", apiKey);
@@ -1006,13 +1040,13 @@ async function handleGenerateAnswer(modelName, forceRetry = false) {
 					if (response.status === 200 && answerText) {
 						modelState[cacheKey] = { answer: answerText, time: timeTaken, state: 'success' };
 						caption.textContent = `Model: ${modelName} | Streamed (${timeTaken} ms)`;
-						updateButtonState(button, 'success', questionIdentifier);
+						button.updateState('success', questionIdentifier);
 						stopTimer("Response received");
 					} else {
 						const warnText = `No content received from ${modelName}: Check console for details.`;
 						popup.outputArea.value = warnText + '\n\n' + `Status: ${response.status}\n\n` + response.responseText;
 						modelState[cacheKey] = { answer: warnText, time: 0, state: 'error' };
-						updateButtonState(button, 'error');
+						button.updateState('error');
 						stopTimer("No content received");
 					}
 					resolve();
@@ -1034,7 +1068,7 @@ async function handleGenerateAnswer(modelName, forceRetry = false) {
 					console.error(errorText);
 					popup.outputArea.value = errorText;
 					modelState[cacheKey] = { answer: errorText, time: 0, state: 'error' };
-					updateButtonState(button, 'error');
+					button.updateState('error');
 					stopTimer("Network Error");
 					reject(new Error(errorText));
 				}
@@ -1045,7 +1079,7 @@ async function handleGenerateAnswer(modelName, forceRetry = false) {
 		console.error(errorMsg, error);
 		popup.outputArea.value = errorMsg;
 		modelState[cacheKey] = { answer: errorMsg, time: 0, state: 'error' };
-		updateButtonState(button, 'error');
+		button.updateState('error');
 		stopTimer("Network Error");
 	}
 }
@@ -1094,8 +1128,8 @@ function resetPopupState() {
 	GM_setValue("popupState", config.popupState);
 	popup.style.opacity = config.popupState.opacity;
 	// If popup exists, update its position
-	if (popup.updatePopupPosition) {
-		popup.updatePopupPosition();
+	if (popup.updatePosition) {
+		popup.updatePosition();
 	}
 }
 
@@ -1108,48 +1142,6 @@ function hashCode(str) {
 		hash |= 0; // Convert to 32bit integer
 	}
 	return hash.toString();
-}
-
-// Helper function to manage button visual states
-function updateButtonState(button, state, identifier = null) {
-	const statusContainer = button.querySelector('.ait-model-status-container');
-	const progressSpinner = statusContainer?.querySelector('.ait-model-progress');
-	const statusIcon = statusContainer?.querySelector('.ait-model-status-icon');
-
-	// Clear previous states
-	button.classList.remove('loading', 'success', 'error');
-	button.disabled = false;
-	delete button.dataset.loadingIdentifier;
-	delete button.dataset.successIdentifier;
-	if (progressSpinner) progressSpinner.style.display = 'none';
-	if (statusIcon) statusIcon.style.display = 'none';
-
-	switch (state) {
-		case 'loading':
-			button.classList.add('loading');
-			button.disabled = true;
-			if (identifier) button.dataset.loadingIdentifier = identifier;
-			if (progressSpinner) progressSpinner.style.display = 'block';
-			break;
-		case 'success':
-			button.classList.add('success');
-			if (identifier) button.dataset.successIdentifier = identifier;
-			if (statusIcon) {
-				statusIcon.style.display = 'flex'; // Use flex to align center
-				// Ensure the identifier is attached for retry logic if needed elsewhere
-				statusIcon.dataset.questionIdentifier = identifier;
-			}
-			break;
-		case 'error':
-			button.classList.add('error'); // Add error class for potential styling
-			// Optionally display an error icon here
-			break;
-		case 'idle':
-			button.classList.remove('loading', 'success', 'error');
-			button.disabled = false;
-			break;
-		default: break;
-	}
 }
 
 
