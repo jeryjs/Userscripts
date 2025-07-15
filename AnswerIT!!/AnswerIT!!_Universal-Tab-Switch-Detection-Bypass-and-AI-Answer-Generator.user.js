@@ -147,10 +147,11 @@ function setupDetectionBypass() {
 
 
 // --- AI Answer Generator Feature ---
+const popup = document.createElement("div");
+Window.aitPopup = popup; // Expose popup globally for easy access
+
 let apiKey;
-const modelCache = {}; // In-memory cache for current session
-const popup = document.createElement("div");;
-const outputTextArea = document.createElement("textarea");
+const modelState = {}; // In-memory cache for current session
 let currentWebsite = null;
 let currentQnIdentifier = null;
 let lastUsedModel = null;
@@ -270,393 +271,14 @@ const models = [
 	},
 ].sort((a, b) => a.rank - b.rank); // Sort by rank (1 = best)
 
-// CSS for popup UI
-GM_addStyle(`
-	:root {
-		--bg-main: #f5f5f5;
-		--bg-header: #f8f9fa;
-		--bg-textarea: #f9f9f9;
-		--bg-insert-button: #e0e0e0;
-		--color-text: #333;
-		--color-subtitle: #555;
-		--color-caption: #555;
-		--color-footer: #777;
-		--border-color: #ddd;
-		--border-header: #e9ecef;
-		--shadow-popup: 0 4px 20px rgba(0, 0, 0, 0.2);
-		--shadow-button: 0 1px 2px rgba(0,0,0,0.05);
-		--shadow-button-hover: 0 3px 5px rgba(0,0,0,0.1);
-		--spinner-color: #555;
-		--success-color: #4CAF50;
-		--retry-color: #ff9800;
-	}
-
-	#ai-answer-popup.dark {
-		--bg-main: #1e1e1e;
-		--bg-header: #252525;
-		--bg-textarea: #2d2d2d;
-		--bg-insert-button: #3a3a3a;
-		--color-text: #e0e0e0;
-		--color-subtitle: #aaa;
-		--color-caption: #aaa;
-		--color-footer: #aaa;
-		--border-color: #444;
-		--border-header: #333;
-		--shadow-popup: 0 4px 20px rgba(0, 0, 0, 0.5);
-		--shadow-button: 0 1px 2px rgba(0,0,0,0.15);
-		--shadow-button-hover: 0 3px 5px rgba(0,0,0,0.3);
-		--spinner-color: #aaa;
-		--success-color: #81C784; /* Lighter green for dark mode */
-		--retry-color: #FFB74D; /* Lighter orange for dark mode */
-	}
-
-	#ai-answer-popup {
-		position: fixed;
-		top: 50%;
-		right: 0px;
-		width: 500px;
-		max-width: 90vw;
-		height: 100vh;
-		background-color: var(--bg-main);
-		border-radius: 8px;
-		box-shadow: var(--shadow-popup);
-		z-index: 9999;
-		display: none;
-		flex-direction: column;
-		overflow: hidden;
-		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-	}
-
-	#ai-answer-popup.visible {
-		display: flex;
-	}
-
-	#ai-popup-header {
-		padding: 12px 15px;
-		background-color: var(--bg-header);
-		border-bottom: 1px solid var(--border-header);
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-	}
-
-	#ai-popup-title {
-		margin: 0;
-		font-size: 18px;
-		font-weight: 600;
-		color: var(--color-text);
-	}
-
-	#ai-popup-controls {
-		display: flex;
-		align-items: center;
-		gap: 5px;
-	}
-
-	#ai-popup-controls > button {
-		background: none;
-		border: none;
-		cursor: pointer;
-		font-size: 20px;
-		color: var(--color-text);
-	}
-
-	#ai-opacity-toggle {
-		transition: all 0.3s ease;
-		position: relative;
-		cursor: grab;
-		width: 24px;
-		height: 24px;
-		border-radius: 12px;
-	}
-	#ai-opacity-toggle.slider {
-		height: 72px;
-		width: 24px;
-		background: var(--border-color);
-		font-size: 0;
-	}
-	#ai-opacity-toggle.slider::after {
-		content: '';
-		position: absolute;
-		width: 20px;
-		height: 20px;
-		background: var(--color-text);
-		border-radius: 50%;
-		left: 2px;
-		top: var(--thumb-top, 2px);
-		transition: top 0.2s ease;
-	}
-
-	#ai-caption {
-		font-size: 0.85em;
-		color: var(--color-caption);
-		margin-bottom: 5px;
-		font-style: italic;
-	}
-
-	#ai-popup-content {
-		padding: 15px;
-		overflow-y: auto;
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		gap: 10px;
-	}
-
-	#ai-models-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 10px;
-		transition: all 0.3s ease;
-	}
-
-	.ai-model-button {
-		width: 100%;
-		text-align: left;
-		border-radius: 6px;
-		border: 1px solid var(--border-color);
-		padding: 10px 12px;
-		cursor: pointer;
-		transition: all 0.2s ease;
-		margin-bottom: 8px;
-		display: flex;
-		align-items: center;
-		box-shadow: var(--shadow-button);
-		position: relative; /* Needed for absolute positioning of icons */
-		justify-content: space-between; /* Push icon container to the right */
-	}
-
-	.ai-model-button:hover {
-		transform: translateY(-2px);
-		box-shadow: var(--shadow-button-hover);
-	}
-
-	.ai-model-text-container {
-		display: flex;
-		flex-direction: column;
-		width: 100%;
-	}
-
-	.ai-model-name {
-		font-weight: 500;
-		font-size: 14px;
-		color: var(--color-text);
-	}
-
-	.ai-model-subtitle {
-		height: 0;
-		overflow: hidden;
-		font-size: 12px;
-		color: var(--color-subtitle);
-		transition: height 0.2s ease, opacity 0.2s ease, margin 0.2s ease;
-		opacity: 0;
-		margin-top: 0;
-	}
-
-	.ai-model-button:hover .ai-model-subtitle {
-		height: auto;
-		opacity: 1;
-		margin-top: 4px;
-	}
-
-	.ai-model-button.loading {
-		cursor: wait;
-		opacity: 0.7;
-	}
-
-	.ai-model-button.success .ai-model-status-icon {
-		display: flex; /* Show the status container */
-	}
-
-	.ai-model-status-container {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 24px; /* Fixed width for alignment */
-		height: 24px;
-		margin-left: 10px; /* Space between text and icon */
-	}
-
-	.ai-model-progress {
-		display: none; /* Hidden by default */
-		width: 18px;
-		height: 18px;
-		border: 2px solid var(--spinner-color);
-		border-top-color: transparent;
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	.ai-model-button.loading .ai-model-progress {
-		display: block; /* Show spinner when loading */
-	}
-
-	.ai-model-status-icon {
-		display: none; /* Hidden by default, shown on success */
-		cursor: pointer;
-		position: relative; /* For hover effect positioning */
-		width: 20px;
-		height: 20px;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.ai-model-success-icon,
-	.ai-model-retry-icon {
-		position: absolute;
-		top: 0;
-		left: 0;
-		width: 100%;
-		height: 100%;
-		transition: opacity 0.2s ease;
-	}
-
-	.ai-model-success-icon {
-		opacity: 1;
-		color: var(--success-color);
-		font-size: 20px; /* Adjust size as needed */
-		line-height: 1;
-	}
-
-	.ai-model-retry-icon {
-		opacity: 0;
-		color: var(--retry-color);
-		font-size: 18px; /* Adjust size as needed */
-		line-height: 1;
-	}
-
-	.ai-model-status-icon:hover .ai-model-success-icon { opacity: 0; }
-	.ai-model-status-icon:hover .ai-model-retry-icon { opacity: 1; }
-
-	@keyframes spin {
-		to { transform: rotate(360deg); }
-	}
-
-	#ai-output-container {
-		margin-top: 10px;
-		display: flex;
-		flex-direction: column;
-		flex-grow: 1;
-		flex-shrink: 1;
-		flex-basis: auto;
-		overflow: auto;
-		margin-top: auto;
-	}
-
-	#ai-output-textarea {
-		width: 100%;
-		height: 100%;
-		padding: 8px;
-		border: 1px solid var(--border-color);
-		border-radius: 4px;
-		font-family: monospace;
-		font-size: 12px;
-		resize: none;
-		min-height: 150px;
-		box-sizing: border-box;
-		background-color: var(--bg-textarea);
-		color: var(--color-text);
-	}
-
-	#ai-custom-prompt-container {
-		margin-top: 15px;
-		margin-bottom: 5px;
-		display: flex;
-		flex-direction: column;
-		opacity: 0.7;
-		transition: opacity 0.3s ease;
-	}
-
-	#ai-custom-prompt-container:hover {
-		opacity: 1;
-	}
-
-	#ai-custom-prompt-label {
-		font-size: 0.85em;
-		color: var(--color-subtitle);
-		margin-bottom: 4px;
-		display: flex;
-		align-items: center;
-		cursor: pointer;
-	}
-
-	#ai-custom-prompt-label::before {
-		content: "▶";
-		font-size: 0.8em;
-		margin-right: 5px;
-		transition: transform 0.3s ease;
-	}
-
-	#ai-custom-prompt-label.expanded::before {
-		transform: rotate(90deg);
-	}
-
-	#ai-custom-prompt {
-		width: 100%;
-		padding: 6px;
-		border: 1px solid var(--border-color);
-		border-radius: 4px;
-		font-family: monospace;
-		font-size: 12px;
-		resize: vertical;
-		min-height: 60px;
-		display: none;
-		background-color: var(--bg-textarea);
-		color: var(--color-text);
-	}
-
-	#ai-custom-prompt.visible {
-		display: block;
-	}
-
-	#ai-timer {
-		font-family: monospace;
-	}
-
-	#ai-popup-footer {
-		padding: 10px 15px;
-		background-color: var(--bg-header);
-		border-top: 1px solid var(--border-header);
-		display: flex;
-		justify-content: space-between;
-		font-size: 0.8em;
-		color: var(--color-footer);
-	}
-
-	#ai-status-text {
-		font-style: italic;
-	}
-
-	#ai-insert-button {
-		position: absolute;
-		top: 5px;
-		right: 5px;
-		background-color: var(--bg-insert-button);
-		border: 1px solid var(--border-color);
-		border-radius: 4px;
-		padding: 2px 8px;
-		font-size: 0.8em;
-		cursor: pointer;
-		opacity: 0.8;
-		transition: opacity 0.3s ease;
-		color: var(--color-text);
-	}
-
-	#ai-insert-button:hover {
-		opacity: 1;
-	}
-
-	#ai-output-container {
-		position: relative;
-	}
-`);
 
 function createPopupUI() {
-	if (document.getElementById("ai-answer-popup")) {
+	if (document.getElementById("ait-answer-popup")) {
 		return; // Popup already exists
 	}
 
-	popup.id = "ai-answer-popup";
+	popup.id = "ait-answer-popup";
+	popup.modelBtn = {}; // Store model buttons for easy access
 
 	// Apply theme class based on config
 	if (config.theme === "dark") {
@@ -666,204 +288,280 @@ function createPopupUI() {
 	// Apply saved opacity
 	popup.style.opacity = config.popupState.opacity;
 
-	// Header section
-	const header = document.createElement("div");
-	header.id = "ai-popup-header";
-	header.ondblclick = toggleSnapping;
+	// Construct the HTML structure for the popup
+	popup.innerHTML = `
+		<div id="ait-popup-header" data-dblclick="controls.toggleSnapping">
+			<h3 id="ait-popup-title">AnswerIT!!</h3>
+			<div id="ait-popup-controls">
+				<button id="ait-opacity-toggle" title="Adjust opacity" data-action="controls.toggleOpacity">◐</button>
+				<button id="ait-theme-toggle" title="${config.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}" data-action="controls.toggleTheme">${config.theme === 'dark' ? '☀️' : '🌙'}</button>
+				<button id="ait-auto-run-toggle" title="${config.autoRun ? 'Disable auto-run (AI will not auto-answer on question change)' : 'Enable auto-run (automatically generate an answer with the last used model when the question changes)'}" data-action="controls.toggleAutoRun">${config.autoRun ? '⏸️' : '▶️'}</button>
+				<button id="ait-popup-detach" title="${config.popupState.snapped === 0 ? 'Attach to side' : 'Detach (float & drag anywhere)'}" data-action="controls.toggleSnapping">${config.popupState.snapped === 0 ? '🗖' : '🗗'}</button>
+				<button id="ait-popup-close" title="Close Popup" data-action="toggleUi">x</button>
+			</div>
+		</div>
 
-	const title = document.createElement("h3");
-	title.id = "ai-popup-title";
-	title.textContent = "AnswerIT!!";
+		<div id="ait-popup-content">
+			<div id="ait-models-grid">
+				<!-- Model buttons will be appended here by JS -->
+			</div>
 
-	// Container for buttons in the header
-	const controls = document.createElement("div");
-	controls.id = "ai-popup-controls";
+			<div id="ait-custom-prompt-container">
+				<label id="ait-custom-prompt-label" data-action="controls.toggleCustomPrompt">Custom Prompt</label>
+				<textarea id="ait-custom-prompt" placeholder="Enter custom instructions here"></textarea>
+			</div>
 
-	// --- Header controls ---
-	const btn = (id, txt, title, onclick) => {
-		let b = document.createElement('button');
-		b.id = id;
-		b.textContent = txt;
-		b.title = title;
-		b.onclick = onclick;
-		return b;
+			<div id="ait-output-container">
+				<div id="ait-caption">Response metadata will appear here</div>
+				<button id="ait-insert-button" data-action="handleInsert">Insert</button>
+				<textarea id="ait-output-textarea" placeholder="AI response will appear here..." readonly></textarea>
+			</div>
+		</div>
+
+		<div id="ait-popup-footer">
+			<span id="ait-status-text">Ready</span>
+			<span id="ait-hotkey-info">Press ${config.hotkeyModifier.toUpperCase()}+${config.hotkey.toUpperCase()} to toggle</span>
+		</div>
+	`;
+	// workaround to bypass the CSP to block unsafe-inline on some sites like linkedin-learning
+	popup.querySelectorAll('[data-action]').forEach(e => e.onclick = () => e.dataset.action.split('.').reduce((a, c) => a?.[c], popup)(e));
+	popup.querySelectorAll('[data-dblclick]').forEach(e => e.ondblclick = () => e.dataset.dblclick.split('.').reduce((a, c) => a?.[c], popup)(e));
+
+	// --- Setup Popup Controls ---
+	popup.toggleUi = () => {
+		if (!document.getElementById("ai-answer-popup")) {
+			createPopupUI();
+		}
+		const isVisible = popup.classList.contains("visible");
+
+		if (isVisible) {
+			popup.classList.remove("visible");
+			config.popupState.visible = false;
+		} else {
+			popup.classList.add("visible");
+			config.popupState.visible = true;
+		}
 	};
-	controls.appendChild(btn(
-		'ai-opacity-toggle',
-		'◐',
-		'Adjust opacity',
-		toggleOpacity
-	));
-	controls.appendChild(btn(
-		'ai-theme-toggle',
-		config.theme === 'dark' ? '☀️' : '🌙',
-		config.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme',
-		toggleTheme
-	));
-	controls.appendChild(btn(
-		'ai-auto-run-toggle',
-		config.autoRun ? '⏸️' : '▶️',
-		config.autoRun ? 'Disable auto-run (AI will not auto-answer on question change)' : 'Enable auto-run (automatically generate an answer with the last used model when the question changes)',
-		toggleAutoRun
-	));
-	controls.appendChild(btn(
-		'ai-popup-detach',
-		config.popupState.snapped === 0 ? '🗖' : '🗗',
-		config.popupState.snapped === 0 ? 'Attach to side' : 'Detach (float & drag anywhere)',
-		toggleSnapping
-	));
-	controls.appendChild(btn('ai-popup-close', 'x', 'Close Popup', togglePopup));
 
-	header.appendChild(title);
-	header.appendChild(controls);
+	popup.generateAnswer = handleGenerateAnswer;
+	
+	popup.controls = {
+		toggleTheme: () => {
+			const themeToggle = popup.querySelector("#ait-theme-toggle");
 
-	// Content section
-	const content = document.createElement("div");
-	content.id = "ai-popup-content";
-
-	// Add model buttons in a two-column grid
-	const modelsGrid = document.createElement("div");
-	modelsGrid.id = "ai-models-grid";
-	models.forEach((model) => {
-		const button = document.createElement("button");
-		button.classList.add("ai-model-button");
-		button.setAttribute("data-model", model.name);
-		button.setAttribute("title", model.tooltip);
-		button.style.backgroundColor = getThemedColor(model.color);
-		button.addEventListener("click", (e) => handleGenerateClick(e, false));
-
-		// Main container for text content
-		const textContainer = document.createElement("div");
-		textContainer.classList.add("ai-model-text-container");
-
-		// Model name with cleaner display
-		const modelNameSpan = document.createElement("span");
-		modelNameSpan.classList.add("ai-model-name");
-		modelNameSpan.textContent = model.displayName;
-
-		// Subtitle hidden by default, shown on hover
-		const subtitle = document.createElement("span");
-		subtitle.classList.add("ai-model-subtitle");
-		subtitle.textContent = model.subtitle;
-
-		textContainer.appendChild(modelNameSpan);
-		textContainer.appendChild(subtitle);
-
-		// Status container (spinner, checkmark, retry)
-		const statusContainer = document.createElement("div");
-		statusContainer.classList.add("ai-model-status-container");
-
-		const progressSpinner = document.createElement("div");
-		progressSpinner.classList.add("ai-model-progress");
-
-		const statusIcon = document.createElement("div");
-		statusIcon.classList.add("ai-model-status-icon");
-		statusIcon.title = "Retry generation (ignore cache)";
-
-		const successIcon = document.createElement("span");
-		successIcon.classList.add("ai-model-success-icon");
-		successIcon.innerHTML = "&#10004;"; // Checkmark character
-
-		const retryIcon = document.createElement("span");
-		retryIcon.classList.add("ai-model-retry-icon");
-		retryIcon.innerHTML = "&#8634;"; // Reload/Retry character
-
-		statusIcon.appendChild(successIcon);
-		statusIcon.appendChild(retryIcon);
-
-		// Add retry listener to the status icon container
-		statusIcon.addEventListener("click", (e) => {
-			e.stopPropagation(); // Prevent button's main click handler
-			e.preventDefault(); // Prevent any default action
-			// Find the parent button to pass to handleGenerateClick
-			const parentButton = e.currentTarget.closest('.ai-model-button');
-			if (parentButton) {
-				// Simulate the necessary parts of the event or pass the button directly
-				handleGenerateClick({ currentTarget: parentButton }, true); // Pass retry flag
+			if (config.theme === "light") {
+				config.theme = "dark";
+				popup.classList.add("dark");
+				themeToggle.textContent = "☀️";
+				themeToggle.title = "Switch to light theme";
+			} else {
+				config.theme = "light";
+				popup.classList.remove("dark");
+				themeToggle.textContent = "🌙";
+				themeToggle.title = "Switch to dark theme";
 			}
-		});
 
-		statusContainer.appendChild(progressSpinner);
-		statusContainer.appendChild(statusIcon);
+			// Save the theme preference
+			GM_setValue("theme", config.theme);
 
-		button.appendChild(textContainer);
-		button.appendChild(statusContainer);
+			// Update model button colors immediately
+			const modelButtons = popup.getElementsByClassName("ait-model-button");
+			models.forEach((model, index) => {
+				if (modelButtons[index]) {
+					modelButtons[index].style.backgroundColor = getThemedColor(model.color);
+				}
+			});
+		},
+		toggleOpacity: () => {
+			const opacityBtn = popup.querySelector("#ait-opacity-toggle");
 
-		modelsGrid.appendChild(button);
-	});
-	content.appendChild(modelsGrid);
+			if (opacityBtn.classList.contains('slider')) {
+				// Close slider
+				opacityBtn.classList.remove('slider');
+				opacityBtn.textContent = '◐';
+				opacityBtn.onclick = popup.controls.toggleOpacity;
+				document.removeEventListener('click', closeOpacitySlider, true);
+			} else {
+				// Open slider
+				const currentOpacity = config.popupState.opacity || 1;
+				opacityBtn.classList.add('slider');
+				opacityBtn.textContent = '';
+				opacityBtn.style.setProperty('--thumb-pos', `${2 + (1 - currentOpacity) * 48 / 0.7}px`);
+				opacityBtn.style.setProperty('--thumb-top', `var(--thumb-pos)`);
 
-	// Custom prompt container
-	const customPromptContainer = document.createElement("div");
-	customPromptContainer.id = "ai-custom-prompt-container";
+				// Add slider interaction
+				const handleSlider = (e) => {
+					e.stopPropagation();
+					const rect = opacityBtn.getBoundingClientRect();
+					const y = Math.max(2, Math.min(50, e.clientY - rect.top));
+					const opacity = 1 - ((y - 2) * 0.95 / 48); // 0.95 = 1 - 0.05 (min 5%)
+					config.popupState.opacity = Math.max(0.05, opacity);
+					popup.style.opacity = config.popupState.opacity;
+					opacityBtn.style.setProperty('--thumb-pos', `${y}px`);
+					GM_setValue("popupState", config.popupState);
+				};
 
-	const customPromptLabel = document.createElement("label");
-	customPromptLabel.id = "ai-custom-prompt-label";
-	customPromptLabel.textContent = "Custom Prompt";
-	customPromptLabel.addEventListener("click", toggleCustomPrompt);
+				opacityBtn.onmousedown = (e) => {
+					handleSlider(e);
+					document.onmousemove = handleSlider;
+					document.onmouseup = () => {
+						document.onmousemove = null;
+						document.onmouseup = null;
+					};
+				};
 
-	const customPromptArea = document.createElement("textarea");
-	customPromptArea.id = "ai-custom-prompt";
-	customPromptArea.placeholder = "Enter custom instructions here (discouraged)";
+				// Close on outside click
+				setTimeout(() => document.addEventListener('click', closeOpacitySlider, true), 100);
+			}
 
-	customPromptContainer.appendChild(customPromptLabel);
-	customPromptContainer.appendChild(customPromptArea);
-	content.appendChild(customPromptContainer);
+			function closeOpacitySlider(e) {
+				if (!e.target.closest('#ait-opacity-toggle')) {
+					popup.controls.toggleOpacity();
+					document.removeEventListener('click', closeOpacitySlider, true);
+				}
+			}
+		},
+		toggleAutoRun: () => {
+			const autoRunToggle = popup.querySelector("#ait-auto-run-toggle");
+			config.autoRun = !config.autoRun;
+			GM_setValue("autoRun", config.autoRun);
+			autoRunToggle.textContent = config.autoRun ? "⏸️" : "▶️";
+			autoRunToggle.title = config.autoRun
+				? "Disable auto-run (AI will not auto-answer on question change)"
+				: "Enable auto-run (automatically generate an answer with the last used model when the question changes)";
+		},
+		toggleSnapping: () => {
+			const detachBtn = popup.querySelector("#ait-popup-detach");
+			if (config.popupState.snapped === 0) {
+				// Snap to whichever side is closer to the edge
+				const rect = popup.getBoundingClientRect();
+				const centerX = rect.left + rect.width / 2;
+				config.popupState.snapped = (centerX < window.innerWidth / 2) ? 1 : 2; // 1=left, 2=right
+			} else {
+				config.popupState.snapped = 0;
+			}
+			GM_setValue("popupState", config.popupState);
+			popup.updatePopupPosition();
+			detachBtn.title = config.popupState.snapped === 0 ? "Attach to side" : "Detach (float & drag anywhere)";
+			detachBtn.textContent = config.popupState.snapped === 0 ? "🗖" : "🗗";
+		},
+		toggleCustomPrompt: () => {
+			const label = popup.querySelector("#ait-custom-prompt-label");
+			const textarea = popup.querySelector("#ait-custom-prompt");
 
-	// Output container
-	const outputContainer = document.createElement("div");
-	outputContainer.id = "ai-output-container";
+			label.classList.toggle("expanded");
+			textarea.classList.toggle("visible");
 
-	const caption = document.createElement("div");
-	caption.id = "ai-caption";
-	caption.textContent = "Response metadata will appear here";
+			if (textarea.classList.contains("visible")) textarea.focus();
+		}
+	};
 
-	const insertButton = document.createElement("button");
-	insertButton.id = "ai-insert-button";
-	insertButton.textContent = "Insert";
-	insertButton.addEventListener("click", handleInsertClick);
+	popup.handleInsert = () => {
+		const btn = popup.querySelector("#ait-insert-button");
+		const originalBtn = btn.innerHTML;
+		const text = popup.outputArea.value.substring(popup.outputArea.selectionStart, popup.outputArea.selectionEnd) || popup.outputArea.value;
 
-	outputTextArea.id = "ai-output-textarea";
-	outputTextArea.placeholder = "AI Response will appear here...";
-	outputTextArea.readOnly = true;
+		// Add a global style to force crosshair cursor everywhere
+		const cursorStyleId = "ait-insert-crosshair-style";
+		let cursorStyle = document.getElementById(cursorStyleId);
+		if (!cursorStyle) {
+			cursorStyle = document.createElement("style");
+			cursorStyle.id = cursorStyleId;
+			cursorStyle.textContent = `* { cursor: crosshair !important; }`;
+			document.head.appendChild(cursorStyle);
+		}
 
-	outputContainer.appendChild(caption);
-	outputContainer.appendChild(insertButton);
-	outputContainer.appendChild(outputTextArea);
-	content.appendChild(outputContainer);
+		btn.innerHTML = "Click a field to insert.";
 
-	// Footer section
-	const footer = document.createElement("div");
-	footer.id = "ai-popup-footer";
+		function cleanup() {
+			// Remove the global crosshair cursor style
+			if (cursorStyle && cursorStyle.parentNode) {
+				cursorStyle.parentNode.removeChild(cursorStyle);
+			}
+			document.removeEventListener("click", onClick, true);
+			btn.innerHTML = originalBtn; // Restore original button
+		}
 
-	const statusText = document.createElement("span");
-	statusText.id = "ai-status-text";
-	statusText.textContent = "Ready";
+		async function onClick(ev) {
+			if (document.getElementById("ait-answer-popup")?.contains(ev.target)) return;
 
-	const timerSpan = document.createElement("span");
-	timerSpan.id = "ai-timer";
-	timerSpan.style.display = "none";
+			let focusedEl = document.activeElement;
+			if (focusedEl.id == "ait-insert-button") {
+				await new Promise(resolve => setTimeout(resolve, 500)); // Wait for any focus change
+				focusedEl = document.activeElement; // Re-check focused element
+			}
+			if (!focusedEl) return;
+			cleanup();
 
-	const hotkeyInfo = document.createElement("span");
-	hotkeyInfo.textContent = `Press ${config.hotkeyModifier.toUpperCase()}+${config.hotkey.toUpperCase()} to toggle`;
+			// Check if it's an ACE editor (like leetcode or talentely)
+			const aceContainer = focusedEl.closest('.ace_editor');
+			if (aceContainer && (window.ace || ace)) {
+				btn.innerHTML = `Inserting... This may take a few seconds.`;
+				let editor = (window.ace || ace).edit(aceContainer);
+				// workaround for some editors that block pasting
+				for (let i = 0; i < text.length; i += 15) editor.insert(text.slice(i, i + 15));
+			}
+			// Try setting value directly if possible
+			else if ("value" in focusedEl) {
+				focusedEl.value += text;
+				focusedEl.dispatchEvent(new Event('input', { bubbles: true })); // Trigger input event
+			}
+			// Otherwise, simulate key presses
+			else {
+				text.split('').forEach(async char => {
+					btn.innerHTML = `Typing: ${char}`;
+					focusedEl.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }));
+					focusedEl.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }));
+					focusedEl.dispatchEvent(new InputEvent('input', { data: char, inputType: 'insertText', bubbles: true }));
+					focusedEl.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }));
+					await new Promise(r => setTimeout(r, 15 + Math.random() * 40)); // Simulate typing delay
+				});
+			}
 
-	footer.appendChild(statusText);
-	footer.appendChild(timerSpan);
-	footer.appendChild(hotkeyInfo);
+			cleanup();
+		}
 
-	// Assemble popup
-	popup.appendChild(header);
-	popup.appendChild(content);
-	popup.appendChild(footer);
+		document.addEventListener("click", onClick, true);
+	};
+
+	popup.outputArea = popup.querySelector("#ait-output-textarea");
+	popup.outputArea.onselectionchange = function (_) {
+		const insertBtn = popup.querySelector("#ait-insert-button");
+		if (popup.outputArea.selectionStart !== popup.outputArea.selectionEnd) {
+			insertBtn.textContent = "Insert Selection";
+		} else {
+			insertBtn.textContent = "Insert";
+		}
+	};
 
 	document.body.appendChild(popup);
+
+	// --- Populate models grid dynamically ---
+	models.forEach((model) => {
+		popup.querySelector("#ait-models-grid").innerHTML += `
+			<button class="ait-model-button" data-model="${model.name}" title="${model.tooltip}" style="background-color: ${getThemedColor(model.color)};" onclick="Window.aitPopup.generateAnswer('${model.name}');">
+				<div class="ait-model-text-container">
+					<span class="ait-model-name">${model.displayName}</span>
+					<span class="ait-model-subtitle">${model.subtitle}</span>
+				</div>
+				<div class="ait-model-status-container">
+					<span class="ait-model-progress">⠋</span>
+					<div class="ait-model-status-icon" title="Retry generation (ignore cache)" onclick="event.stopPropagation();Window.aitPopup.generateAnswer('${model.name}', true);">
+						<span class="ait-model-success-icon">✔</span>
+						<span class="ait-model-retry-icon">↺</span>
+					</div>
+				</div>
+			</button>
+		`;
+		popup.modelBtn[model.name] = popup.querySelector(`#ait-models-grid .ait-model-button[data-model="${model.name}"]`);
+	});
 
 	// --- Detach/Attach, Drag, and Resize ---
 	function updatePopupPosition() {
 		const p = popup;
 		// Clamp the header to always stay within viewport
 		let s = config.popupState, w = s.window, minW = 300, minH = 400, headerH = 48;
-		header.style.cursor = s.snapped == 0 ? "move" : "default";
+		(popup.querySelector("#ait-popup-header")).style.cursor = s.snapped == 0 ? "move" : "default";
 		if (s.snapped === 0) {
 			// Convert percentage to pixels for x and y
 			let pxW = Math.max(minW, w.w), pxH = Math.max(minH, w.h);
@@ -889,7 +587,7 @@ function createPopupUI() {
 	// Drag logic (only when detached)
 	let dragX = 0, dragY = 0, dragging = false;
 	const popupTransition = 'left 0.25s ease-in, right 0.25s ease-in, top 0.25s ease-in, width 0.25s ease-in, height 0.25s ease-in, transform 0.25s ease-in';
-	header.addEventListener("mousedown", e => {
+	popup.querySelector("#ait-popup-header").addEventListener("mousedown", e => {
 		if (config.popupState.snapped !== 0) return;
 		dragging = true;
 		dragX = e.clientX - popup.offsetLeft;
@@ -932,18 +630,9 @@ function createPopupUI() {
 		// Check if Alt+[configured key] is pressed using event.code for better compatibility
 		if (event.altKey && event.code.toLowerCase() === `key${config.hotkey.toLowerCase()}`) {
 			event.preventDefault();
-			togglePopup();
+			popup.toggleUi();
 		}
 	});
-
-	// Change insert button text based on selection state
-	outputTextArea.onselectionchange = function (_) {
-		if (outputTextArea.selectionStart !== outputTextArea.selectionEnd) {
-			insertButton.textContent = "Insert Selection";
-		} else {
-			insertButton.textContent = "Insert";
-		}
-	};
 
 	// Poll for question changes every 200ms to update UI state
 	setInterval(() => {
@@ -954,23 +643,9 @@ function createPopupUI() {
 			broadcastReflector();
 		}
 	}, 200);
-}
 
-function togglePopup() {
-	if (!document.getElementById("ai-answer-popup")) {
-		createPopupUI();
-	}
-
-	const popup = document.getElementById("ai-answer-popup");
-	const isVisible = popup.classList.contains("visible");
-
-	if (isVisible) {
-		popup.classList.remove("visible");
-		config.popupState.visible = false;
-	} else {
-		popup.classList.add("visible");
-		config.popupState.visible = true;
-	}
+	Window.aitPopup = popup;
+	Window.aitCtl = popup.controls;
 }
 
 function getThemedColor(color) {
@@ -982,130 +657,11 @@ function getThemedColor(color) {
 	return "#" + ((1 << 24) | (d(r) << 16) | (d(g) << 8) | d(b)).toString(16).slice(1);
 }
 
-function toggleCustomPrompt() {
-	const label = document.getElementById("ai-custom-prompt-label");
-	const textarea = document.getElementById("ai-custom-prompt");
-
-	label.classList.toggle("expanded");
-	textarea.classList.toggle("visible");
-
-	if (textarea.classList.contains("visible")) {
-		textarea.focus();
-	}
-}
-
-function toggleOpacity() {
-	const popup = document.getElementById("ai-answer-popup");
-	const opacityBtn = document.getElementById("ai-opacity-toggle");
-
-	if (opacityBtn.classList.contains('slider')) {
-		// Close slider
-		opacityBtn.classList.remove('slider');
-		opacityBtn.textContent = '◐';
-		opacityBtn.onclick = toggleOpacity;
-		document.removeEventListener('click', closeOpacitySlider, true);
-	} else {
-		// Open slider
-		const currentOpacity = config.popupState.opacity || 1;
-		opacityBtn.classList.add('slider');
-		opacityBtn.textContent = '';
-		opacityBtn.style.setProperty('--thumb-pos', `${2 + (1 - currentOpacity) * 48 / 0.7}px`);
-		opacityBtn.style.setProperty('--thumb-top', `var(--thumb-pos)`);
-
-		// Add slider interaction
-		const handleSlider = (e) => {
-			e.stopPropagation();
-			const rect = opacityBtn.getBoundingClientRect();
-			const y = Math.max(2, Math.min(50, e.clientY - rect.top));
-			const opacity = 1 - ((y - 2) * 0.95 / 48); // 0.95 = 1 - 0.05 (min 5%)
-			config.popupState.opacity = Math.max(0.05, opacity);
-			popup.style.opacity = config.popupState.opacity;
-			opacityBtn.style.setProperty('--thumb-pos', `${y}px`);
-			GM_setValue("popupState", config.popupState);
-		};
-
-		opacityBtn.onmousedown = (e) => {
-			handleSlider(e);
-			document.onmousemove = handleSlider;
-			document.onmouseup = () => {
-				document.onmousemove = null;
-				document.onmouseup = null;
-			};
-		};
-
-		// Close on outside click
-		setTimeout(() => document.addEventListener('click', closeOpacitySlider, true), 10);
-	}
-
-	function closeOpacitySlider(e) {
-		if (!e.target.closest('#ai-opacity-toggle')) {
-			toggleOpacity();
-			document.removeEventListener('click', closeOpacitySlider, true);
-		}
-	}
-}
-
-function toggleTheme() {
-	const popup = document.getElementById("ai-answer-popup");
-	const themeToggle = document.getElementById("ai-theme-toggle");
-
-	if (config.theme === "light") {
-		config.theme = "dark";
-		popup.classList.add("dark");
-		themeToggle.textContent = "☀️";
-		themeToggle.title = "Switch to light theme";
-	} else {
-		config.theme = "light";
-		popup.classList.remove("dark");
-		themeToggle.textContent = "🌙";
-		themeToggle.title = "Switch to dark theme";
-	}
-
-	// Save the theme preference
-	GM_setValue("theme", config.theme);
-
-	// Update model button colors immediately
-	const modelButtons = popup.querySelectorAll(".ai-model-button");
-	models.forEach((model, index) => {
-		if (modelButtons[index]) {
-			modelButtons[index].style.backgroundColor = getThemedColor(model.color);
-		}
-	});
-}
-
-function toggleAutoRun(e) {
-	const autoRunToggle = e.currentTarget;
-	config.autoRun = !config.autoRun;
-	GM_setValue("autoRun", config.autoRun);
-	autoRunToggle.textContent = config.autoRun ? "⏸️" : "▶️";
-	autoRunToggle.title = config.autoRun
-		? "Disable auto-run (AI will not auto-answer on question change)"
-		: "Enable auto-run (automatically generate an answer with the last used model when the question changes)";
-}
-
-function toggleSnapping() {
-	const popup = document.getElementById("ai-answer-popup");
-	if (!popup) return;
-	const detachBtn = popup.querySelector("#ai-popup-detach");
-	if (config.popupState.snapped === 0) {
-		// Snap to whichever side is closer to the edge
-		const rect = popup.getBoundingClientRect();
-		const centerX = rect.left + rect.width / 2;
-		config.popupState.snapped = (centerX < window.innerWidth / 2) ? 1 : 2; // 1=left, 2=right
-	} else {
-		config.popupState.snapped = 0;
-	}
-	GM_setValue("popupState", config.popupState);
-	popup.updatePopupPosition();
-	detachBtn.title = config.popupState.snapped === 0 ? "Attach to side" : "Detach (float & drag anywhere)";
-	detachBtn.textContent = config.popupState.snapped === 0 ? "🗖" : "🗗";
-}
-
 let timerInterval = null;
 let startTimestamp = 0;
 
 function startTimer() {
-	const statusText = document.getElementById("ai-status-text");
+	const statusText = document.getElementById("ait-status-text");
 
 	if (statusText) {
 		startTimestamp = Date.now();
@@ -1125,7 +681,7 @@ function startTimer() {
 }
 
 function stopTimer(status = "Ready") {
-	const statusText = document.getElementById("ai-status-text");
+	const statusText = document.getElementById("ait-status-text");
 
 	clearInterval(timerInterval);
 
@@ -1221,7 +777,7 @@ function getQuestionElement() {
 }
 
 function updateStatusWithFoundElement(element) {
-	const statusText = document.getElementById("ai-status-text");
+	const statusText = document.getElementById("ait-status-text");
 	if (statusText) {
 		// Create a simplified identifier for the element
 		let elementId = "";
@@ -1249,22 +805,22 @@ function checkAndUpdateButtonStates() {
 		currentQnIdentifier = newQnIdentifier;
 
 		// --- Update Button States ---
-		const modelButtons = document.querySelectorAll('#ai-answer-popup .ai-model-button');
+		const modelButtons = document.querySelectorAll('#ait-answer-popup .ait-model-button');
 		modelButtons.forEach(button => {
 			const modelName = button.getAttribute('data-model');
 			const cacheKey = `gemini-cache-${modelName}-${newQnIdentifier}`;
 
 			// Restore button state if it exists
-			if (modelCache[cacheKey]?.state) {
-				updateButtonState(button, modelCache[cacheKey].state, newQnIdentifier);
+			if (modelState[cacheKey]?.state) {
+				updateButtonState(button, modelState[cacheKey].state, newQnIdentifier);
 			} else {
 				updateButtonState(button, 'idle');
 			}
 		});
 
 		// clear the output text area and caption
-		outputTextArea.value = ""; // Clear previous output
-		const caption = document.getElementById("ai-caption");
+		popup.outputArea.value = ""; // Clear previous output
+		const caption = document.getElementById("ait-caption");
 		caption.textContent = "Response metadata will appear here";
 
 		// --- Auto-run logic ---
@@ -1274,9 +830,7 @@ function checkAndUpdateButtonStates() {
 				const checkQnElm = getQuestionElement();
 				const checkQnId = checkQnElm ? getQuestionIdentifier(checkQnElm) : null;
 				if (checkQnId === newQnIdentifier) {
-					// Find the last used model button and simulate click
-					const btn = document.querySelector(`.ai-model-button[data-model="${lastUsedModel.name}"]`);
-					if (btn) handleGenerateClick({ currentTarget: btn }, false);
+					handleGenerateAnswer(lastUsedModel.name, false);
 				}
 			}, 700); // Short delay to ensure question is stable
 		}
@@ -1339,86 +893,17 @@ async function buildContentParts(questionItem) {
 	return contentParts;
 }
 
-async function handleInsertClick(e) {
-	const btn = e.currentTarget;
-	const originalBtn = btn.innerHTML;
-	const text = outputTextArea.value.substring(outputTextArea.selectionStart, outputTextArea.selectionEnd) || outputTextArea.value;
-
-	// Add a global style to force crosshair cursor everywhere
-	const cursorStyleId = "ai-insert-crosshair-style";
-	let cursorStyle = document.getElementById(cursorStyleId);
-	if (!cursorStyle) {
-		cursorStyle = document.createElement("style");
-		cursorStyle.id = cursorStyleId;
-		cursorStyle.textContent = `* { cursor: crosshair !important; }`;
-		document.head.appendChild(cursorStyle);
-	}
-
-	btn.innerHTML = "Click a field to insert.";
-
-	function cleanup() {
-		// Remove the global crosshair cursor style
-		if (cursorStyle && cursorStyle.parentNode) {
-			cursorStyle.parentNode.removeChild(cursorStyle);
-		}
-		document.removeEventListener("click", onClick, true);
-		btn.innerHTML = originalBtn; // Restore original button
-	}
-
-	async function onClick(ev) {
-		if (document.getElementById("ai-answer-popup")?.contains(ev.target)) return;
-
-		let focusedEl = document.activeElement;
-		if (focusedEl.id == "ai-insert-button") {
-			await new Promise(resolve => setTimeout(resolve, 500)); // Wait for any focus change
-			focusedEl = document.activeElement; // Re-check focused element
-		}
-		if (!focusedEl) return;
-		cleanup();
-
-		// Check if it's an ACE editor (like leetcode or talentely)
-		const aceContainer = focusedEl.closest('.ace_editor');
-		if (aceContainer && (window.ace || ace)) {
-			btn.innerHTML = `Inserting... This may take a few seconds.`;
-			let editor = (window.ace || ace).edit(aceContainer);
-			// workaround for some editors that block pasting
-			for (let i = 0; i < text.length; i += 15) editor.insert(text.slice(i, i + 15));
-		}
-		// Try setting value directly if possible
-		else if ("value" in focusedEl) {
-			focusedEl.value += text;
-			focusedEl.dispatchEvent(new Event('input', { bubbles: true })); // Trigger input event
-		}
-		// Otherwise, simulate key presses
-		else {
-			text.split('').forEach(async char => {
-				btn.innerHTML = `Typing: ${char}`;
-				focusedEl.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }));
-				focusedEl.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }));
-				focusedEl.dispatchEvent(new InputEvent('input', { data: char, inputType: 'insertText', bubbles: true }));
-				focusedEl.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }));
-				await new Promise(r => setTimeout(r, 15 + Math.random() * 40)); // Simulate typing delay
-			});
-		}
-
-		cleanup();
-	}
-
-	document.addEventListener("click", onClick, true);
-}
-
-async function handleGenerateClick(event, forceRetry = false) {
-	const button = event.currentTarget;
-	const modelName = button.getAttribute("data-model");
+async function handleGenerateAnswer(modelName, forceRetry = false) {
+	const button = popup.modelBtn[modelName];
 	const model = models.find(m => m.name === modelName);
-	const caption = document.getElementById("ai-caption");
+	const caption = popup.querySelector("#ait-caption");
 
-	lastUsedModel = model; // Track last used model for auto-run
+	lastUsedModel = model;
 
 	// --- Get Question Info ---
 	const qElm = getQuestionElement();
 	if (!qElm) {
-		outputTextArea.value = "Error: Question not found on page. This page might not be supported yet.";
+		popup.outputArea.value = "Error: Question not found on page. This page might not be supported yet.";
 		stopTimer("Error");
 		updateButtonState(button, 'error'); // Indicate error on button
 		return;
@@ -1432,26 +917,26 @@ async function handleGenerateClick(event, forceRetry = false) {
 		console.log(`[AnswerIT!!] Still generating for ${modelName} and this question.`);
 		return; // Already processing this specific question
 	}
-
+	
 	// --- Cache Check (Bypass if forceRetry is true) ---
-	if (!forceRetry && modelCache[cacheKey]?.state === 'success') {
+	if (!forceRetry && modelState[cacheKey]?.state === 'success') {
 		console.log(`[AnswerIT!!] Cache hit for ${modelName}.`);
-		outputTextArea.value = modelCache[cacheKey].answer;
-		caption.textContent = `Model: ${modelName} | Cached (original time: ${modelCache[cacheKey].time} ms)`;
+		popup.outputArea.value = modelState[cacheKey].answer;
+		caption.textContent = `Model: ${modelName} | Cached (original time: ${modelState[cacheKey].time} ms)`;
 		stopTimer("Loaded from cache");
-		updateButtonState(button, modelCache[cacheKey].state, questionIdentifier); // Show success even for cache
+		updateButtonState(button, modelState[cacheKey].state, questionIdentifier); // Show success even for cache
 		return;
 	}
 
 	// --- Reset UI and Start Loading State ---
-	outputTextArea.value = ""; // Clear previous output
+	popup.outputArea.value = ""; // Clear previous output
 	caption.textContent = "Response metadata will appear here"; // Clear caption
 	updateButtonState(button, 'loading', questionIdentifier);	// update ui immediately
-	modelCache[cacheKey] = { state: 'loading' };
+	modelState[cacheKey] = { state: 'loading' };
 	startTimer(); // Start the main timer
 
 	// --- Add Custom Prompt ---
-	const customPromptArea = document.getElementById("ai-custom-prompt");
+	const customPromptArea = document.getElementById("ait-custom-prompt");
 	if (customPromptArea && customPromptArea.value.trim()) {
 		questionItem += `\n\n\nuser-prompt:[${customPromptArea.value.trim()}]`;
 	}
@@ -1462,7 +947,7 @@ async function handleGenerateClick(event, forceRetry = false) {
 		if (!apiKey) {
 			apiKey = getApiKey();
 			if (!apiKey) {
-				outputTextArea.value = "API Key is required to use the answer generator. Please follow the instructions to obtain one.";
+				popup.outputArea.value = "API Key is required to use the answer generator. Please follow the instructions to obtain one.";
 				stopTimer("API Key Required");
 				updateButtonState(button, 'error');
 				return;
@@ -1472,7 +957,7 @@ async function handleGenerateClick(event, forceRetry = false) {
 	}
 
 	// --- API Call ---
-	outputTextArea.value = `Generating response with ${modelName}...`;
+	popup.outputArea.value = `Generating response with ${modelName}...`;
 	const startTime = Date.now();
 
 	// Build content: handle <img> tags as inline_data, else just text
@@ -1484,7 +969,7 @@ async function handleGenerateClick(event, forceRetry = false) {
 			const thisQuestionId = questionIdentifier || "unknown";
 			let answerText = "";
 			let processedLength = 0;
-			outputTextArea.value = "";
+			popup.outputArea.value = "";
 
 			GM.xmlHttpRequest({
 				method: "POST",
@@ -1506,10 +991,10 @@ async function handleGenerateClick(event, forceRetry = false) {
 								const newText = JSON.parse(line.slice(6)).candidates?.[0]?.content?.parts?.[0]?.text;
 								answerText += newText;
 								if (newText && lastUsedModel == model && thisQuestionId === currentQnIdentifier) {
-									outputTextArea.value = answerText;
+									popup.outputArea.value = answerText;
 									// Auto-scroll if current scroll position is near the bottom (within 200px)
-									if (outputTextArea.scrollTop >= outputTextArea.scrollHeight - outputTextArea.clientHeight - 200)
-										outputTextArea.scrollTop = outputTextArea.scrollHeight;
+									if (popup.outputArea.scrollTop >= popup.outputArea.scrollHeight - popup.outputArea.clientHeight - 200)
+										popup.outputArea.scrollTop = popup.outputArea.scrollHeight;
 								}
 							}
 						});
@@ -1519,14 +1004,14 @@ async function handleGenerateClick(event, forceRetry = false) {
 				onload: (response) => {
 					const timeTaken = Date.now() - startTime;
 					if (response.status === 200 && answerText) {
-						modelCache[cacheKey] = { answer: answerText, time: timeTaken, state: 'success' };
+						modelState[cacheKey] = { answer: answerText, time: timeTaken, state: 'success' };
 						caption.textContent = `Model: ${modelName} | Streamed (${timeTaken} ms)`;
 						updateButtonState(button, 'success', questionIdentifier);
 						stopTimer("Response received");
 					} else {
 						const warnText = `No content received from ${modelName}: Check console for details.`;
-						outputTextArea.value = warnText + '\n\n' + `Status: ${response.status}\n\n` + response.responseText;
-						modelCache[cacheKey] = { answer: warnText, time: 0, state: 'error' };
+						popup.outputArea.value = warnText + '\n\n' + `Status: ${response.status}\n\n` + response.responseText;
+						modelState[cacheKey] = { answer: warnText, time: 0, state: 'error' };
 						updateButtonState(button, 'error');
 						stopTimer("No content received");
 					}
@@ -1547,9 +1032,10 @@ async function handleGenerateClick(event, forceRetry = false) {
 					} catch (e) { /* Ignore JSON parsing error */ }
 
 					console.error(errorText);
-					outputTextArea.value = errorText;
-					stopTimer(stopStatus);
+					popup.outputArea.value = errorText;
+					modelState[cacheKey] = { answer: errorText, time: 0, state: 'error' };
 					updateButtonState(button, 'error');
+					stopTimer("Network Error");
 					reject(new Error(errorText));
 				}
 			});
@@ -1557,8 +1043,8 @@ async function handleGenerateClick(event, forceRetry = false) {
 	} catch (error) {
 		const errorMsg = `Network/Fetch Error for ${modelName}: ${error.message}`;
 		console.error(errorMsg, error);
-		outputTextArea.value = errorMsg;
-		modelCache[cacheKey] = { answer: errorMsg, time: 0, state: 'error' };
+		popup.outputArea.value = errorMsg;
+		modelState[cacheKey] = { answer: errorMsg, time: 0, state: 'error' };
 		updateButtonState(button, 'error');
 		stopTimer("Network Error");
 	}
@@ -1578,7 +1064,7 @@ function changeApiKey() {
 }
 
 function clearCache() {
-	Object.keys(modelCache).forEach((key) => delete modelCache[key]);
+	Object.keys(modelState).forEach((key) => delete modelState[key]);
 	alert("Cache cleared from memory.");
 }
 
@@ -1589,9 +1075,9 @@ function changeHotkey() {
 		GM_setValue("hotkey", config.hotkey);
 
 		// Update hotkey info in UI if popup exists
-		const popup = document.getElementById("ai-answer-popup");
+		const popup = document.getElementById("ait-answer-popup");
 		if (popup) {
-			const hotkeyInfo = popup.querySelector("#ai-popup-footer span:last-child");
+			const hotkeyInfo = popup.querySelector("#ait-hotkey-info"); // Changed ID to hotkey-info
 			if (hotkeyInfo) {
 				hotkeyInfo.textContent = `Press ${config.hotkeyModifier.toUpperCase()}+${config.hotkey.toUpperCase()} to toggle`;
 			}
@@ -1607,7 +1093,10 @@ function resetPopupState() {
 	config.popupState = { visible: false, snapped: 2, window: { x: 0, y: 0, w: 500, h: 800 }, opacity: 1 };
 	GM_setValue("popupState", config.popupState);
 	popup.style.opacity = config.popupState.opacity;
-	popup.updatePopupPosition();
+	// If popup exists, update its position
+	if (popup.updatePopupPosition) {
+		popup.updatePopupPosition();
+	}
 }
 
 // Basic string hash function for cache keys
@@ -1623,9 +1112,9 @@ function hashCode(str) {
 
 // Helper function to manage button visual states
 function updateButtonState(button, state, identifier = null) {
-	const statusContainer = button.querySelector('.ai-model-status-container');
-	const progressSpinner = statusContainer?.querySelector('.ai-model-progress');
-	const statusIcon = statusContainer?.querySelector('.ai-model-status-icon');
+	const statusContainer = button.querySelector('.ait-model-status-container');
+	const progressSpinner = statusContainer?.querySelector('.ait-model-progress');
+	const statusIcon = statusContainer?.querySelector('.ait-model-status-icon');
 
 	// Clear previous states
 	button.classList.remove('loading', 'success', 'error');
@@ -1667,7 +1156,7 @@ function updateButtonState(button, state, identifier = null) {
 // --- Event Listeners ---
 
 // Register Tampermonkey menu commands
-GM_registerMenuCommand("Toggle AI Popup (Alt+" + config.hotkey.toUpperCase() + ")", togglePopup);
+GM_registerMenuCommand("Toggle AI Popup (Alt+" + config.hotkey.toUpperCase() + ")", popup.toggleUi);
 GM_registerMenuCommand("Change API Key", changeApiKey);
 GM_registerMenuCommand("Clear Response Cache", clearCache);
 GM_registerMenuCommand("Change Hotkey", changeHotkey);
@@ -1744,7 +1233,7 @@ function initialize() {
 			const maxAttempts = 30;
 
 			function tryCreatePopup() {
-				if (document.getElementById("ai-answer-popup")) {
+				if (document.getElementById("ait-answer-popup")) {
 					console.debug("[AnswerIT!!] Popup already exists");
 					return;
 				}
@@ -1753,7 +1242,7 @@ function initialize() {
 				createPopupUI();
 
 				// Verify popup was created successfully
-				if (!document.getElementById("ai-answer-popup") && attempts < maxAttempts) {
+				if (!document.getElementById("ait-answer-popup") && attempts < maxAttempts) {
 					console.debug(`[AnswerIT!!] Popup creation attempt ${attempts} failed, retrying...`);
 					setTimeout(tryCreatePopup, 500);
 				} else if (attempts >= maxAttempts) {
@@ -1771,3 +1260,404 @@ function initialize() {
 
 // Start the script
 initialize();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// CSS for popup UI
+GM_addStyle(`
+	:root {
+		--bg-main: #f5f5f5;
+		--bg-header: #f8f9fa;
+		--bg-textarea: #f9f9f9;
+		--bg-insert-button: #e0e0e0;
+		--color-text: #333;
+		--color-subtitle: #555;
+		--color-caption: #555;
+		--color-footer: #777;
+		--border-color: #ddd;
+		--border-header: #e9ecef;
+		--shadow-popup: 0 4px 20px rgba(0, 0, 0, 0.2);
+		--shadow-button: 0 1px 2px rgba(0,0,0,0.05);
+		--shadow-button-hover: 0 3px 5px rgba(0,0,0,0.1);
+		--spinner-color: #555;
+		--success-color: #4CAF50;
+		--retry-color: #ff9800;
+	}
+
+	#ait-answer-popup.dark {
+		--bg-main: #1e1e1e;
+		--bg-header: #252525;
+		--bg-textarea: #2d2d2d;
+		--bg-insert-button: #3a3a3a;
+		--color-text: #e0e0e0;
+		--color-subtitle: #aaa;
+		--color-caption: #aaa;
+		--color-footer: #aaa;
+		--border-color: #444;
+		--border-header: #333;
+		--shadow-popup: 0 4px 20px rgba(0, 0, 0, 0.5);
+		--shadow-button: 0 1px 2px rgba(0,0,0,0.15);
+		--shadow-button-hover: 0 3px 5px rgba(0,0,0,0.3);
+		--spinner-color: #aaa;
+		--success-color: #81C784; /* Lighter green for dark mode */
+		--retry-color: #FFB74D; /* Lighter orange for dark mode */
+	}
+
+	#ait-answer-popup {
+		position: fixed;
+		top: 50%;
+		right: 0px;
+		width: 500px;
+		max-width: 90vw;
+		height: 100vh;
+		background-color: var(--bg-main);
+		border-radius: 8px;
+		box-shadow: var(--shadow-popup);
+		z-index: 9999;
+		display: none;
+		flex-direction: column;
+		overflow: hidden;
+		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+	}
+
+	#ait-answer-popup.visible {
+		display: flex;
+	}
+
+	#ait-popup-header {
+		padding: 12px 15px;
+		background-color: var(--bg-header);
+		border-bottom: 1px solid var(--border-header);
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	#ait-popup-title {
+		margin: 0;
+		font-size: 18px;
+		font-weight: 600;
+		color: var(--color-text);
+	}
+
+	#ait-popup-controls {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+	}
+
+	#ait-popup-controls > button {
+		background: none;
+		border: none;
+		cursor: pointer;
+		font-size: 20px;
+		color: var(--color-text);
+	}
+
+	#ait-opacity-toggle {
+		transition: all 0.3s ease;
+		position: relative;
+		cursor: grab;
+		width: 24px;
+		height: 24px;
+		border-radius: 12px;
+	}
+	#ait-opacity-toggle.slider {
+		height: 72px;
+		width: 24px;
+		background: var(--border-color);
+		font-size: 0;
+	}
+	#ait-opacity-toggle.slider::after {
+		content: '';
+		position: absolute;
+		width: 20px;
+		height: 20px;
+		background: var(--color-text);
+		border-radius: 50%;
+		left: 2px;
+		top: var(--thumb-top, 2px);
+		transition: top 0.2s ease;
+	}
+
+	#ait-caption {
+		font-size: 0.85em;
+		color: var(--color-caption);
+		margin-bottom: 5px;
+		font-style: italic;
+	}
+
+	#ait-popup-content {
+		padding: 15px;
+		overflow-y: auto;
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+	}
+
+	#ait-models-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 10px;
+		transition: all 0.3s ease;
+	}
+
+	.ait-model-button {
+		width: 100%;
+		text-align: left;
+		border-radius: 6px;
+		border: 1px solid var(--border-color);
+		padding: 10px 12px;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		margin-bottom: 8px;
+		display: flex;
+		align-items: center;
+		box-shadow: var(--shadow-button);
+		position: relative; /* Needed for absolute positioning of icons */
+		justify-content: space-between; /* Push icon container to the right */
+	}
+
+	.ait-model-button:hover {
+		transform: translateY(-2px);
+		box-shadow: var(--shadow-button-hover);
+	}
+
+	.ait-model-text-container {
+		display: flex;
+		flex-direction: column;
+		width: 100%;
+	}
+
+	.ait-model-name {
+		font-weight: 500;
+		font-size: 14px;
+		color: var(--color-text);
+	}
+
+	.ait-model-subtitle {
+		height: 0;
+		overflow: hidden;
+		font-size: 12px;
+		color: var(--color-subtitle);
+		transition: height 0.2s ease, opacity 0.2s ease, margin 0.2s ease;
+		opacity: 0;
+		margin-top: 0;
+	}
+
+	.ait-model-button:hover .ait-model-subtitle {
+		height: auto;
+		opacity: 1;
+		margin-top: 4px;
+	}
+
+	.ait-model-button.loading {
+		cursor: wait;
+		opacity: 0.7;
+	}
+
+	.ait-model-button.success .ait-model-status-icon {
+		display: flex; /* Show the status container */
+	}
+
+	.ait-model-status-container {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px; /* Fixed width for alignment */
+		height: 24px;
+		margin-left: 10px; /* Space between text and icon */
+	}
+
+	.ait-model-progress {
+		display: none; /* Hidden by default */
+		width: 18px;
+		height: 18px;
+		border: 2px solid var(--spinner-color);
+		border-top-color: transparent;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	.ait-model-button.loading .ait-model-progress {
+		display: block; /* Show spinner when loading */
+	}
+
+	.ait-model-status-icon {
+		display: none; /* Hidden by default, shown on success */
+		cursor: pointer;
+		position: relative; /* For hover effect positioning */
+		width: 20px;
+		height: 20px;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.ait-model-success-icon,
+	.ait-model-retry-icon {
+		position: absolute;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 100%;
+		transition: opacity 0.2s ease;
+	}
+
+	.ait-model-success-icon {
+		opacity: 1;
+		color: var(--success-color);
+		font-size: 20px; /* Adjust size as needed */
+		line-height: 1;
+	}
+
+	.ait-model-retry-icon {
+		opacity: 0;
+		color: var(--retry-color);
+		font-size: 18px; /* Adjust size as needed */
+		line-height: 1;
+	}
+
+	.ait-model-status-icon:hover .ait-model-success-icon { opacity: 0; }
+	.ait-model-status-icon:hover .ait-model-retry-icon { opacity: 1; }
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
+	#ait-output-container {
+		margin-top: 10px;
+		display: flex;
+		flex-direction: column;
+		flex-grow: 1;
+		flex-shrink: 1;
+		flex-basis: auto;
+		overflow: auto;
+		margin-top: auto;
+	}
+
+	#ait-output-textarea {
+		width: 100%;
+		height: 100%;
+		padding: 8px;
+		border: 1px solid var(--border-color);
+		border-radius: 4px;
+		font-family: monospace;
+		font-size: 12px;
+		resize: none;
+		min-height: 150px;
+		box-sizing: border-box;
+		background-color: var(--bg-textarea);
+		color: var(--color-text);
+	}
+
+	#ait-custom-prompt-container {
+		margin-top: 15px;
+		margin-bottom: 5px;
+		display: flex;
+		flex-direction: column;
+		opacity: 0.7;
+		transition: opacity 0.3s ease;
+	}
+
+	#ait-custom-prompt-container:hover {
+		opacity: 1;
+	}
+
+	#ait-custom-prompt-label {
+		font-size: 0.85em;
+		color: var(--color-subtitle);
+		margin-bottom: 4px;
+		display: flex;
+		align-items: center;
+		cursor: pointer;
+	}
+
+	#ait-custom-prompt-label::before {
+		content: "▶";
+		font-size: 0.8em;
+		margin-right: 5px;
+		transition: transform 0.3s ease;
+	}
+
+	#ait-custom-prompt-label.expanded::before {
+		transform: rotate(90deg);
+	}
+
+	#ait-custom-prompt {
+		width: 100%;
+		padding: 6px;
+		border: 1px solid var(--border-color);
+		border-radius: 4px;
+		font-family: monospace;
+		font-size: 12px;
+		resize: vertical;
+		min-height: 60px;
+		display: none;
+		background-color: var(--bg-textarea);
+		color: var(--color-text);
+	}
+
+	#ait-custom-prompt.visible {
+		display: block;
+	}
+
+	#ait-timer {
+		font-family: monospace;
+	}
+
+	#ait-popup-footer {
+		padding: 10px 15px;
+		background-color: var(--bg-header);
+		border-top: 1px solid var(--border-header);
+		display: flex;
+		justify-content: space-between;
+		font-size: 0.8em;
+		color: var(--color-footer);
+	}
+
+	#ait-status-text {
+		font-style: italic;
+	}
+
+	#ait-insert-button {
+		position: absolute;
+		top: 5px;
+		right: 5px;
+		background-color: var(--bg-insert-button);
+		border: 1px solid var(--border-color);
+		border-radius: 4px;
+		padding: 2px 8px;
+		font-size: 0.8em;
+		cursor: pointer;
+		opacity: 0.8;
+		transition: opacity 0.3s ease;
+		color: var(--color-text);
+	}
+
+	#ait-insert-button:hover {
+		opacity: 1;
+	}
+
+	#ait-output-container {
+		position: relative;
+	}
+`);
