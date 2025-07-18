@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.18.3
+// @version      3.18.4
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match		 https://jeryjs.github.io/Userscripts/AnswerIT!!/*
+// @match		 file:///*/Userscripts/AnswerIT!!/*
 // @match        https://app.joinsuperset.com/assessments/*
 // @match        https://lms.talentely.com/*/*
 // @match        https://leetcode.com/problems/*
@@ -758,7 +759,7 @@
 
 		outputTextArea.id = "ai-output-textarea";
 		outputTextArea.placeholder = "AI Response will appear here...";
-		outputTextArea.readOnly = true;
+		if (GM_getValue('makeAIOutputEditable', false)) outputTextArea.readOnly = true;
 
 		outputContainer.appendChild(caption);
 		outputContainer.appendChild(insertButton);
@@ -1609,6 +1610,8 @@
 		console.log("[AnswerIT!!] Exposing configuration to integration page");
 		const obj = {
 			supportedSites: websites,
+			GM_getValue: GM_getValue,
+			GM_setValue: GM_setValue,
 			getConfig: function () {
 				return {
 					apiKey: GM_getValue("geminiApiKey", ""),
