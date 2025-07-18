@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.18.4
+// @version      3.18.5
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match		 https://jeryjs.github.io/Userscripts/AnswerIT!!/*
@@ -759,7 +759,7 @@
 
 		outputTextArea.id = "ai-output-textarea";
 		outputTextArea.placeholder = "AI Response will appear here...";
-		if (GM_getValue('makeAIOutputEditable', false)) outputTextArea.readOnly = true;
+		outputTextArea.readOnly = GM_getValue('makeAIOutputEditable', false);
 
 		outputContainer.appendChild(caption);
 		outputContainer.appendChild(insertButton);
