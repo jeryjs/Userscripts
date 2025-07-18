@@ -88,11 +88,11 @@
                     </div>
                     <div class="form-group">
                         <label class="toggle-label">
-                            <input type="checkbox" id="autoRun" class="toggle-input">
+                            <input type="checkbox" id="makeAIOutputEditable" class="toggle-input">
                             <span class="toggle-slider"></span>
-                            <span class="toggle-text">Auto-run on question detection</span>
+                            <span class="toggle-text">Make AI Output Editable</span>
                         </label>
-                        <div class="help-text">Automatically generate answers when questions are detected</div>
+                        <div class="help-text">Allow editing within the AI-generated output textarea to be able to modify the response before inserting it.</div>
                     </div>
                     <button type="submit" class="btn btn-primary" id="saveSettings" style="margin-top: 1rem;">
                         <span id="saveSettingsText">Save Settings</span>
@@ -401,6 +401,7 @@
 
             loadSettings() {
                 let config = null;
+                const GM_getValue = window.AnswerIT_Config?.GM_getValue;
                 if (window.AnswerIT_Config?.getConfig) {
                     config = window.AnswerIT_Config.getConfig();
                     this.showStatus('settingsStatus', '✅ Userscript detected - settings sync automatically!', 'success');
@@ -419,7 +420,7 @@
                     }
                     $('#hotkey').val(config.hotkey || 'a'); // Use jQuery .val()
                     $('#theme').val(config.theme || 'light'); // Use jQuery .val()
-                    $('#autoRun').prop('checked', config.autoRun || false); // Use jQuery .prop() for checkboxes
+                    $('#makeAIOutputEditable').prop('checked', GM_getValue('makeAIOutputEditable', false)); // Use jQuery .prop() for checkboxes
                 }
             }
 
@@ -466,11 +467,14 @@
             }
 
             async saveSettings() {
+                const GM_setValue = window.AnswerIT_Config?.GM_setValue
+
                 const settings = {
                     hotkey: $('#hotkey').val(), // Use jQuery .val()
                     theme: $('#theme').val(), // Use jQuery .val()
-                    autoRun: $('#autoRun').prop('checked') // Use jQuery .prop()
                 };
+                GM_setValue('makeAIOutputEditable', $('#makeAIOutputEditable').prop('checked'));
+
                 this.setButtonLoading('saveSettings', true);
                 try {
                     if (window.AnswerIT_Config?.setConfig) {

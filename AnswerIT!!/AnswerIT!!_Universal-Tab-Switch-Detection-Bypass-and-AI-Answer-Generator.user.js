@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.18.3
+// @version      3.18.4
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match		 https://jeryjs.github.io/Userscripts/AnswerIT!!/*
+// @match		 file:///*/Userscripts/AnswerIT!!/*
 // @match		 file:///*/USERSCRIPTS/AnswerIT!!/*
 // @match        https://app.joinsuperset.com/assessments/*
 // @match        https://lms.talentely.com/*/*
@@ -314,7 +315,7 @@ function createPopupUI() {
 			<div id="ait-output-container">
 				<div id="ait-caption">Response metadata will appear here</div>
 				<button id="ait-insert-button" data-action="handleInsert">Insert</button>
-				<textarea id="ait-output-textarea" placeholder="AI response will appear here..." readonly></textarea>
+				<textarea id="ait-output-textarea" placeholder="AI response will appear here..." ${GM_getValue('makeAIOutputEditable', false) ? '' : 'readonly'}></textarea>
 			</div>
 		</div>
 
@@ -1161,6 +1162,8 @@ function exposeConfigToPage() {
 	const obj = {
 		supportedSites: websites,
 		reflectorHost: reflectorHost,
+		GM_getValue: GM_getValue,
+		GM_setValue: GM_setValue,
 		getConfig: function () {
 			return {
 				apiKey: GM_getValue("geminiApiKey", ""),
