@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.12.0
+// @version     6.14.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -35,7 +35,6 @@
 // @match       https://anizone.to/anime/*
 // @match       https://anixl.to/title/*
 // @match       https://sudatchi.com/watch/*/*
-// @match       https://animekai.to/watch/*
 // @match       https://hianime.*/watch/*
 // @match       https://hianime.to/watch/*
 // @match       https://hianime.nz/watch/*
@@ -47,7 +46,13 @@
 // @require     https://cdn.jsdelivr.net/npm/@trim21/gm-fetch@0.2.1
 // @grant       GM_addStyle
 // @grant       GM_getValue
+// @grant       GM_setValue
 // ==/UserScript==
+
+// track last version as it might be needed by potential future updates
+if (GM_info.script.version > GM_getValue('script_version', '0')) {
+    GM_setValue('script_version', GM_info.script.version);
+}
 
 /**
  * Represents an anime episode with metadata and streaming links.
@@ -56,7 +61,7 @@ class Episode {
     /**
      * @param {string} number - The episode number.
      * @param {string} animeTitle - The title of the anime.
-     * @param {Object.<string, {stream: string, type: 'm3u8'|'mp4', tracks: Array<{file: string, kind: 'caption'|'audio', label: string}>}>} links - An object containing streaming links and tracks for each source.
+     * @param {Object.<string, {stream: string, type: '.m3u8'|'.mp4'|'embed', tracks: Array<{file: string, kind: 'caption'|'audio', label: string}>}>, referer: string} links - An object containing streaming links and tracks for each source along with the referer (for use in CORS requests).
      * @param {string} thumbnail - The URL of the episode's thumbnail image.
      * @param {string} [epTitle] - The title of the episode (optional).
      */
@@ -66,15 +71,18 @@ class Episode {
         this.epTitle = epTitle; // The title of the episode (this can be the specific ep title or blank).
         this.links = this._processLinks(links);     // An object containing streaming links and tracks for each source: {"source1":{stream:"url", type:"m3u8|mp4", tracks:[{file:"url", kind:"caption|audio", label:"name"}]}}}
         this.thumbnail = thumbnail; // The URL of the episode's thumbnail image (if unavailable, then just any image is fine. Thumbnail property isnt really used in the script yet).
-        this.filename = `${this.animeTitle} - ${this.number.padStart(3, '0')}${this.epTitle ? ` - ${this.epTitle}` : ''}.${Object.values(this.links)[0]?.type || 'm3u8'}`;   // The formatted name of the episode, combining anime name, number and title and extension.
+        this.filename = `${this.animeTitle} - ${this.number.padStart(3, '0')}${this.epTitle ? ` - ${this.epTitle}` : ''}${Object.values(this.links)[0]?.type || ''}`;   // The formatted name of the episode, combining anime name, number and title and extension.
         this.title = this.epTitle ?? this.animeTitle;
     }
     
-    // Processes the links to ensure they are absolute URLs.
+    // Processes the links to ensure they are in right format and are absolute URLs.
     _processLinks(links) {
         for (const linkObj of Object.values(links)) {
-            linkObj.stream &&= new URL(linkObj.stream, location.origin).href;
-            linkObj.tracks?.forEach?.(track => track.file &&= new URL(track.file, location.origin).href);
+            linkObj.stream &&= new URL(linkObj.stream, location.origin).href;   // Ensure stream URLs are absolute
+            linkObj.referer = linkObj.referer || location.href; // Set referer to the current page origin if not provided
+            linkObj.type = (linkObj.type.startsWith('.') || (linkObj.type === 'embed')) ? linkObj.type : `.${linkObj.type}`; // Ensure type starts with a dot, but not for 'embed'
+            linkObj.tracks?.forEach?.(track => track.kind = /^(caption|subtitle)s?/.test(track.kind) ? 'caption' : track.kind); // normalize all 'kind' values's subtitle(s) or caption(s) to 'caption'
+            linkObj.tracks?.forEach?.(track => track.file &&= new URL(track.file, location.origin).href);   // Ensure track file URLs are absolute
         }
         return links;
     }
@@ -125,7 +133,7 @@ class Episode {
  *    - Use this function if the video links require additional processing or API calls.
  *    - Tip: use GM_xmlhttpRequest to make cross-origin requests if needed (I've used proxy.sh so far which I plan to change in the future since GM_XHR seems more reliable).
  */
-const websites = [
+const Websites = [
     {
         name: 'GoGoAnime',
         url: ['anitaku.to/', 'gogoanime3.co/', 'gogoanime3', 'anitaku', 'gogoanime'],
@@ -157,9 +165,9 @@ const websites = [
 
                         const [, epTitle, epNumber] = page.querySelector(this.epTitle).textContent.match(/(.+?) Episode (\d+(?:\.\d+)?)/);
                         const thumbnail = page.querySelector(this.thumbnail).src;
-                        status.textContent = `Extracting ${epTitle} - ${epNumber.padStart(3, '0')}...`;
+                        status.text = `Extracting ${epTitle} - ${epNumber.padStart(3, '0')}...`;
                         const links = [...page.querySelectorAll(this.linkElems)].reduce((obj, elem) => ({ ...obj, [elem.textContent.trim()]: { stream: elem.href, type: 'mp4' } }), {});
-                        status.textContent = `Extracted ${epTitle} - ${epNumber.padStart(3, '0')}`;
+                        status.text = `Extracted ${epTitle} - ${epNumber.padStart(3, '0')}`;
 
                         return new Episode(epNumber, epTitle, links, thumbnail); // Return Episode object
                     } catch (e) { showToast(e); return null; }
@@ -180,7 +188,7 @@ const websites = [
             return document.querySelector(".content .navigation").appendChild(Object.assign(document.createElement('a'), { id: "AniLINK_startBtn", className: "link p-15", textContent: "Generate Download Links" }));
         },
         extractEpisodes: async function* (status) {
-            status.textContent = 'Getting list of episodes...';
+            status.text = 'Getting list of episodes...';
             const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
             const epLinks = await applyEpisodeRangeFilter(allEpLinks);
 
@@ -190,14 +198,14 @@ const websites = [
                 const chunk = epLinks.slice(i, i + throttleLimit);
                 const episodePromises = chunk.map(async (epLink, index) => {
                     try {
-                        status.textContent = `Loading ${epLink.pathname}`;
+                        status.text = `Loading ${epLink.pathname}`;
                         const page = await fetchPage(epLink.href);
 
                         const animeTitle = page.querySelector(this.animeTitle).textContent;
                         const epNumber = epLink.href.match(/(\d+)\/?$/)[1];
                         const epTitle = page.querySelector(this.epTitle).textContent.match(/^${epNumber} : (.+)$/) || animeTitle;
                         const thumbnail = document.querySelectorAll(this.thumbnail)[index].src;
-                        status.textContent = `Extracting ${`${epNumber.padStart(3, '0')} - ${animeTitle}` + (epTitle != animeTitle ? `- ${epTitle}` : '')}...`;
+                        status.text = `Extracting ${`${epNumber.padStart(3, '0')} - ${animeTitle}` + (epTitle != animeTitle ? `- ${epTitle}` : '')}...`;
                         const rawLinks = await this._getVideoLinks(page, status, epTitle);
                         const links = Object.entries(rawLinks).reduce((acc, [quality, url]) => ({ ...acc, [quality]: { stream: url, type: 'm3u8' } }), {});
 
@@ -212,7 +220,7 @@ const websites = [
             const embedApiResponse = await fetch(`https://${page.domain}/api/embed/`, { method: 'POST', headers: { "X-Requested-With": "XMLHttpRequest" }, body: new URLSearchParams({ id: embedLinkId, ac: "0" }) });
             const json = await embedApiResponse.json();
             const m3u8GeneralLink = json.hls[0];
-            status.textContent = `Parsing ${episodeTitle}...`;
+            status.text = `Parsing ${episodeTitle}...`;
             // Fetch the m3u8 file content
             const m3u8Response = await fetch(m3u8GeneralLink);
             const m3u8Text = await m3u8Response.text();
@@ -233,6 +241,7 @@ const websites = [
         epTitle: '.theatre-info > h1',
         linkElems: '#resolutionMenu > button',
         thumbnail: '.theatre-info > a > img',
+        _chunkSize: 36, // Setting high throttle limit actually improves performance
         addStartButton: function () {
             GM_addStyle(`.theatre-settings .col-sm-3 { max-width: 20%; }`);
             (document.location.pathname.startsWith('/anime/'))
@@ -253,34 +262,16 @@ const websites = [
                 firstEpNum = firstEp();
             }
 
-            const throttleLimit = 36;  // Setting high throttle limit actually improves performance
-            for (let i = 0; i < epLinks.length; i += throttleLimit) {
-                const chunk = epLinks.slice(i, i + throttleLimit);
-                const episodePromises = chunk.map(async epLink => {
-                    try {
-                        const page = await fetchPage(epLink.href);
-
-                        if (page.querySelector(this.epTitle) == null) return;
-                        const [, animeTitle, epNum] = page.querySelector(this.epTitle).outerText.split(/Watch (.+) - (\d+(?:\.\d+)?) Online$/);
-                        const epNumber = (epNum - firstEpNum + 1).toString();
-                        const thumbnail = page.querySelector(this.thumbnail).src;
-                        status.textContent = `Extracting ${animeTitle} - ${epNumber.padStart(3, "0")}...`;
-
-                        async function getVideoUrl(kwikUrl) {
-                            const response = await fetch(kwikUrl, { headers: { "Referer": "https://animepahe.com" } });
-                            const data = await response.text();
-                            return eval(/(eval)(\(f.*?)(\n<\/script>)/s.exec(data)[2].replace("eval", "")).match(/https.*?m3u8/)[0];
-                        }
-                        let links = {};
-                        for (const elm of [...page.querySelectorAll(this.linkElems)]) {
-                            links[elm.textContent] = { stream: await getVideoUrl(elm.getAttribute('data-src')), type: 'm3u8' };
-                            status.textContent = `Parsed ${`${epNumber.padStart(3, '0')} - ${animeTitle}`}`;
-                        }
-                        return new Episode(epNumber, animeTitle, links, thumbnail);
-                    } catch (e) { showToast(e); return null; }
-                });
-                yield* yieldEpisodesFromPromises(episodePromises);
-            }
+            for (let i = 0; i < epLinks.length; i += this._chunkSize)
+                yield* yieldEpisodesFromPromises(epLinks.slice(i, i + this._chunkSize).map(async epLink => {
+                    const page = await fetchPage(epLink.href);
+                    const [, animeTitle, epNum] = page.querySelector(this.epTitle).outerText.split(/Watch (.+) - (\d+(?:\.\d+)?) Online$/);
+                    const epNumber = (epNum - firstEpNum + 1).toString();
+                    const thumbnail = page.querySelector(this.thumbnail).src;
+                    status.text = `Extracting episodes ${epNumber-Math.min(epNumber, this._chunkSize)+1} - ${epNumber}...`;
+                    const links = Object.fromEntries(await Promise.all([...page.querySelectorAll(this.linkElems)].map(async elm => [elm.textContent, { stream: await Extractors.use(elm.getAttribute('data-src')), type: 'm3u8' }])));
+                    return new Episode(epNumber, animeTitle, links, thumbnail);
+                }));
         },
         styles: `div#AniLINK_LinksContainer { font-size: 10px; } #Quality > b > div > ul {font-size: 16px;}`
     },
@@ -311,7 +302,7 @@ const websites = [
                         const epNumber = page.querySelector(this.epNum).textContent.replace("Episode ", '');
                         const thumbnail = page.querySelector(this.thumbnail).poster;
 
-                        status.textContent = `Extracting ${epTitle} - ${epNumber}...`;
+                        status.text = `Extracting ${epTitle} - ${epNumber}...`;
                         const links = { 'Video Links': { stream: page.querySelector('video > source').src, type: 'mp4' } };
 
                         return new Episode(epNumber, epTitle, links, thumbnail);
@@ -349,7 +340,7 @@ const websites = [
                         const epTitle = page.querySelector(this.epTitle).textContent;
                         const epNumber = page.querySelector(this.epNum).textContent.replace("Episode ", '')
 
-                        status.textContent = `Extracting ${epTitle} - ${epNumber}...`;
+                        status.text = `Extracting ${epTitle} - ${epNumber}...`;
                         const links = { 'mp4': { stream: page.querySelector('video > source').src, type: 'mp4' } };
 
                         return new Episode(epNumber, epTitle, links, this.thumbnail); // Return Episode object
@@ -389,7 +380,7 @@ const websites = [
                         const epNumber = page.querySelector(this.epNumber).textContent.replace("Episode ", '');
                         const thumbnail = document.querySelector(this.thumbnail).src;
 
-                        status.textContent = `Extracting ${epTitle} - ${epNumber}...`;
+                        status.text = `Extracting ${epTitle} - ${epNumber}...`;
                         const links = [...page.querySelectorAll('#vid > source')].reduce((acc, source) => ({ ...acc, [source.src.match(/\/\/(\w+)\./)[1]]: { stream: source.src, type: 'mp4' } }), {});
 
                         return new Episode(epNumber, epTitle, links, thumbnail); // Return Episode object
@@ -414,13 +405,13 @@ const websites = [
         },
         extractEpisodes: async function* (status) {
             /// work in progress- stopped when animes.org started redirecting to some random manhwa site
-            status.textContent = 'Fetching Episodes List...';
+            status.text = 'Fetching Episodes List...';
             const mangaId = (window.location.pathname.match(/-(\d+)(?:\/|$)/) || [])[1] || document.querySelector('[data-manga-id]')?.getAttribute('data-manga-id');
             if (!mangaId) return showToast('Could not determine manga_id for episode list.');
             const nav = [...document.querySelectorAll('#nav_list_chapter_id_detail li > :not(a.next)')];
             const maxPage = Math.max(1, ...Array.from(nav).map(a => +(a.getAttribute('onclick')?.match(/load_list_chapter\((\d+)\)/)?.[1] || 0)).filter(Boolean));
             // Parse all episode links from all pages in parallel
-            status.textContent = `Loading all ${maxPage} episode pages...`;
+            status.text = `Loading all ${maxPage} episode pages...`;
             let allEpLinks = [];
             try {
                 await Promise.all(Array.from({ length: maxPage }, (_, i) => fetch(`/?act=ajax&code=load_list_chapter&manga_id=${mangaId}&page_num=${i + 1}&chap_id=0&keyword=`).then(r => r.text()).then(t => {
@@ -444,7 +435,7 @@ const websites = [
                         const epNumber = page.querySelector(this.epNum).textContent.replace(/-Dub/, '').trim();
                         const thumbnail = document.querySelector(this.thumbnail).src;
 
-                        status.textContent = `Extracting ${epTitle} - ${epNumber}...`;
+                        status.text = `Extracting ${epTitle} - ${epNumber}...`;
                         const links = { [isDub ? "Dub" : "Sub"]: { stream: page.querySelector('iframe').src.replace('/embed/', '/anime/'), type: 'm3u8' } };
 
                         return new Episode(epNumber, epTitle, links, thumbnail); // Return Episode object
@@ -479,7 +470,7 @@ const websites = [
             }, 200);
         },
         extractEpisodes: async function* (status) {
-            status.textContent = 'Fetching episode list...';
+            status.text = 'Fetching episode list...';
             const animeTitle = (document.querySelector('p.title-romaji') || document.querySelector(this.animeTitle)).textContent;
             const malId = document.querySelector(`a[href*="/myanimelist.net/anime/"]`)?.href.split('/').pop();
             if (!malId) return showToast('MAL ID not found.');
@@ -511,7 +502,7 @@ const websites = [
                 const num = String(baseEp.number).padStart(3, '0');
                 let epTitle = baseEp.jptitle || baseEp.title, thumbnail = baseEp.snapshot; // will try to update with other providers if this is blank
 
-                status.textContent = `Fetching Ep ${num}...`;
+                status.text = `Fetching Ep ${num}...`;
                 let links = {};
                 await Promise.all(providers.map(async ({ source, animeId, useEpId, epList }) => {
                     const ep = epList.find(ep => ep.number == baseEp.number);
@@ -566,7 +557,7 @@ const websites = [
                         const epTitle = page.querySelector(this.epTitle)?.textContent.trim();
                         const thumbnail = page.querySelector(this.thumbnail)?.src;
 
-                        status.textContent = `Extracting ${epNum} - ${epTitle}...`;
+                        status.text = `Extracting ${epNum} - ${epTitle}...`;
                         const links = { [page.querySelector('button > span.truncate').textContent]: { stream: page.querySelector("media-player").getAttribute("src"), type: "m3u8", tracks: [...page.querySelectorAll("media-provider>track")].map(t => ({ file: t.src, kind: t.kind, label: t.label })) } };
 
                         return new Episode(epNum, animeTitle, links, thumbnail, epTitle);
@@ -590,7 +581,7 @@ const websites = [
                 const episodePromises = chunk.map(async epLink => {
                     return await fetchPage(epLink).then(page => {
                         const [, epNum, epTitle] = page.querySelector('a[q\\:id="1s"]').textContent.match(/Ep (\d+) : (.*)/d)
-                        status.textContent = `Extracting ${epNum} - ${epTitle}...`;
+                        status.text = `Extracting ${epNum} - ${epTitle}...`;
                         const links = page.querySelector('script[type="qwik/json"]').textContent.match(/"[ds]ub","https:\/\/[^"]+\/media\/[^"]+\/[^"]+\.m3u8"/g)?.map(s => s.split(',').map(JSON.parse)).reduce((acc, [type, url]) => ({ ...acc, [type]: { stream: url, type: 'm3u8', tracks: [] } }), {});
                         return new Episode(epNum, this.animeTitle(), links, null, epTitle);
                     }).catch(e => { showToast(e); return null; });
@@ -607,6 +598,7 @@ const websites = [
             for (let i = 0, l = await applyEpisodeRangeFilter(this.epLinks()); i < l.length; i += 6)
                 yield* yieldEpisodesFromPromises(l.slice(i, i + 6).map(async link =>
                     await fetchPage(link).then(p => {
+                        status.text = `Extracting ${link.split('/').pop().padStart(3, '0')}...`;
                         const tracks = JSON.parse([...p.scripts].flatMap(s => s.textContent.match(/\[{.*"}/)).filter(Boolean)[0].replaceAll('\\', '') + ']').map(i => ({ file: i.file.replace('/ipfs/', 'https://sudatchi.com/api/proxy/'), label: i.label, kind: i.kind }));
                         const links = { 'Sudatchi': { stream: p.querySelector('meta[property="og:video"]').content.replace(/http.*:8888/, location.origin), type: 'm3u8', tracks } };
                         return new Episode(link.split('/').pop(), p.querySelector('p').textContent, links, p.querySelector('video').poster);
@@ -617,213 +609,123 @@ const websites = [
     {
         name: 'HiAnime',
         url: ['hianime.to/', 'hianimez.is/', 'hianimez.to/', 'hianime.nz/', 'hianime.bz/', 'hianime.pe/', 'hianime.cx/', 'hianime.gs/'],
+        _chunkSize: 6, // Number of episodes to extract in parallel
         extractEpisodes: async function* (status) {
-            for (let e of await applyEpisodeRangeFilter($('.ss-list > a').get())) {
-                const [epId, epNum, epTitle] = [$(e).data('id'), $(e).data('number'), $(e).find('.ep-name').text()]; let thumbnail = '';
-                status.textContent = `Extracting Episode ${epNum}...`;
-                const links = await $((await $.get(`/ajax/v2/episode/servers?episodeId=${epId}`, r => $(r).responseJSON)).html).find('.server-item').map((_, i) => [[$(i).text().trim(), $(i).data('type')]] ).get().reduce(async (linkAcc, [server, type]) => {try {
-                    await (new Promise(r => setTimeout(r, 1000))); // Throttle requests to avoid rate limiting
-                    let data = await GM_fetch(`https://hianime.pstream.org/api/v2/hianime/episode/sources?animeEpisodeId=${location.pathname.split('/').pop()}?ep=${epId}&server=${server.toLowerCase()}&category=${type}`, { 'headers': { 'Origin': 'https://pstream.org' } }).then(r => r.json()).then(j => j.data);
-                    thumbnail = data.tracks.find(t => t.lang === 'thumbnails')?.url || '';
-                    return {...await linkAcc, [`${server}-${type}`]: { stream: data.sources[0].url, type: 'm3u8', tracks: data.tracks.filter(t=>t.lang!="thumbnails").map(t=> ({file: t.url, label: t.lang, kind: 'caption'})) }};
-                } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${server}-${type} (you're probably being rate limited)`); return linkAcc; }}, Promise.resolve({}));
-                yield new Episode(epNum, ($('.film-name > a').first().text()), links, thumbnail, epTitle);
-            };
+            for (let i = 0, epList = await applyEpisodeRangeFilter($('.ss-list > a').get()); i < epList.length; i += this._chunkSize) {
+                yield* yieldEpisodesFromPromises(epList.slice(i, i + this._chunkSize).map(async e => {
+                    const [epId, epNum, epTitle] = [$(e).data('id'), $(e).data('number'), $(e).find('.ep-name').text()]; let thumbnail = '';
+                    status.text = `Extracting Episodes ${epNum-Math.min(this._chunkSize, epNum)+1} - ${epNum}...`;
+                    const servers = await $((await $.get(`/ajax/v2/episode/servers?episodeId=${epId}`, r => $(r).responseJSON)).html).find('.server-item').map((_, i) => [[$(i).text().trim(), { id: $(i).data('id'), type: $(i).data('type') }]]).get();
+                    // Prefer HD-2 if available. (HD-1 and HD-3 might have CORS issues)
+                    const filteredServers = servers.filter(([s]) => !['HD-1', 'HD-3'].includes(s));
+                    const links = await (filteredServers.length ? filteredServers : servers).reduce(async (linkAcc, [server, { id, type }]) => {try {
+                        const data = await fetch(`/ajax/v2/episode/sources?id=${id}`).then(r => r.json());
+                        const src = await Extractors.use(data.link, location.href);
+                        return {...await linkAcc, [`${server}-${type}`]: { stream: src.file, type: 'm3u8', tracks: src.tracks, referer: location.href }};
+                    } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${server}-${type}: (${e.status}): ${e.message || e}`); return linkAcc; }}, Promise.resolve({}));
+                    return new Episode(epNum, ($('.film-name > a').first().text()), links, thumbnail, epTitle);
+                }))}
         }
     },
     {
         name: 'AniNow',
         url: ['aninow.tv/'],
+        _chunkSize: 6, // Number of episodes to extract in parallel
         extractEpisodes: async function* (status) {
-            for (let i = 0, l = await applyEpisodeRangeFilter([...document.querySelectorAll('a.episode-item')]); i < l.length; i+=6)
-                yield* yieldEpisodesFromPromises(l.slice(i, i + 6).map(async a => {
-                    status.textContent = `Extracting Episode ${a.innerText.padStart(3, '0')}...`;
+            for (let i = 0, l = await applyEpisodeRangeFilter([...document.querySelectorAll('a.episode-item')]); i < l.length; i+=this._chunkSize)
+                yield* yieldEpisodesFromPromises(l.slice(i, i + this._chunkSize).map(async a => {
+                    const epNum = a.innerText;
+                    status.text = `Extracting Episodes ${(epNum-Math.min(this._chunkSize, epNum)+1)} - ${epNum}...`;
                     const data = await fetchPage(a.href).then(p => JSON.parse(p.querySelector("#media-sources-data").dataset.mediaSources)).then(d => d.filter(l => !!l.url));
                     const links = data.reduce((acc, m) => (acc[`${m.providerdisplayname}-${m.language}-${m.quality}`] = {
                         stream: m.url.startsWith('videos/') ? `/storage/C:/Users/GraceAshby/OneDrive/aninow/media/${m.url}` : m.url,
                         type: m.url.endsWith('mp4') ? 'mp4' : 'm3u8',
                         tracks: m.subtitles.map(s => ({ file: s.filename, label: s.displayname, kind: 'caption' }))
                     }, acc), {});
-                    return new Episode(a.innerText, document.querySelector('h1').innerText, links, document.querySelector('a>img').src);
+                    return new Episode(epNum.padStart(3, '0'), document.querySelector('h1').innerText, links, document.querySelector('a>img').src);
                 }));
         }
     },
-
-    // AnimeKai is not fully implemented yet... its a work in progress...
-    {
-        name: 'AnimeKai',
-        url: ['animekai.to/watch/'],
-        animeTitle: '.title',
-        thumbnail: 'img',
-        addStartButton: function () {
-            const button = Object.assign(document.createElement('button'), {
-                id: "AniLINK_startBtn",
-                className: "btn btn-primary", // Use existing site styles
-                textContent: "Generate Download Links",
-                style: "margin-left: 10px;"
-            });
-            // Add button next to the episode list controls or similar area
-            const target = document.querySelector('.episode-section');
-            if (target) {
-                target.appendChild(button);
-            } else {
-                // Fallback location if the primary target isn't found
-                document.querySelector('.eplist-nav')?.appendChild(button);
-            }
-            return button;
-        },
-        // --- Helper functions adapted from provided code ---
-        _reverseIt: (n) => n.split('').reverse().join(''),
-        _base64UrlEncode: (str) => btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
-        _base64UrlDecode: (n) => { n = n.padEnd(n.length + ((4 - (n.length % 4)) % 4), '=').replace(/-/g, '+').replace(/_/g, '/'); return atob(n); },
-        _substitute: (input, keys, values) => { const map = Object.fromEntries(keys.split('').map((key, i) => [key, values[i] || ''])); return input.split('').map(char => map[char] || char).join(''); },
-        _transform: (n, t) => { const v = Array.from({ length: 256 }, (_, i) => i); let c = 0, f = ''; for (let w = 0; w < 256; w++) { c = (c + v[w] + n.charCodeAt(w % n.length)) % 256;[v[w], v[c]] = [v[c], v[w]]; } for (let a = (c = 0), w = 0; a < t.length; a++) { w = (w + 1) % 256; c = (c + v[w]) % 256;[v[w], v[c]] = [v[c], v[w]]; f += String.fromCharCode(t.charCodeAt(a) ^ v[(v[w] + v[c]) % 256]); } return f; },
-        _GenerateToken: function (n) { n = encodeURIComponent(n); return this._base64UrlEncode(this._substitute(this._base64UrlEncode(this._transform('sXmH96C4vhRrgi8', this._reverseIt(this._reverseIt(this._base64UrlEncode(this._transform('kOCJnByYmfI', this._substitute(this._substitute(this._reverseIt(this._base64UrlEncode(this._transform('0DU8ksIVlFcia2', n))), '1wctXeHqb2', '1tecHq2Xbw'), '48KbrZx1ml', 'Km8Zb4lxr1'))))))), 'hTn79AMjduR5', 'djn5uT7AMR9h')); },
-        _DecodeIframeData: function (n) { n = `${n}`; n = this._transform('0DU8ksIVlFcia2', this._base64UrlDecode(this._reverseIt(this._substitute(this._substitute(this._transform('kOCJnByYmfI', this._base64UrlDecode(this._reverseIt(this._reverseIt(this._transform('sXmH96C4vhRrgi8', this._base64UrlDecode(this._substitute(this._base64UrlDecode(n), 'djn5uT7AMR9h', 'hTn79AMjduR5'))))))), 'Km8Zb4lxr1', '48KbrZx1ml'), '1tecHq2Xbw', '1wctXeHqb2')))); return decodeURIComponent(n); },
-        _Decode: function (n) { n = this._substitute(this._reverseIt(this._transform('3U8XtHJfgam02k', this._base64UrlDecode(this._transform('PgiY5eIZWn', this._base64UrlDecode(this._substitute(this._reverseIt(this._substitute(this._transform('QKbVomcBHysCW9', this._base64UrlDecode(this._reverseIt(this._base64UrlDecode(n)))), '0GsO8otUi21aY', 'Go1UiY82st0Oa')), 'rXjnhU3SsbEd', 'rXEsS3nbjhUd')))))), '7DtY4mHcMA2yIL', 'IM7Am4D2yYHctL'); return decodeURIComponent(n); },
-        // --- Main extraction logic ---
-        extractEpisodes: async function* (status) {
-            status.textContent = 'Starting AnimeKai extraction...';
-            const animeTitle = document.querySelector(this.animeTitle)?.textContent || 'Unknown Anime';
-            const thumbnail = document.querySelector(this.thumbnail)?.src || '';
-            const ani_id = document.querySelector('.rate-box#anime-rating')?.getAttribute('data-id');
-
-            if (!ani_id) {
-                showToast("Could not find anime ID.");
-                return;
-            }
-
-            const headers = {
-                'X-Requested-With': 'XMLHttpRequest',
-                'Referer': window.location.href,
-                'Accept': 'application/json, text/javascript, */*; q=0.01', // Ensure correct accept header
-            };
-
-            try {
-                status.textContent = 'Fetching episode list...';
-                const episodeListUrl = `${location.origin}/ajax/episodes/list?ani_id=${ani_id}&_=${this._GenerateToken(ani_id)}`;
-                console.log(`Fetching episode list from: ${episodeListUrl}`);
-                const epListResponse = await fetch(episodeListUrl, { headers });
-                if (!epListResponse.ok) throw new Error(`Failed to fetch episode list: ${epListResponse.status}`);
-                const epListJson = await epListResponse.json();
-                console.log(`Episode list response:`, epListJson);
-                const epListDoc = (new DOMParser()).parseFromString(epListJson.result, 'text/html');
-                const episodeElements = Array.from(epListDoc.querySelectorAll('div.eplist > ul > li > a'));
-
-                const throttleLimit = 5; // Limit concurrent requests to avoid rate limiting
-
-                for (let i = 0; i < episodeElements.length; i += throttleLimit) {
-                    const chunk = episodeElements.slice(i, i + throttleLimit);
-                    const episodePromises = chunk.map(async epElement => {
-                        const epNumber = epElement.getAttribute('num');
-                        const epToken = epElement.getAttribute('token');
-                        const epTitleText = epElement.querySelector('span')?.textContent || `Episode ${epNumber}`;
-
-                        if (!epNumber || !epToken) {
-                            showToast(`Skipping episode: Missing number or token.`);
-                            return null;
-                        }
-
-                        try {
-                            status.textContent = `Fetching servers for Ep ${epNumber}...`;
-                            const serversUrl = `${location.origin}/ajax/links/list?token=${epToken}&_=${this._GenerateToken(epToken)}`;
-                            const serversResponse = await fetch(serversUrl, { headers });
-                            if (!serversResponse.ok) throw new Error(`Failed to fetch servers for Ep ${epNumber}: ${serversResponse.status}`);
-                            const serversJson = await serversResponse.json();
-                            const serversDoc = (new DOMParser()).parseFromString(serversJson.result, 'text/html');
-                            console.log(JSON.stringify(serversDoc));
-
-                            const serverElements = serversDoc.querySelectorAll('.server-items .server');
-
-                            console.log(JSON.stringify(serverElements));
-                            if (serverElements.length === 0) {
-                                showToast(`No servers found for Ep ${epNumber}.`);
-                                return null;
-                            }
-
-                            status.textContent = `Processing ${serverElements.length} servers for Ep ${epNumber}...`;
-
-                            for (const serverElement of serverElements) {
-                                const serverId = serverElement.getAttribute('data-lid');
-                                const serverName = serverElement.textContent || `Server_${serverId?.slice(0, 4)}`; // Fallback name
-
-                                if (!serverId) {
-                                    console.warn(`Skipping server: Missing ID.`);
-                                    continue;
-                                }
-
-                                try {
-                                    // Fetch view link
-                                    status.textContent = `Fetching video link for Ep ${epNumber}...`;
-                                    const viewUrl = `${location.origin}/ajax/links/view?id=${serverId}&_=${this._GenerateToken(serverId)}`;
-                                    const viewResponse = await fetch(viewUrl, { headers });
-                                    if (!viewResponse.ok) throw new Error(`Failed to fetch view link for Ep ${epNumber}: ${viewResponse.status}`);
-                                    const viewJson = await viewResponse.json();
-                                    console.log(`View link response:`, viewJson);
-
-
-                                    const decodedIframeData = JSON.parse(this._DecodeIframeData(viewJson.result));
-                                    console.log(`Decoded iframe data:`, decodedIframeData);
-
-                                    const megaUpEmbedUrl = decodedIframeData.url;
-
-                                    if (!megaUpEmbedUrl) {
-                                        showToast(`Could not decode embed URL for Ep ${epNumber}.`);
-                                        return null;
-                                    }
-
-                                    // Fetch MegaUp media page to get encrypted sources
-                                    const mediaUrl = megaUpEmbedUrl.replace(/\/(e|e2)\//, '/media/');
-                                    status.textContent = `Fetching media data for Ep ${epNumber}...`;
-                                    const mediaResponse = await GM_fetch(mediaUrl, { headers: { 'Referer': location.origin } });
-                                    if (!mediaResponse.ok) throw new Error(`Failed to fetch media data for Ep ${epNumber}: ${mediaResponse.status}`);
-                                    const mediaJson = await mediaResponse.json();
-                                    console.log(`Media data response:`, mediaJson);
-
-
-                                    if (!mediaJson.result) {
-                                        showToast(`No result found in media data for Ep ${epNumber}.`);
-                                        return null;
-                                    }
-
-                                    status.textContent = `Decoding sources for Ep ${epNumber}...`;
-                                    const decryptedSources = JSON.parse(this._Decode(mediaJson.result).replace(/\\/g, ''));
-
-                                    const links = {};
-                                    decryptedSources.sources.forEach(source => {
-                                        // Try to determine quality from URL or label if available
-                                        const qualityMatch = source.file.match(/(\d{3,4})[pP]/);
-                                        const quality = qualityMatch ? qualityMatch[1] + 'p' : 'Default';
-                                        links[quality] = { stream: source.file, type: 'm3u8' };
-                                    });
-
-                                    status.textContent = `Extracted Ep ${epNumber}`;
-                                    return new Episode(epNumber, animeTitle, links, thumbnail);
-
-                                } catch (epError) {
-                                    showToast(`Error processing Ep ${epNumber}: ${epError.message}`);
-                                    console.error(`Error processing Ep ${epNumber}:`, epError);
-                                    return null;
-                                }
-
-                            }
-                        } catch (serverError) {
-                            showToast(`Error fetching servers for Ep ${epNumber}: ${serverError.message}`);
-                            console.error(`Error fetching servers for Ep ${epNumber}:`, serverError);
-                            return null;
-                        }
-                    });
-
-                    yield* yieldEpisodesFromPromises(episodePromises);
-                }
-            } catch (error) {
-                showToast(`Failed AnimeKai extraction: ${error.message}`);
-                console.error("AnimeKai extraction error:", error);
-                status.textContent = `Error: ${error.message}`;
-            }
-        }
-    }
 ];
+
+const USER_AGENT_HEADER = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+const Extractors = {
+    use: function (url, ...args) {
+        const extractor = this[(new URL(url)).host];
+        if (!extractor) throw new Error(`No extractor found for ${url}`);
+        return extractor(url, ...args);
+    },
+    'kwik.si': async function (kwikUrl, referer = location.href) {
+        const response = await fetch(kwikUrl, { headers: { referer } });
+        const data = await response.text();
+        return eval(/(eval)(\(f.*?)(\n<\/script>)/s.exec(data)[2].replace("eval", "")).match(/https.*?m3u8/)[0];
+    },  
+    'megaplay.buzz': async function (embed, referer) {
+        referer = referer || 'https://megaplay.buzz/';
+        const id = await fetch(embed, { headers: { Referer: referer } }).then(r=>r.text()).then(t => t.match(/<title>File ([0-9]+)/)[1]);
+        return await fetch('https://megaplay.buzz/stream/getSources?id=' + id, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(e => e.json())
+    },
+    'megacloud.blog': async function (embed, referer) {
+        // adapted from https://github.com/middlegear/hakai-extensions/blob/main/src/utils/getClientKey.ts
+        _getClientKey = async (embed, referer) => {
+            const salts = [];
+            for (let attempt = 0; attempt < 100; attempt++) {
+                const html = await GM_fetch(embed, { headers: { referer, 'User-Agent': USER_AGENT_HEADER } }).then(r => r.text());
+                const match1 = html.match(/\b[a-zA-Z0-9]{48}\b/), match2 = html.match(/\b([a-zA-Z0-9]{16})\b.*?\b([a-zA-Z0-9]{16})\b.*?\b([a-zA-Z0-9]{16})\b/);
+                if (match1) salts.push(match1[0]);
+                if (match2 && match2.length === 4) salts.push([match2[1], match2[2], match2[3]].join(""));
+                const page = (new DOMParser()).parseFromString(html, 'text/html');
+                for (const script of page.scripts) {
+                    const content = script.getHTML(); if (!content) continue;
+                    const varMatch = content.match(/_[a-zA-Z0-9_]+\s*=\s*['"]([a-zA-Z0-9]{32,})['"]/);
+                    if (varMatch?.[1]) salts.push(varMatch[1]);
+                    const objMatch = content.match(/_[a-zA-Z0-9_]+\s*=\s*{[^}]*x\s*:\s*['"]([a-zA-Z0-9]{16,})['"][^}]*y\s*:\s*['"]([a-zA-Z0-9]{16,})['"][^}]*z\s*:\s*['"]([a-zA-Z0-9]{16,})['"]/);
+                    if (objMatch?.[1] && objMatch[2] && objMatch[3]) { const key = objMatch[1] + objMatch[2] + objMatch[3]; salts.push(key); }
+                }
+                const nonceAttr =  page.querySelector("script[nonce]")?.getAttribute("nonce");
+                if (nonceAttr && nonceAttr.length >= 32) salts.push(nonceAttr);
+                const metaContent = Array.from(page.querySelectorAll("meta[name]")).filter((el) => el.getAttribute("name")?.startsWith("_")).map((el) => el.getAttribute("content")).join("");
+                if (metaContent && /[a-zA-Z0-9]{32,}/.test(metaContent)) salts.push(metaContent);
+                const dataAttr = Object.fromEntries(Array.from(page.querySelectorAll('[data-dpi],[data-key],[data-token]'))[0]?.attributes ?? []);
+                const dataKey = dataAttr?.["data-dpi"] || dataAttr?.["data-key"] || dataAttr?.["data-token"];
+                if (dataKey && /[a-zA-Z0-9]{32,}/.test(dataKey)) salts.push(dataKey);
+                const uniqueSalts = [...new Set(salts)].filter((key) => key.length >= 32 && key.length <= 64);
+                if (uniqueSalts.length > 0) return uniqueSalts[0];
+            }
+        };
+        // adapted from https://github.com/middlegear/hakai-extensions/blob/main/src/source-extractors/megacloud.ts
+        _decrypt = (secret, nonce, encrypted, rounds = 3) => {
+            const _DEFAULT_CHARSET = Array.from({ length: 95 }, (_, i) => String.fromCharCode(i + 32));
+            const _deriveKey = (secret, nonce) => { const input = secret + nonce; let hash = 0n; for (let i = 0; i < input.length; i++) hash += hash * 173n + BigInt(input.charCodeAt(i)); const modHash = hash % 0x7fffffffffffffffn; const xorProcessed = [...input].map((char) => String.fromCharCode(char.charCodeAt(0) ^ 15835827 & 255)).join(""); const shift = Number(modHash) % xorProcessed.length + 7; const rotated = xorProcessed.slice(shift) + xorProcessed.slice(0, shift); const reversedNonce = [...nonce].reverse().join(""); let interleaved = ""; for (let i = 0; i < Math.max(rotated.length, reversedNonce.length); i++) interleaved += (rotated[i] || "") + (reversedNonce[i] || ""); return [...interleaved.substring(0, (96 + Number(modHash) % 33))].map((ch) => String.fromCharCode(ch.charCodeAt(0) % 95 + 32)).join(""); }
+            const _columnarTranspositionCipher = (text, key) => { const cols = key.length; const rows = Math.ceil(text.length / cols); const grid = Array.from({ length: rows }, () => Array(cols).fill("")); let i = 0; for (const { idx } of [...key].map((char, idx) => ({ char, idx })).sort((a, b) => a.char.charCodeAt(0) - b.char.charCodeAt(0))) for (let row = 0; row < rows; row++) grid[row][idx] = text[i++] || ""; return grid.flat().join(""); }
+            const _deterministicUnshuffle = (charset, key) => { let seed = [...key].reduce((acc, char) => acc * 31n + BigInt(char.charCodeAt(0)) & 0xffffffffn, 0n); const result = [...charset]; for (let i = result.length - 1; i > 0; i--) { const j = ((limit) => { seed = seed * 1103515245n + 12345n & 0x7fffffffn; return Number(seed % BigInt(limit)); })(i + 1);[result[i], result[j]] = [result[j], result[i]]; } return result; }
+            let data = new TextDecoder("utf-8").decode(Uint8Array.from(atob(encrypted), c => c.charCodeAt(0)));
+            for (let round = rounds; round >= 1; round--) {
+                const passphrase = _deriveKey(secret, nonce) + round;
+                let seed = [...passphrase].reduce((acc, char) => acc * 31n + BigInt(char.charCodeAt(0)) & 0xffffffffn, 0n);
+                data = [...data].map((char) => { const idx = _DEFAULT_CHARSET.indexOf(char); if (idx === -1) return char; return _DEFAULT_CHARSET[(idx - (() => { seed = seed * 1103515245n + 12345n & 0x7fffffffn; return Number(seed % BigInt(95)); })() + 95) % 95]; }).join("");
+                data = _columnarTranspositionCipher(data, passphrase);
+                const shuffled = _deterministicUnshuffle(_DEFAULT_CHARSET, passphrase);
+                data = [...data].map(char => (Object.fromEntries(shuffled.map((c, i) => [c, _DEFAULT_CHARSET[i]])))[char] || char).join("");
+            }
+            let length = parseInt(data.slice(0, 4), 10);
+            if (isNaN(length) || length <= 0 || length > data.length - 4) throw new Error("Decryption failed: Invalid length in decrypted string");
+            return data.slice(4, 4 + length);
+        }
+        const sId = embed.split('/').pop().split('?')[0];
+        const key = await _getClientKey(embed, referer);
+        const url = `https://megacloud.blog/embed-2/v3/e-1/getSources?id=${sId}&_k=${key}`;
+        const data = await GM_fetch(url).then(r=>r.json());
+        if (data.encrypted) {
+            const secret = await fetch('https://raw.githubusercontent.com/yogesh-hacker/MegacloudKeys/refs/heads/main/keys.json').then(r => r.json()).then(j => j['mega']);
+            const sources = JSON.parse(_decrypt(secret, key, data.sources));
+            return { file: sources[0].file, type: sources[0].type, tracks: data.tracks || [] }
+        }
+        if (data.error) throw new Error(data.error);
+        showToast(`Couldnt decrypt sources for ${embed}`);
+        return { file: embed, type: 'embed', tracks: data?.tracks }
+    }
+}
 
 /**
  * Fetches the HTML content of a given URL and parses it into a DOM object.
@@ -832,8 +734,8 @@ const websites = [
  * @returns {Promise<Document>} A promise that resolves to a DOM Document object.
  * @throws {Error} If the fetch operation fails.
  */
-async function fetchPage(url) {
-    const response = await fetch(url);
+async function fetchPage(url, options = {}) {
+    const response = await fetch(url, options);
     if (response.ok) {
         const page = (new DOMParser()).parseFromString(await response.text(), 'text/html');
         return page;
@@ -939,7 +841,7 @@ const _analyzedMediaCache = new Map();  // Cache to store analyzed media results
 
 // initialize
 console.log('Initializing AniLINK...');
-const site = websites.find(site => site.url.some(url => window.location.href.includes(url)));
+const site = Websites.find(site => site.url.some(url => window.location.href.includes(url)));
 
 // register menu command to start script
 GM_registerMenuCommand('Extract Episodes', extractEpisodes);
@@ -967,7 +869,7 @@ async function extractEpisodes() {
         return;
     }
     // Flag to control extraction process
-    let isExtracting = true;
+    let status = { isExtracting: true, text: 'Initializing...', stopped: false, error: null };
 
     // --- Materialize CSS Initialization ---
     GM_addStyle(`
@@ -981,6 +883,8 @@ async function extractEpisodes() {
         .anlink-status-icon i { font-size: 24px; transition: transform 0.3s ease-in-out; } /* Icon size and transition */
         .anlink-status-icon i::before { content: 'check_circle'; } /* Show check icon when not extracting */
         .anlink-status-icon i.extracting::before { content: 'auto_mode'; animation: spinning 2s linear infinite; } /* Spinner animation class */
+        .anlink-status-icon i.retry::before { content: 'refresh'; } /* Retry icon */
+        .anlink-status-icon i.error::before { content: 'error'; } /* Error icon */
         .anlink-status-icon:hover i.extracting::before { content: 'stop_circle'; animation: stop; } /* Show stop icon on hover when extracting */
         .anlink-quality-section { margin-top: 20px; margin-bottom: 10px; border-bottom: 1px solid #444; padding-bottom: 5px; }
         .anlink-quality-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; } /* Added cursor pointer */
@@ -1032,15 +936,39 @@ async function extractEpisodes() {
     statusBarHeader.appendChild(statusIconElement);
 
     statusIconElement.addEventListener('click', () => {
-        isExtracting = false; // Set flag to stop extraction
-        statusBar.textContent = "Extraction Stopped.";
+        if (status.stopped) return; // TODO: add retry functionality with continuing with past links
+        status = { isExtracting: false, text: "Extraction Stopped by User.", stopped: true };
     });
 
     // Create a status bar
     const statusBar = document.createElement('span');
     statusBar.className = "anlink-status-bar";
-    statusBar.textContent = "Extracting Links..."
+    statusBar.textContent = status.text;
     statusBarHeader.appendChild(statusBar);
+
+    // start interval to update status text
+    const statusInterval = setInterval(() => {
+        if (JSON.stringify(status) !== JSON.stringify(_lastStatus)) {
+            _lastStatus = { ...status };
+            statusBar.textContent = status.text;
+            if (status.isExtracting) {
+                statusIconElement.querySelector('i').classList.add('extracting'); // Start spinner animation
+            } else {
+                statusIconElement.title = 'Restart Extraction.';
+                statusIconElement.querySelector('i').classList.remove('extracting'); // Stop spinner animation
+                if (status.stopped) {
+                    statusIconElement.querySelector('i').classList.add('retry'); // Show retry icon
+                }
+                if (status.error) {
+                    statusIconElement.querySelector('i').classList.add('error'); // Show error icon
+                    statusBar.textContent += ` : ${status.error}`; // Update status bar with error
+                    statusBar.style.color = 'red'; // Change status bar color to red
+                } else statusBar.style.color = ''; // Reset status bar color
+                clearInterval(statusInterval); // Stop updating statusBar
+            }
+        }
+    }, 100);
+    _lastStatus = { ...status }; // Store a shallow copy of the last status for reference
 
     // Create a container for qualities and episodes
     const qualitiesContainer = document.createElement('div');
@@ -1049,31 +977,36 @@ async function extractEpisodes() {
 
 
     // --- Process Episodes using Generator ---
-    statusBar.textContent = "Starting...";
-    const episodeGenerator = site.extractEpisodes(statusBar);
-    const qualityLinkLists = {}; // Stores lists of links for each quality
+    try {
+        const episodeGenerator = site.extractEpisodes(status);
+        const qualityLinkLists = {}; // Stores lists of links for each quality
 
-    for await (const episode of episodeGenerator) {
-        if (!isExtracting) { // Check if extraction is stopped
-            statusIconElement.querySelector('i').classList.remove('extracting'); // Stop spinner animation
-            statusBar.textContent = "Extraction Stopped By User.";
-            return; // Exit if extraction is stopped
+        for await (const episode of episodeGenerator) {
+            if (!status.isExtracting) { // Check if extraction is stopped
+                statusIconElement.querySelector('i').classList.remove('extracting'); // Stop spinner animation
+                return; // Exit if extraction is stopped
+            }
+            if (!episode) continue; // Skip if episode is null (error during extraction)
+
+            // Get all links into format - {[qual1]:[ep1,2,3,4], [qual2]:[ep1,2,3,4], ...}
+            for (const quality in episode.links) {
+                qualityLinkLists[quality] = qualityLinkLists[quality] || [];
+                qualityLinkLists[quality].push(episode);
+            }
+
+            // Update UI in real-time - RENDER UI HERE BASED ON qualityLinkLists
+            renderQualityLinkLists(qualityLinkLists, qualitiesContainer);
         }
-        if (!episode) continue; // Skip if episode is null (error during extraction)
-
-        // Get all links into format - {[qual1]:[ep1,2,3,4], [qual2]:[ep1,2,3,4], ...}
-        for (const quality in episode.links) {
-            qualityLinkLists[quality] = qualityLinkLists[quality] || [];
-            qualityLinkLists[quality].push(episode);
+        statusIconElement.querySelector('i').classList.remove('extracting');
+        if (qualityLinkLists && Object.keys(qualityLinkLists).length > 0) {
+            status = { isExtracting: false, text: "Extraction Complete!" };
+        } else {
+            status = { isExtracting: false, text: "No episodes found." };
         }
-
-        // Update UI in real-time - RENDER UI HERE BASED ON qualityLinkLists
-        renderQualityLinkLists(qualityLinkLists, qualitiesContainer);
+    } catch (error) {
+        console.error('Error during episode extraction:', error);
+        status = { isExtracting: false, text: "Extraction Failed.", error: error.message || error.toString() };
     }
-    isExtracting = false; // Extraction completed
-    statusIconElement.querySelector('i').classList.remove('extracting');
-    statusBar.textContent = "Extraction Complete!";
-
 
     // Renders quality link lists inside a given container element
     function renderQualityLinkLists(sortedLinks, container) {
@@ -1506,19 +1439,19 @@ async function showEpisodeRangeSelector(total) {
  ***************************************************************/
 async function applyEpisodeRangeFilter(allEpLinks) {
     const status = document.querySelector('.anlink-status-bar');
-    const epRangeThreshold = GM_getValue('ep_range_threshold', 24)
+    const epRangeThreshold = GM_getValue('ep_range_threshold', 12);
     if (allEpLinks.length <= epRangeThreshold) return allEpLinks;
 
-    status.textContent = `Found ${allEpLinks.length} episodes. Waiting for selection...`;
+    status.text = `Found ${allEpLinks.length} episodes. Waiting for selection...`;
     const selection = await showEpisodeRangeSelector(allEpLinks.length);
 
     if (!selection) {
-        status.textContent = 'Cancelled by user.';
+        status.text = 'Cancelled by user.';
         return null;
     }
 
     const filtered = allEpLinks.slice(selection.start - 1, selection.end);
-    status.textContent = `Extracting episodes ${selection.start}-${selection.end} of ${allEpLinks.length}...`;
+    status.text = `Extracting episodes ${selection.start}-${selection.end} of ${allEpLinks.length}...`;
     return filtered;
 }
 
