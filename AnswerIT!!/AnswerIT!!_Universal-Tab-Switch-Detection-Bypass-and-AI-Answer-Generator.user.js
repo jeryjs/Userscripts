@@ -145,7 +145,7 @@ const models = [
 		displayName: "Flash-Thinking",
 		subtitle: "Best Quality | 10 RPM | Recommended for Complex Questions",
 		order: 2,
-		color: "#cde2ceff", // Soft Pastel Green
+		color: "#c8ffce", // Soft Pastel Green
 		tooltip: "Highest quality model, may be slower and has an API quota of 10 requests per minute. Use sparingly.",
 		generationConfig: { thinkingConfig: { thinkingBudget: 8000 } },
 		provider: "gemini"
@@ -179,12 +179,12 @@ const models = [
 		provider: "openai"
 	},
 	{
-		name: "gpt-4o-mini",
-		displayName: "GPT-4o Mini",
+		name: "o4-mini-2025-04-16",
+		displayName: "o4 Mini",
 		subtitle: "OpenAI | Cost-Effective Reasoning",
 		order: 6,
 		color: "#E3F2FD", // Very Light Blue
-		tooltip: "GPT-4o Mini: compact version optimized for faster responses and lower cost. Ideal for straightforward reasoning with shorter contexts.",
+		tooltip: "GPT-o4 Mini: Reasoning model capable of handling complex questions with a 128k context window. Optimized for cost and speed, ideal for straightforward reasoning tasks.",
 		provider: "openai"
 	},
 	{
@@ -364,7 +364,7 @@ const AIProviders = {
 					},
 					onload: (r) => {
 						if (r.status === 200 && !answerText) r.responseText.split('\n').forEach(l => { if (l.startsWith('data: ')) { const newText = JSON.parse(l.slice(6)).candidates?.[0]?.content?.parts?.[0]?.text; if (newText) answerText += newText; } });
-						(r.status === 200 && answerText) ? resolve(answerText) : reject(new Error(`No content received: Status ${r.status}`));
+						(r.status === 200 && answerText) ? resolve(answerText) : reject(new Error(`No content received: Status ${r.status}\nResponse: ${r.responseText}`));
 					},
 					onerror: (response) => {
 						let errorMsg = `API error: ${response.status} ${response.statusText}`;
@@ -421,7 +421,7 @@ const AIProviders = {
 					onload: (r) => {
 						if (r.status === 200 && !answerText) r.responseText.split('\n').forEach(line => { if (line.startsWith('data: ') && !line.includes('[DONE]')) try {if (JSON.parse(line.slice(6)).choices?.[0]?.delta?.content) { answerText += JSON.parse(line.slice(6)).choices?.[0]?.delta?.content; }} catch (e) {} });
 						if (r.status === 200 && answerText) resolve(answerText);
-						else reject(new Error(`No content received: Status ${r.status}`));
+						else reject(new Error(`No content received: Status ${r.status}\nResponse: ${r.responseText}`));
 					},
 					onerror: (r) => {
 						let msg = `API error: ${r.status} ${r.statusText}`;
@@ -474,7 +474,7 @@ const AIProviders = {
 							processedLength = response.responseText.length;
 						}
 					},
-					onload: (response) => (response.status === 200 && answerText) ? resolve(answerText) : reject(new Error(`No content received: Status ${response.status}`)),
+					onload: (response) => (response.status === 200 && answerText) ? resolve(answerText) : reject(new Error(`No content received: Status ${response.status}\nResponse: ${response.responseText}`)),
 					onerror: (response) => {
 						let errorMsg = `API error: ${response.status} ${response.statusText}`;
 						try {
