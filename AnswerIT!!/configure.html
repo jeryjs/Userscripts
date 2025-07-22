@@ -6,6 +6,7 @@
     <title>AnswerIT!! - Setup & Configuration</title>
     <link rel="icon" href="https://i.pinimg.com/736x/d9/b5/a6/d9b5a64b2a0f432e41f611ddd410d8be.jpg">
     <link rel="stylesheet" href="configure.css">
+    <script src="https://unpkg.com/psl@latest/dist/psl.umd.cjs"></script>
 </head>
 <body>
     <div class="hero">
@@ -31,6 +32,11 @@
                     <a href="https://github.com/jeryjs/Userscripts/tree/main/AnswerIT!!" target="_blank" class="quick-link">📖 Github Page</a>
                     <a href="https://github.com/jeryjs/Userscripts/issues/new?title=[AnswerIT!!]%20**Title%20of%20the%20issue**%20&body=**Describe%20the%20issue:**%0A%0A**Steps%20to%20reproduce:**%0A%0A**Expected%20behavior:**%0A%0A**Screenshots%20(optional):**%0A%0A**Environment:**%0A-%20Browser:%0A-%20OS:%0A" target="_blank" class="quick-link">🐛 Report Issues</a>
                 </div>
+                <button class="btn btn-primary" id="installScript" style="margin-top: 1rem;">
+                    <span class="hidden">⬇️ Install UserScript</span>
+                    <span class="hidden">✅ Userscript Installed!!</span>
+                    <div class="spinner"></div>
+                </button>
             </div>
 
             <div class="card">
@@ -51,19 +57,18 @@
                         <a href="#" id="testKey" class="quick-link">🧪 Test API Key</a>
                     </div>
                     <button type="submit" class="btn btn-primary" id="saveApi" style="margin-top: 1rem;">
-                        <span id="saveApiText">Save API Key</span>
-                        <div class="spinner" id="saveApiSpinner" style="display: none;"></div>
+                        <span>Save API Key</span>
                     </button>
                 </form>
             </div>
-        </div>
+        <!-- </div> -->
 
-        <div class="preferences-section">
+        <!-- <div class="grid" style="margin-top: 2rem;"> -->
             <div class="card">
                 <div class="card-icon">⚙️</div>
                 <h2>Preferences</h2>
                 <p>Customize your AnswerIT!! experience</p>
-                <div class="status" id="settingsStatus"></div>
+                <div class="status" id="preferencesStatus"></div>
                 <form id="settingsForm">
                     <div class="preferences-grid">
                         <div class="form-group">
@@ -149,291 +154,187 @@
     <script>
         class ConfigManager {
             constructor() {
-                this.currentTheme = localStorage.getItem('answerIT_pageTheme') || 'light';
-                this.isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+                this.currentTheme = localStorage.getItem('pageTheme') || 'light';
+                this.isMac = !navigator.platform.toUpperCase().indexOf('MAC') >= 0;
                 this.configDetected = false;
-                this.initTheme();
-                this.initModifierKeys();
+                this.GM = {
+                    getValue: window.AnswerIT_Config?.GM_getValue,
+                    setValue: window.AnswerIT_Config?.GM_setValue,
+                };
+                this.theme.initTheme();
                 this.initEventListeners();
                 this.detectUserscript();
             }
 
-            async detectUserscript() {
+            theme = {
+                initTheme: () => {
+                    this.theme.applyTheme(this.currentTheme);
+                    const $toggle = $('#themeToggle');
+                    $toggle.text(this.currentTheme === 'light' ? '🌙' : '☀️');
+                    $toggle.attr('title', `Switch to ${this.currentTheme === 'light' ? 'dark' : 'light'} theme`);
+                },
+                toggleTheme: () => {
+                    this.currentTheme = this.currentTheme === 'light' ? 'dark' : 'light';
+                    this.theme.applyTheme(this.currentTheme);
+                    const $toggle = $('#themeToggle');
+                    $toggle.text(this.currentTheme === 'light' ? '🌙' : '☀️');
+                    $toggle.attr('title', `Switch to ${this.currentTheme === 'light' ? 'dark' : 'light'} theme`);
+                },
+                applyTheme: (theme) => {
+                    document.documentElement.classList.toggle('dark', theme === 'dark');
+                    localStorage.setItem('pageTheme', theme);
+                }
+            }
+
+            detectUserscript() {
                 console.log('[ConfigPage] Starting userscript detection...');
-                this.updateDetectionStatus('🔍 Detecting userscript...', '');
+                updateDetectionStatus('🔍 Detecting userscript...', '');
 
-                // Method 1: Check if already available
-                if (window.AnswerIT_Config?.getConfig) {
-                    console.log('[ConfigPage] Userscript detected immediately');
-                    this.updateDetectionStatus('✅ Userscript connected!', 'success');
-                    this.onConfigDetected();
-                    return;
-                }
-
-                // Method 2: Wait for custom event
-                const eventListener = (e) => {
-                    console.log('[ConfigPage] Userscript detected via event');
-                    $(window).off('AnswerIT_ConfigReady', eventListener); // Use jQuery .off()
-                    this.updateDetectionStatus('✅ Userscript connected!', 'success');
-                    this.onConfigDetected();
-                };
-                $(window).on('AnswerIT_ConfigReady', eventListener); // Use jQuery .on()
-
-                // Method 3: Polling with exponential backoff
-                let attempts = 0;
-                const maxAttempts = 15;
-                const pollForConfig = () => {
+                let attempts = 0, max = 15;
+                const poll = () => {
                     attempts++;
-                    console.log(`[ConfigPage] Polling attempt ${attempts}/${maxAttempts}`);
-                    this.updateDetectionStatus(`🔍 Checking for userscript... (${attempts}/${maxAttempts})`, '');
-
-                    if (window.AnswerIT_Config?.getConfig) {
-                        console.log('[ConfigPage] Userscript detected via polling');
-                        $(window).off('AnswerIT_ConfigReady', eventListener);
-                        this.updateDetectionStatus('✅ Userscript connected!', 'success');
-                        this.onConfigDetected();
-                        return;
-                    }
-
-                    if (attempts < maxAttempts) {
-                        // Exponential backoff: 100ms, 200ms, 400ms, 800ms, etc.
-                        const delay = Math.min(100 * Math.pow(2, attempts - 1), 2000);
-                        setTimeout(pollForConfig, delay);
+                    updateDetectionStatus(`🔍 Checking for userscript... (${attempts}/${max})`, '');
+                    if (window.AnswerIT_Config?.GM_getValue) {
+                        updateDetectionStatus('✅ Userscript connected!', 'success');
+                        onConfigDetected(this);
+                    } else if (attempts < max) {
+                        setTimeout(poll, Math.min(100 * 2 ** (attempts - 1), 2000));
                     } else {
-                        console.log('[ConfigPage] Userscript not detected, using fallback');
-                        $(window).off('AnswerIT_ConfigReady', eventListener);
-                        this.updateDetectionStatus('⚠️ Using local storage mode', 'warning');
-                        this.onConfigDetected(); // Load with fallback
+                        updateDetectionStatus('⚠️ Couldn\'t detect userscript.', 'warning');
                     }
-                };
-
-                // Start polling after a short delay
-                setTimeout(pollForConfig, 100);
-            }
-
-            updateDetectionStatus(message, type) {
-                const $status = $('#detectionStatus'); // Use jQuery selector
-                $status.text(message); // Use jQuery .text()
-                $status.attr('class', `detection-status ${type}`); // Use jQuery .attr()
-
-                // Hide status after successful connection
-                if (type === 'success') {
-                    setTimeout(() => {
-                        $status.animate({ opacity: 0 }, 300, () => { // Use jQuery .animate()
-                            $status.hide(); // Use jQuery .hide()
-                        });
-                    }, 2000);
+                }; poll();
+                
+                function updateDetectionStatus(message, type) {
+                    const $status = $('#detectionStatus');
+                    $status.text(message);
+                    $status.attr('class', `detection-status ${type}`);
+                    // Hide status after successful connection
+                    if (type === 'success') setTimeout(() => $status.animate({ opacity: 0 }, 300, () => $status.hide()), 2000);
                 }
-            }
 
-            onConfigDetected() {
-                if (this.configDetected) return; // Prevent multiple calls
-                this.configDetected = true;
-                console.log('[ConfigPage] Initializing with config:', !!window.AnswerIT_Config);
-                this.loadSettings();
-                this.renderSites();
-            }
+                function onConfigDetected(ctx) {
+                    if (ctx.configDetected) return; // Prevent multiple calls
+                    ctx.configDetected = true;
+                    console.log('[ConfigPage] Initializing with config:', !!window.AnswerIT_Config);
 
-            initTheme() {
-                this.applyTheme(this.currentTheme);
-                const $toggle = $('#themeToggle'); // Use jQuery selector
-                $toggle.text(this.currentTheme === 'light' ? '🌙' : '☀️'); // Use jQuery .text()
-                $toggle.attr('title', `Switch to ${this.currentTheme === 'light' ? 'dark' : 'light'} theme`); // Use jQuery .attr()
-            }
+                    // Load Settings
+                    ctx.loadSettings();
 
-            initModifierKeys() {
-                const modifierKey = this.isMac ? 'Cmd' : 'Alt';
-                $('#modifierKey').text(modifierKey); // Use jQuery .text()
-                // Update hotkey options
-                $('#hotkey option').each(function () { // Use jQuery .each()
-                    const $option = $(this);
-                    const key = $option.val().toUpperCase();
-                    $option.text(`${modifierKey} + ${key}`); // Use jQuery .text()
-                });
+                    // Render Supported Sites
+                    const _renderSites = () => {
+                        const sites = window.AnswerIT_Config?.supportedSites || [];
+                        Promise.all(sites.map(async site => {
+                            let urlStr = (!/^https?:\/\//i.test(site.urls[0])) ? 'https://' + site.urls[0] : site.urls[0];
+                            let domain = (new URL(urlStr))?.hostname || urlStr.replace(/^https?:\/\//i, '').split('/')[0];
+                            const tld = psl.get(domain);
+                            const faviconUrls = [
+                                `https://${domain}/favicon.ico`,
+                                `https://${domain.replace(/^[^.]+\./, '')}/favicon.ico`,
+                                `https://www.google.com/s2/favicons?domain=${domain}&sz=32`,
+                            ];
+                            let favicon = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" rx="8" fill="%23e5e7eb"/><text x="16" y="22" text-anchor="middle" font-size="18" fill="%23667eea" font-family="Arial">🌐</text></svg>';
+                            for (let url of faviconUrls) try {const res = await fetch(url, { method: 'HEAD', mode: 'no-cors' });if (res.ok || res.type === 'opaque') { favicon = url; break; }} catch { }
+                            const $card = $('<a>').addClass('site-card').attr('href', `https://${site.urls[0]}`).attr('target', '_blank').html(`<img class="site-favicon" src="${favicon}" alt="${site.name}"><h3>${site.name}</h3>`);
+                            $('#sitesGrid').append($card);
+                        }));
+                    }; _renderSites();
+                }
             }
 
             initEventListeners() {
-                $('#themeToggle').on('click', () => this.toggleTheme()); // Use jQuery .on()
-                $('#apiForm').on('submit', (e) => { e.preventDefault(); this.saveApiKey(); }); // Use jQuery .on()
-                $('#settingsForm').on('submit', (e) => { e.preventDefault(); this.saveSettings(); }); // Use jQuery .on()
-                $('#testKey').on('click', (e) => { e.preventDefault(); this.testApiKey(); }); // Use jQuery .on()
-                $('#apiKey').on('input', (e) => this.validateApiKey($(e.target).val())); // Use jQuery .val() and .on()
+                $('#themeToggle').on('click', () => this.theme.toggleTheme());
+                $('#apiForm').on('submit', (e) => { e.preventDefault(); this.apiKey.save(); });
+                $('#settingsForm').on('submit', (e) => { e.preventDefault(); this.saveSettings(); });
+                $('#testKey').on('click', (e) => { e.preventDefault(); this.apiKey.test(); });
+                $('#apiKey').on('input', (e) => this.apiKey.validate($(e.target).val()));
             }
 
-            toggleTheme() {
-                this.currentTheme = this.currentTheme === 'light' ? 'dark' : 'light';
-                this.applyTheme(this.currentTheme);
-                localStorage.setItem('answerIT_pageTheme', this.currentTheme);
-                const $toggle = $('#themeToggle');
-                $toggle.text(this.currentTheme === 'light' ? '🌙' : '☀️');
-                $toggle.attr('title', `Switch to ${this.currentTheme === 'light' ? 'dark' : 'light'} theme`);
-            }
-
-            applyTheme(theme) {
-                const isDark = theme === 'dark';
-                // Using jQuery to set CSS variables is less direct. Native JS is better for this.
-                // Keeping original for direct CSS variable manipulation.
-                document.documentElement.style.setProperty('--bg', isDark ? '#0f172a' : '#f8fafc');
-                document.documentElement.style.setProperty('--card', isDark ? '#1e293b' : '#ffffff');
-                document.documentElement.style.setProperty('--text', isDark ? '#f1f5f9' : '#1f2937');
-                document.documentElement.style.setProperty('--text-light', isDark ? '#94a3b8' : '#6b7280');
-                document.documentElement.style.setProperty('--border', isDark ? '#334155' : '#e5e7eb');
-            }
-
-            loadSettings() {
-                let config = null;
-                const GM_getValue = window.AnswerIT_Config?.GM_getValue;
-                if (window.AnswerIT_Config?.getConfig) {
-                    config = window.AnswerIT_Config.getConfig();
-                    this.showStatus('settingsStatus', '✅ Userscript detected - settings sync automatically!', 'success');
-                } else {
-                    const saved = localStorage.getItem('answerIT_config');
-                    if (saved) {
-                        try { config = JSON.parse(saved); } catch (e) { console.error('Load error:', e); }
-                    }
-                    this.showStatus('settingsStatus', '⚠️ Userscript not detected - using local storage', 'warning');
-                }
-                if (config) {
-                    if (config.apiKey) {
-                        $('#apiKey').val(config.apiKey); // Use jQuery .val()
-                        this.validateApiKey(config.apiKey);
-                        this.showStatus('apiStatus', window.AnswerIT_Config ? 'API key loaded from userscript!' : 'API key loaded from storage!', 'success');
-                    }
-                    $('#hotkey').val(config.hotkey || 'a'); // Use jQuery .val()
-                    $('#theme').val(config.theme || 'light'); // Use jQuery .val()
-                    $('#makeAIOutputEditable').prop('checked', GM_getValue('makeAIOutputEditable', false)); // Use jQuery .prop() for checkboxes
-                }
-            }
-
-            validateApiKey(key) {
-                const $input = $('#apiKey'); // Use jQuery selector
-                if (!key) { $input.attr('class', 'form-input'); return false; } // Use jQuery .attr()
-                const valid = /^AIza[0-9A-Za-z-_]{35}$/.test(key);
-                $input.attr('class', valid ? 'form-input success' : 'form-input error'); // Use jQuery .attr()
-                return valid;
-            }
-
-            async testApiKey() {
-                const apiKey = $('#apiKey').val().trim(); // Use jQuery .val()
-                if (!apiKey) { this.showStatus('apiStatus', 'Please enter an API key first!', 'error'); return; }
-                if (!this.validateApiKey(apiKey)) { this.showStatus('apiStatus', 'API key format invalid', 'warning'); return; }
-                this.showStatus('apiStatus', 'Testing API key...', 'warning');
-                try {
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-                    this.showStatus('apiStatus', response.ok ? '✅ API key is valid!' : '❌ API key is invalid', response.ok ? 'success' : 'error');
-                } catch (error) {
-                    this.showStatus('apiStatus', '❌ Network error testing API key', 'error');
-                }
-            }
-
-            async saveApiKey() {
-                const apiKey = $('#apiKey').val().trim(); // Use jQuery .val()
-                if (!apiKey) { this.showStatus('apiStatus', 'Please enter an API key!', 'error'); return; }
-                this.setButtonLoading('saveApi', true);
-                try {
-                    if (window.AnswerIT_Config?.setConfig) {
-                        window.AnswerIT_Config.setConfig({ apiKey });
-                    } else {
-                        const config = this.getLocalConfig();
-                        config.apiKey = apiKey;
-                        localStorage.setItem('answerIT_config', JSON.stringify(config));
-                    }
+            apiKey = {
+                validate: (key) => {
+                    const $input = $('#apiKey');
+                    if (!key) { $input.attr('class', 'form-input'); return false; }
+                    const valid = /^AIza[0-9A-Za-z-_]{35}$/.test(key);
+                    $input.attr('class', valid ? 'form-input success' : 'form-input error');
+                    return valid;
+                },
+                test: async () => {
+                    const apiKey = $('#apiKey').val().trim();
+                    if (!apiKey) { this.showStatus('apiStatus', 'Please enter an API key first!', 'error'); return; }
+                    if (!this.apiKey.validate(apiKey)) { this.showStatus('apiStatus', 'API key format invalid', 'warning'); return; }
+                    this.showStatus('apiStatus', 'Testing API key...', 'warning');
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`).then( r =>
+                        this.showStatus('apiStatus', r.ok ? '✅ API key is valid!' : '❌ API key is invalid', r.ok ? 'success' : 'error')
+                    ).catch(e => {
+                        this.showStatus('apiStatus', `❌ Network error testing API key: ${e.message}`, 'error');
+                    })
+                },
+                save: async () => {
+                    const apiKey = $('#apiKey').val().trim();
+                    if (!apiKey) { this.showStatus('apiStatus', 'Please enter an API key!', 'error'); return; }
+                    this.setButtonLoading('saveApi', true);
+                    this.GM.setValue('geminiApiKey', apiKey);
                     this.showStatus('apiStatus', '✅ API key saved successfully!', 'success');
-                    setTimeout(() => this.testApiKey(), 500);
-                } catch (error) {
-                    this.showStatus('apiStatus', '❌ Error saving API key', 'error');
-                } finally {
+                    setTimeout(() => this.apiKey.test(), 500);
                     this.setButtonLoading('saveApi', false);
                 }
             }
 
-            async saveSettings() {
-                const GM_setValue = window.AnswerIT_Config?.GM_setValue
-
-                const settings = {
-                    hotkey: $('#hotkey').val(), // Use jQuery .val()
-                    theme: $('#theme').val(), // Use jQuery .val()
+            loadSettings() {
+                let settings = null, get = this.GM.getValue;
+                if (!get) return;
+                // get
+                settings = {
+                    apiKey: get('geminiApiKey', ''),
+                    hotkey: get('hotkey', { key: 'a', modifier: 'alt' }),
+                    theme: get('theme', 'light'),
+                    makeAIOutputEditable: get('makeAIOutputEditable', false),
+                    reflector: get('reflector', { enabled: false, lastOffer: '', lastAnswer: '' }),
                 };
-                GM_setValue('makeAIOutputEditable', $('#makeAIOutputEditable').prop('checked'));
+                this.showStatus('preferencesStatus', '✅ Userscript detected - settings sync automatically!', 'success');
+
+                // set
+                if (settings) {
+                    if (settings.apiKey) {
+                        $('#apiKey').val(settings.apiKey);
+                        this.apiKey.validate(settings.apiKey);
+                        this.showStatus('apiStatus', 'API key loaded from userscript!', 'success');
+                    }
+                    $('#hotkey').val(settings.hotkey.key || 'a');
+                    $('#theme').val(settings.theme || 'light');
+                    $('#makeAIOutputEditable').prop('checked', get('makeAIOutputEditable', false));
+                }
+
+                return settings;
+            };
+
+            saveSettings() {
+                const get = this.GM.getValue, set = this.GM.setValue;
+                
+                set('hotkey', { key: $('#hotkey').val(), modifier: 'alt' });
+                set('theme', $('#theme').val());
+                set('makeAIOutputEditable', $('#makeAIOutputEditable').prop('checked'));
 
                 this.setButtonLoading('saveSettings', true);
-                try {
-                    if (window.AnswerIT_Config?.setConfig) {
-                        window.AnswerIT_Config.setConfig(settings);
-                    } else {
-                        const config = this.getLocalConfig();
-                        Object.assign(config, settings);
-                        localStorage.setItem('answerIT_config', JSON.stringify(config));
-                    }
-                    this.showStatus('settingsStatus', '✅ Settings saved successfully!', 'success');
-                } catch (error) {
-                    this.showStatus('settingsStatus', '❌ Error saving settings', 'error');
-                } finally {
-                    this.setButtonLoading('saveSettings', false);
-                }
-            }
-
-            renderSites() {
-                const $grid = $('#sitesGrid'); // Use jQuery selector
-                const sites = window.AnswerIT_Config?.supportedSites || [];
-                const fallback = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" rx="8" fill="%23e5e7eb"/><text x="16" y="22" text-anchor="middle" font-size="18" fill="%23667eea" font-family="Arial">🌐</text></svg>';
-                const getDomain = url => {
-                    try {
-                        let u = url.match(/^https?:\/\//) ? url : 'https://' + url;
-                        return new URL(u).hostname;
-                    } catch { return url.split('/')[0]; }
-                };
-                Promise.all(sites.map(async site => {
-                    const domain = getDomain(site.urls[0]);
-                    const faviconUrls = [
-                        `https://www.google.com/s2/favicons?domain=${domain}&sz=32`,
-                        `https://${domain}/favicon.ico`,
-                        `https://${domain}/favicon.png`,
-                        `https://${domain.replace(/^[^.]+\./, '')}/favicon.ico`,
-                        `https://${domain.replace(/^[^.]+\./, '')}/favicon.png`,
-                    ];
-                    let favicon = fallback;
-                    for (let url of faviconUrls) {
-                        try {
-                            const res = await fetch(url, { method: 'HEAD', mode: 'no-cors' });
-                            if (res.ok || res.type === 'opaque') { favicon = url; break; }
-                        } catch { }
-                    }
-                    // Create element using jQuery
-                    const $card = $('<a>')
-                        .addClass('site-card')
-                        .attr('href', `https://${site.urls[0]}`)
-                        .attr('target', '_blank')
-                        .html(`<img class="site-favicon" src="${favicon}" alt="${site.name}"><h3>${site.name}</h3>`);
-                    $grid.append($card); // Use jQuery .append()
-                }));
+                this.showStatus('preferencesStatus', '✅ Settings saved successfully!', 'success');
+                this.setButtonLoading('saveSettings', false);
             }
 
             setButtonLoading(btnId, loading) {
-                const $btn = $(`#${btnId}`); // Use jQuery selector
-                const $text = $(`#${btnId}Text`); // Use jQuery selector
-                const $spinner = $(`#${btnId}Spinner`); // Use jQuery selector
-                $btn.prop('disabled', loading); // Use jQuery .prop()
-                $text.text(loading ? 'Saving...' : (btnId === 'saveApi' ? 'Save API Key' : '💾 Save Settings')); // Use jQuery .text()
-                $spinner.css('display', loading ? 'block' : 'none'); // Use jQuery .css()
+                const $btn = $(`#${btnId}`);
+                const $text = $(`#${btnId}Text`);
+                const $spinner = $(`#${btnId}Spinner`);
+                $btn.prop('disabled', loading);
+                $text.text(loading ? 'Saving...' : (btnId === 'saveApi' ? 'Save API Key' : '💾 Save Settings'));
+                $spinner.css('display', loading ? 'block' : 'none');
             }
 
             showStatus(id, message, type) {
-                const $el = $(`#${id}`); // Use jQuery selector
-                $el.text(message); // Use jQuery .text()
-                $el.attr('class', `status ${type}`); // Use jQuery .attr()
-                $el.css('display', 'flex'); // Use jQuery .css()
+                const $el = $(`#${id}`);
+                $el.text(message);
+                $el.attr('class', `status ${type}`);
+                $el.css('display', 'flex');
                 if (type === 'success') {
-                    setTimeout(() => $el.css('display', 'none'), 5000); // Use jQuery .css()
-                }
-            }
-
-            getLocalConfig() {
-                try {
-                    const saved = localStorage.getItem('answerIT_config');
-                    return saved ? JSON.parse(saved) : {};
-                } catch (e) {
-                    return {};
+                    setTimeout(() => $el.css('display', 'none'), 5000);
                 }
             }
         }
@@ -442,7 +343,6 @@
         $(function () {
             console.log('[ConfigPage] DOM loaded via jQuery ready, initializing ConfigManager');
             const cm = new ConfigManager();
-            cm.reflectorInit();
         });
     </script>
 </body>

@@ -10,6 +10,13 @@
     --border: #e5e7eb;
     --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
 }
+.dark {
+    --bg: #0f172a;
+    --card: #1e293b;
+    --text: #f1f5f9;
+    --text-light: #94a3b8;
+    --border: #334155;
+}
 
 * {
     margin: 0;
@@ -46,7 +53,6 @@ body {
     transition: all 0.3s ease;
     backdrop-filter: blur(10px);
 }
-
 .theme-toggle:hover {
     background: rgba(255, 255, 255, 0.2);
     transform: scale(1.1);
@@ -93,20 +99,13 @@ body {
 
 .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    grid-template-columns: repeat(2, 1fr);
+    /* grid-auto-flow: dense;
+    align-items: start; */
     gap: 2rem;
     margin-top: -4rem;
     position: relative;
     z-index: 2;
-}
-
-.preferences-section {
-    margin-top: 3rem;
-}
-
-.preferences-section .card {
-    max-width: 800px;
-    margin: 0 auto;
 }
 
 .card {
@@ -306,23 +305,25 @@ body {
     align-items: center;
     gap: 0.5rem;
 }
-
 .status.success {
     background: rgba(16, 185, 129, 0.1);
     color: var(--success);
     border: 1px solid rgba(16, 185, 129, 0.2);
 }
-
 .status.error {
     background: rgba(239, 68, 68, 0.1);
     color: var(--error);
     border: 1px solid rgba(239, 68, 68, 0.2);
 }
-
 .status.warning {
     background: rgba(245, 158, 11, 0.1);
     color: var(--warning);
     border: 1px solid rgba(245, 158, 11, 0.2);
+}
+.status.info {
+    background: rgba(96, 165, 250, 0.1);
+    color: var(--primary);
+    border: 1px solid rgba(96, 165, 250, 0.2);
 }
 
 .help-text {
@@ -351,7 +352,6 @@ body {
     font-weight: 500;
     transition: all 0.3s ease;
 }
-
 .quick-link:hover {
     background: rgba(102, 126, 234, 0.2);
     transform: translateY(-1px);
@@ -360,14 +360,12 @@ body {
 .sites-section {
     margin-top: 4rem;
 }
-
 .sites-section h2 {
     text-align: center;
     font-size: 2rem;
     font-weight: 700;
     margin-bottom: 1rem;
 }
-
 .sites-section p {
     text-align: center;
     color: var(--text-light);
@@ -394,11 +392,14 @@ body {
     color: inherit;
     display: block;
 }
-
 .site-card:hover {
     transform: translateY(-5px);
     box-shadow: var(--shadow);
     border-color: var(--primary);
+}
+.site-card h3 {
+    margin-bottom: 0.5rem;
+    font-size: 1.25rem;
 }
 
 .site-favicon {
@@ -406,11 +407,6 @@ body {
     height: 32px;
     margin: 0 auto 1rem;
     border-radius: 8px;
-}
-
-.site-card h3 {
-    margin-bottom: 0.5rem;
-    font-size: 1.25rem;
 }
 
 .spinner {
@@ -456,12 +452,7 @@ body {
     }
 }
 
-@media (prefers-color-scheme: dark) {
-    :root {
-        --bg: #0f172a;
-        --card: #1e293b;
-        --text: #f1f5f9;
-        --text-light: #94a3b8;
-        --border: #334155;
-    }
+
+.hidden {
+    display: none !important;
 }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnswerIT!! - Universal Tab Switch Detection Bypass and AI Answer Generator
 // @namespace    https://github.com/jeryjs
-// @version      3.18.4
+// @version      4.0.0
 // @description  Universal tab switch detection bypass and AI answer generator with popup interface
 // @author       Jery
 // @match		 https://jeryjs.github.io/Userscripts/AnswerIT!!/*
@@ -15,6 +15,7 @@
 // @icon         https://i.pinimg.com/736x/d9/b5/a6/d9b5a64b2a0f432e41f611ddd410d8be.jpg
 // @license      MIT
 // @run-at       document-start
+// @grant        GM_info
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
@@ -26,10 +27,17 @@
 // @downloadURL  https://github.com/jeryjs/Userscripts/raw/refs/heads/main/AnswerIT!!/AnswerIT!!_Universal-Tab-Switch-Detection-Bypass-and-AI-Answer-Generator.user.js
 // ==/UserScript==
 
+// track last version to handle version incompatible changes
+if (GM_info.script.version > GM_getValue('script_version', '0')) {
+	GM_setValue('script_version', GM_info.script.version);
+	
+	// v4.0.0
+	GM_deleteValue('hotkey'); // string -> { key: string, modifier: string }
+}
+
 // --- Configuration ---
 const config = {
-	hotkey: GM_getValue("hotkey", "a"), // Default hotkey is 'a' (used with Alt)
-	hotkeyModifier: "alt", // Currently only supports 'alt'
+	hotkey: GM_getValue("hotkey", { key: "a", modifier: "alt" }), // Default hotkey is 'a' (used with Alt)
 	popupState: { visible: false, snapped: 2, window: { x: 0, y: 0, w: 500, h: 800 }, opacity: 1 }, // Default popup state (not visible, snapped to right side)
 	theme: GM_getValue("theme", "light"), // Default theme is 'light'
 	autoRun: false, // Default auto-run to false to avoid wasting api calls
@@ -258,7 +266,7 @@ function createPopupUI() {
 
 		<div id="ait-popup-footer">
 			<span id="ait-status-text">Ready</span>
-			<span id="ait-hotkey-info">Press ${config.hotkeyModifier.toUpperCase()}+${config.hotkey.toUpperCase()} to toggle</span>
+			<span id="ait-hotkey-info">Press ${config.hotkey.modifier.toUpperCase()}+${config.hotkey.key.toUpperCase()} to toggle</span>
 		</div>
 	`;
 	// workaround to bypass the CSP to block unsafe-inline on some sites like linkedin-learning
@@ -591,7 +599,7 @@ function createPopupUI() {
 	// Attach keyboard shortcut handler
 	document.addEventListener("keydown", function (event) {
 		// Check if Alt+[configured key] is pressed using event.code for better compatibility
-		if (event.altKey && event.code.toLowerCase() === `key${config.hotkey.toLowerCase()}`) {
+		if (event.altKey && event.code.toLowerCase() === `key${config.hotkey.key.toLowerCase()}`) {
 			event.preventDefault();
 			popup.toggleUi();
 		}
@@ -1038,9 +1046,9 @@ function clearCache() {
 }
 
 function changeHotkey() {
-	const newHotkey = prompt("Enter a new hotkey (single character) to use with Alt:", config.hotkey);
+	const newHotkey = prompt("Enter a new hotkey (single character) to use with Alt:", config.hotkey.key);
 	if (newHotkey && newHotkey.length === 1) {
-		config.hotkey = newHotkey.toLowerCase();
+		config.hotkey = { key: newHotkey.toLowerCase(), modifier: "alt" };
 		GM_setValue("hotkey", config.hotkey);
 
 		// Update hotkey info in UI if popup exists
@@ -1048,11 +1056,11 @@ function changeHotkey() {
 		if (popup) {
 			const hotkeyInfo = popup.querySelector("#ait-hotkey-info"); // Changed ID to hotkey-info
 			if (hotkeyInfo) {
-				hotkeyInfo.textContent = `Press ${config.hotkeyModifier.toUpperCase()}+${config.hotkey.toUpperCase()} to toggle`;
+				hotkeyInfo.textContent = `Press ${config.hotkey.modifier.toUpperCase()}+${config.hotkey.key.toUpperCase()} to toggle`;
 			}
 		}
 
-		alert(`Hotkey updated to ALT+${config.hotkey.toUpperCase()}`);
+		alert(`Hotkey updated to ALT+${config.hotkey.key.toUpperCase()}`);
 	} else if (newHotkey) {
 		alert("Please enter a single character only.");
 	}
@@ -1083,7 +1091,7 @@ function hashCode(str) {
 // --- Event Listeners ---
 
 // Register Tampermonkey menu commands
-GM_registerMenuCommand("Toggle AI Popup (Alt+" + config.hotkey.toUpperCase() + ")", popup.toggleUi);
+GM_registerMenuCommand("Toggle AI Popup (Alt+" + config.hotkey.key.toUpperCase() + ")", popup.toggleUi);
 GM_registerMenuCommand("Change API Key", changeApiKey);
 GM_registerMenuCommand("Clear Response Cache", clearCache);
 GM_registerMenuCommand("Change Hotkey", changeHotkey);
@@ -1097,23 +1105,6 @@ function exposeConfigToPage() {
 		supportedSites: websites,
 		GM_getValue: GM_getValue,
 		GM_setValue: GM_setValue,
-		getConfig: function () {
-			return {
-				apiKey: GM_getValue("geminiApiKey", ""),
-				hotkey: GM_getValue("hotkey", "a"),
-				theme: GM_getValue("theme", "light"),
-				autoRun: GM_getValue("autoRun", false),
-				reflector: GM_getValue("reflector", config.reflector),
-			};
-		},
-		setConfig: function (newConfig) {
-			if (typeof newConfig !== "object") return;
-			if (typeof newConfig.apiKey === "string") GM_setValue("geminiApiKey", newConfig.apiKey);
-			if (typeof newConfig.hotkey === "string") GM_setValue("hotkey", newConfig.hotkey);
-			if (typeof newConfig.theme === "string") GM_setValue("theme", newConfig.theme);
-			if (typeof newConfig.autoRun !== "undefined") GM_setValue("autoRun", !!newConfig.autoRun);
-			if (typeof newConfig.reflector === "object") GM_setValue("reflector", newConfig.reflector);
-		}
 	};
 	window.AnswerIT_Config = obj;
 	unsafeWindow.AnswerIT_Config = obj; // For compatibility with unsafeWindow
