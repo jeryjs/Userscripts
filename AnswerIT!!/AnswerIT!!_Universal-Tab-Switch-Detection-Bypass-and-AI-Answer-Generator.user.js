@@ -21,7 +21,7 @@
 // @grant        GM_registerMenuCommand
 // @grant        GM_deleteValue
 // @grant        GM_addStyle
-// @grant        GM.xmlHttpRequest
+// @grant        GM_xmlhttpRequest
 // @require      https://cdn.jsdelivr.net/npm/@trim21/gm-fetch@0.2.1
 // @updateURL    https://github.com/jeryjs/Userscripts/raw/refs/heads/main/AnswerIT!!/AnswerIT!!_Universal-Tab-Switch-Detection-Bypass-and-AI-Answer-Generator.user.js
 // @downloadURL  https://github.com/jeryjs/Userscripts/raw/refs/heads/main/AnswerIT!!/AnswerIT!!_Universal-Tab-Switch-Detection-Bypass-and-AI-Answer-Generator.user.js
@@ -236,8 +236,11 @@ function createPopupUI() {
 
 	// Construct the HTML structure for the popup
 	popup.innerHTML = `
-		<div id="ait-popup-header">
-			<h3 id="ait-popup-title">AnswerIT!!</h3>
+		<div id="ait-popup-header" style="position: relative;">
+			<span style="display: flex; gap: 4px">
+				<h3 id="ait-popup-title">AnswerIT!!</h3>
+				<kbd style="font-size: 12px; opacity: 0.5;">v${GM_info.script.version}</kbd>
+			</span>
 			<div id="ait-popup-controls">
 				<button id="ait-opacity-toggle" title="Adjust opacity" data-action="controls.toggleOpacity">◐</button>
 				<button id="ait-theme-toggle" title="${config.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}" data-action="controls.toggleTheme">${config.theme === 'dark' ? '☀️' : '🌙'}</button>
@@ -941,14 +944,14 @@ async function handleGenerateAnswer(modelName, forceRetry = false) {
 	const contentParts = await buildContentParts(questionItem);
 
 	try {
-		// Use GM.xmlHttpRequest for cross-origin streaming support
+		// Use GM_xmlhttpRequest for cross-origin streaming support
 		await new Promise((resolve, reject) => {
 			const thisQuestionId = questionIdentifier || "unknown";
 			let answerText = "";
 			let processedLength = 0;
 			popup.outputArea.value = "";
 
-			GM.xmlHttpRequest({
+			GM_xmlhttpRequest({
 				method: "POST",
 				url: `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?key=${apiKey}&alt=sse`,
 				headers: { "Content-Type": "application/json" },
@@ -996,7 +999,6 @@ async function handleGenerateAnswer(modelName, forceRetry = false) {
 				},
 				onerror: (response) => {
 					let errorText = `API error for ${modelName}: ${response.status} ${response.statusText}\n\n`;
-					let stopStatus = "API Error";
 					try {
 						const errorBody = JSON.parse(response.responseText);
 						errorText += ` - ${errorBody?.error?.message || JSON.stringify(errorBody)}`;
