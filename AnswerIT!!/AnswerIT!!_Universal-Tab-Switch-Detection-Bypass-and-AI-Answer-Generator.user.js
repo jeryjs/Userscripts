@@ -136,7 +136,7 @@ const models = [
 		displayName: "Pro-Thinking",
 		subtitle: "Highest Quality | 5 RPM | Best for Complex Questions",
 		order: 1,
-		color: "#C8E6C9", // Light Green
+		color: "#D2F8E5", // Soft Mint Green
 		tooltip: "Latest experimental Gemini 2.5 Pro model with 1M token context window. Best for complex reasoning and detailed responses.",
 		provider: "gemini"
 	},
@@ -145,7 +145,7 @@ const models = [
 		displayName: "Flash-Thinking",
 		subtitle: "Best Quality | 10 RPM | Recommended for Complex Questions",
 		order: 2,
-		color: "#E1BEE7", // Faded Lavender
+		color: "#cde2ceff", // Soft Pastel Green
 		tooltip: "Highest quality model, may be slower and has an API quota of 10 requests per minute. Use sparingly.",
 		generationConfig: { thinkingConfig: { thinkingBudget: 8000 } },
 		provider: "gemini"
@@ -155,7 +155,7 @@ const models = [
 		displayName: "Flash",
 		subtitle: "Fast Response | 15 RPM | Recommended for General Questions",
 		order: 3,
-		color: "#FCDF80", // Faded Yellow
+		color: "#E0F7EF", // Very Light Aqua Green
 		tooltip: "Faster model, good for quick answers, quality may be slightly lower. Has an API quota of 15 requests per minute.",
 		generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
 		provider: "gemini"
@@ -163,28 +163,46 @@ const models = [
 	{
 		name: "gemini-2.5-flash-lite-preview-06-17",
 		displayName: "Flash Lite",
-		subtitle: "Fastest & Cheapest | 30 RPM | Recommended only for very simple questions",
+		subtitle: "Fastest & Cheapest | 30 RPM | For Simple Questions",
 		order: 4,
-		color: "#F0F4C3", // Faded Lime
-		tooltip: "Fastest and most cost-effective model, lowest quality, use for simpler questions. Has an API quota of 30 requests per minute.",
+		color: "#E6F9D5", // Soft Lime Green
+		tooltip: "Fastest and most cost-effective model, lowest quality, use for very simple or short questions. Has an API quota of 30 requests per minute.",
 		provider: "gemini"
 	},
 	{
 		name: "gpt-4o",
 		displayName: "GPT-4o",
-		subtitle: "OpenAI | High Quality | Good for General Questions",
+		subtitle: "OpenAI | Advanced Reasoning & Multimodal",
 		order: 5,
-		color: "#B3E5FC", // Light Blue
-		tooltip: "OpenAI's GPT-4 Omni model, excellent for reasoning and general tasks.",
+		color: "#D6EFFF", // Soft Sky Blue
+		tooltip: "OpenAI's GPT-4o multimodal model: high-quality reasoning, supports text and image inputs, balanced speed and cost.",
 		provider: "openai"
 	},
 	{
-		name: "claude-3-5-sonnet-20241022",
-		displayName: "Claude Sonnet",
-		subtitle: "Anthropic | High Quality | Excellent for Analysis",
+		name: "gpt-4o-mini",
+		displayName: "GPT-4o Mini",
+		subtitle: "OpenAI | Cost-Effective Reasoning",
 		order: 6,
-		color: "#FFE0B2", // Light Orange
-		tooltip: "Anthropic's Claude 3.5 Sonnet, great for detailed analysis and reasoning.",
+		color: "#E3F2FD", // Very Light Blue
+		tooltip: "GPT-4o Mini: compact version optimized for faster responses and lower cost. Ideal for straightforward reasoning with shorter contexts.",
+		provider: "openai"
+	},
+	{
+		name: "claude-3-7-sonnet",
+		displayName: "Sonnet 3.7",
+		subtitle: "Claude | Efficient Generalist",
+		order: 7,
+		color: "#FFF6E0", // Very Pale Yellow
+		tooltip: "Anthropic's Claude Sonnet 3.7: robust generalist model with strong reasoning and coding performance. Faster and more cost-effective than Sonnet 4.0.",
+		provider: "anthropic"
+	},
+	{
+		name: "claude-sonnet-4-0",
+		displayName: "Sonnet 4",
+		subtitle: "Claude | Premium Code & Analysis",
+		order: 8,
+		color: "#FFF9D6", // Soft Butter Yellow
+		tooltip: "Anthropic's Claude Sonnet 4.0: top-tier for complex code generation, deep analysis, and very long contexts. High reliability and safety.",
 		provider: "anthropic"
 	},
 ].sort((a, b) => a.order - b.order); // Sort by order (1 = first)
@@ -265,13 +283,61 @@ const isScriptPage = {
 // --- AI Providers ---
 const AIProviders = {
 	SYSTEM_INSTRUCTION: "You are an expert assistant helping with academic questions and coding problems. Analyze the provided content carefully and provide the most accurate answer.\nNote that the content can sometimes contain html that was directly extracted from the exam page so account that into consideration.\n\nContent Analysis:\n- If this is a multiple choice question, identify all options and select the correct one\n- If this is a coding question, provide complete, working, error-free code in the desired language\n- If this contains current code in the editor, build upon or fix that code as needed\n- If this is a theoretical or puzzle-like question, provide clear reasoning and explanation\n\nResponse Format:\n- For multiple choice: Provide reasoning, then clearly state \"Answer: [number] - [option text]\"\n- For coding: Provide the complete solution with brief explanation without any comments exactly in the format \"The Complete Code is:\n```[language]\n[Code]```\"\n- For other questions: Give concise but thorough explanations, then clearly state \"Short Answer: []\"\n- Format text clearly for textarea display (no markdown)\n- If the question is unclear or missing context, ask for specific clarification\n\nAlways prioritize accuracy over speed. Think through the problem step-by-step before providing your final answer.",
+
+	ContentParser: async (questionItem, formatImage) => {
+		let contentParts = [], html = questionItem, lastIndex = 0;
+		const imgRegex = /<img\s+[^>]*src=["']([^"']+)["'][^>]*>/gi;
+
+		let match;
+		while ((match = imgRegex.exec(html)) !== null) {
+			const beforeWithImg = html.slice(lastIndex, imgRegex.lastIndex);
+			if (beforeWithImg.trim()) contentParts.push({ text: beforeWithImg });
+			
+			const src = match[1];
+			try {
+				let imageData;
+				if (src.startsWith('data:')) {
+					const [mime, data] = src.split(',');
+					imageData = { mimeType: mime.split(':')[1].split(';')[0], data, url: src };
+				} else {
+					const blob = await GM_fetch(src).then(r => r.blob()).then(b => 
+						b.type && !b.type.startsWith('image/') || b.type.includes('/octet-stream') 
+							? new Promise(resolve => {
+								const img = new Image();
+								img.onload = () => {
+									const canvas = document.createElement('canvas');
+									canvas.width = img.width; canvas.height = img.height;
+									canvas.getContext('2d').drawImage(img, 0, 0);
+									canvas.toBlob(resolve, 'image/png');
+								};
+								img.src = URL.createObjectURL(b);
+							})
+							: b
+					);
+					const data = await blob.arrayBuffer().then(buf => btoa(String.fromCharCode(...new Uint8Array(buf))));
+					imageData = { mimeType: blob.type || 'image/jpeg', data, url: src };
+				}
+				contentParts.push(formatImage(imageData));
+			} catch (error) {
+				contentParts.push({ text: `[Image at ${src} could not be loaded]` });
+			}
+			
+			lastIndex = imgRegex.lastIndex;
+		}
+		
+		if (lastIndex < html.length) {
+			const after = html.slice(lastIndex);
+			if (after.trim()) contentParts.push({ text: after });
+		}
+		
+		return contentParts.length ? contentParts : [{ text: questionItem }];
+	},
+
 	gemini: {
 		async call(model, questionItem, apiKey, onProgress) {
-			const contentParts = await this._buildContentParts(questionItem);
-			
+			const contentParts = await AIProviders.ContentParser(questionItem, (img) => ({ inline_data: { mime_type: img.mimeType, data: img.data } }));
 			return new Promise((resolve, reject) => {
-				let answerText = "";
-				let processedLength = 0;
+				let answerText = "", processedLength = 0;
 				
 				GM_xmlhttpRequest({
 					method: "POST",
@@ -318,54 +384,15 @@ const AIProviders = {
 					}
 				});
 			});
-		},
-		// Helper function to build content parts for API, handling <img> tags as inline_data, else just text
-		async _buildContentParts(questionItem) {
-			let contentParts = [];
-			let html = questionItem;
-			let lastIndex = 0;
-			const imgRegex = /<img\s+[^>]*src=["']([^"']+)["'][^>]*>/gi;
-
-			let match;
-			while ((match = imgRegex.exec(html)) !== null) {
-				// Text before <img>
-				if (match.index > lastIndex) {
-					const before = html.slice(lastIndex, match.index);
-					if (before.trim()) contentParts.push({ text: before });
-				}
-				const src = match[1];
-				if (src.startsWith('data:')) {
-					const [mime, data] = src.split(',');
-					contentParts.push({ inline_data: { mime_type: mime.split(':')[1].split(';')[0], data } });
-				} else {
-					try {
-						const blob = await GM_fetch(src).then(r => r.blob()).then(b => b.type && !b.type.startsWith('image/') || b.type.includes('/octet-stream') ? new Promise(resolve => { const img = new Image(); img.onload = () => { const canvas = document.createElement('canvas'); canvas.width = img.width; canvas.height = img.height; const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0); canvas.toBlob(resolve, 'image/png'); }; img.src = URL.createObjectURL(b); }) : b);
-						const b64 = await blob.arrayBuffer().then(buf => btoa(String.fromCharCode(...new Uint8Array(buf))));
-						const mime = blob.type || 'image/*';
-						contentParts.push({ inline_data: { mime_type: mime, data: b64 } });
-					} catch {
-						contentParts.push({ text: `[Image at ${src} could not be loaded]` });
-					}
-				}
-				lastIndex = imgRegex.lastIndex;
-			}
-			// Remaining text after last <img>
-			if (lastIndex < html.length) {
-				const after = html.slice(lastIndex);
-				if (after.trim()) contentParts.push({ text: after });
-			}
-			if (!contentParts.length) contentParts = [{ text: questionItem }];
-			return contentParts;
-		},
+		}
 	},
 
 	openai: {
 		async call(model, questionItem, apiKey, onProgress) {
+			const contentParts = await AIProviders.ContentParser(questionItem, (img) => ({ type: "image_url", image_url: { url: img.url.startsWith('http') ? img.url : `data:${img.mimeType};base64,${img.data}` } }));
 			return new Promise((resolve, reject) => {
-				let answerText = "";
-				let controller;
-				let processedLength = 0;
-				try { controller = new AbortController(); } catch {}
+				let answerText = "", processedLength = 0;
+				
 				GM_xmlhttpRequest({
 					method: "POST",
 					url: "https://api.openai.com/v1/chat/completions",
@@ -374,50 +401,43 @@ const AIProviders = {
 						model: model.name,
 						messages: [
 							{ role: "system", content: AIProviders.SYSTEM_INSTRUCTION },
-							{ role: "user", content: questionItem }
+							{ role: "user", content: contentParts.map(part => part.text ? { type: "text", text: part.text } : part) }
 						],
-						stream: true,
-						...(model.generationConfig || {})
+						stream: true
 					}),
-					onprogress: ev => {
-						const newText = ev.responseText?.slice(processedLength) || "";
-						const lines = newText.split('\n');
-						for (const line of lines) {
-							if (line.startsWith("data: ")) {
-								const data = line.slice(6).trim();
-								if (data === "[DONE]") {
-									processedLength = ev.responseText.length;
+					onprogress: (r) => {
+						if (r.responseText?.length > processedLength) {
+							r.responseText.slice(processedLength).split('\n').forEach(line => {
+								if (line.startsWith('data: ') && !line.includes('[DONE]')) {
+									try{
+										const t = JSON.parse(line.slice(6)).choices?.[0]?.delta?.content;
+										if (t) { answerText += t; onProgress(answerText); }
+									} catch (e) {}
+								} else if (line.includes("[DONE]")) {
+									processedLength = r.responseText.length;
 									return resolve(answerText);
 								}
-								try {
-									const delta = JSON.parse(data);
-									const content = delta.choices?.[0]?.delta?.content;
-									if (content) {
-										answerText += content;
-										onProgress(answerText);
-									}
-								} catch {}
-							}
+							});
+							processedLength = r.responseText.length;
 						}
-						processedLength = ev.responseText.length;
 					},
-					onload: () => {
-						answerText ? resolve(answerText) : reject(new Error("No content received from OpenAI API"));
+					onload: (r) => {
+						if (r.status === 200 && answerText) resolve(answerText);
+						else reject(new Error(`No content received: Status ${r.status}`));
 					},
-					onerror: err => {
-						let msg = `OpenAI API error: ${err.status} ${err.statusText}`;
+					onerror: (r) => {
+						let msg = `API error: ${r.status} ${r.statusText}`;
 						try {
-							const e = JSON.parse(err.responseText);
-							msg += ` - ${e.error?.message || err.responseText}`;
-							if (err.status === 401) {
+							const body = JSON.parse(r.responseText);
+							msg += ` - ${body?.error?.message || JSON.stringify(body)}`;
+							if (r.status === 401) {
 								delete config.apiKeys.openai;
 								GM_setValue("apiKeys", config.apiKeys);
-								msg = "API Key Error: Key rejected. Please provide a valid OpenAI API key.";
+								msg = "API Key Error: Invalid OpenAI API key.";
 							}
 						} catch {}
 						reject(new Error(msg));
-					},
-					signal: controller?.signal
+					}
 				});
 			});
 		}
@@ -425,10 +445,61 @@ const AIProviders = {
 
 	anthropic: {
 		async call(model, questionItem, apiKey, onProgress) {
-			// TODO: Implement Anthropic API call
-			throw new Error('Anthropic provider not yet implemented');
+			const contentParts = await AIProviders.ContentParser(questionItem, (img) => ({ type: "image", source: { type: img.url.startsWith('http') ? "url" : "base64", ...(img.url.startsWith('http') ? { url: img.url } : { media_type: img.mimeType, data: img.data }) } }));
+			return new Promise((resolve, reject) => {
+				let answerText = "", processedLength = 0;
+				
+				GM_xmlhttpRequest({
+					method: "POST",
+					url: "https://api.anthropic.com/v1/messages",
+					headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+					data: JSON.stringify({
+						model: model.name,
+						system: AIProviders.SYSTEM_INSTRUCTION,
+						messages: [{ role: "user", content: contentParts.map(part => part.text ? { type: "text", text: part.text } : part) }],
+						max_tokens: 4096,
+						stream: true
+					}),
+					onprogress: (response) => {
+						if (response.responseText?.length > processedLength) {
+							response.responseText.slice(processedLength).split('\n').forEach(line => {
+								if (line.startsWith('data: ')) {
+									try {
+										const data = JSON.parse(line.slice(6));
+										if (data.type === 'content_block_delta' && data.delta?.text) {
+											answerText += data.delta.text;
+											onProgress(answerText);
+										}
+									} catch (e) {}
+								}
+							});
+							processedLength = response.responseText.length;
+						}
+					},
+					onload: (response) => {
+						if (response.status === 200 && answerText) {
+							resolve(answerText);
+						} else {
+							reject(new Error(`No content received: Status ${response.status}`));
+						}
+					},
+					onerror: (response) => {
+						let errorMsg = `API error: ${response.status} ${response.statusText}`;
+						try {
+							const errorBody = JSON.parse(response.responseText);
+							errorMsg += ` - ${errorBody?.error?.message || JSON.stringify(errorBody)}`;
+							if (response.status === 401) {
+								delete config.apiKeys.anthropic;
+								GM_setValue("apiKeys", config.apiKeys);
+								errorMsg = "API Key Error: Invalid Anthropic API key.";
+							}
+						} catch (e) { /* Ignore JSON parsing error */ }
+						reject(new Error(errorMsg));
+					}
+				});
+			});
 		}
-	},
+	}
 };
 
 // --- AI State Management ---
@@ -1510,7 +1581,7 @@ GM_addStyle(`
 	}
 
 	.ait-model-button.loading {
-		cursor: wait;
+		cursor: progress;
 		opacity: 0.7;
 	}
 
