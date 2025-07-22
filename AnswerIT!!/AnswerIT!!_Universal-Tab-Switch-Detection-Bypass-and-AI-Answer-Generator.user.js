@@ -348,9 +348,9 @@ const AIProviders = {
 						contents: [{ parts: contentParts }],
 						generationConfig: model?.generationConfig || {}
 					}),
-					onprogress: (response) => {
-						if (response.responseText?.length > processedLength) {
-							response.responseText.slice(processedLength).split('\n').forEach(line => {
+					onprogress: (r) => {
+						if (r.responseText?.length > processedLength) {
+							r.responseText.slice(processedLength).split('\n').forEach(line => {
 								if (line.startsWith('data: ')) {
 									const newText = JSON.parse(line.slice(6)).candidates?.[0]?.content?.parts?.[0]?.text;
 									if (newText) {
@@ -359,15 +359,12 @@ const AIProviders = {
 									}
 								}
 							});
-							processedLength = response.responseText.length;
+							processedLength = r.responseText.length;
 						}
 					},
-					onload: (response) => {
-						if (response.status === 200 && answerText) {
-							resolve(answerText);
-						} else {
-							reject(new Error(`No content received: Status ${response.status}`));
-						}
+					onload: (r) => {
+						if (r.status === 200 && !answerText) r.responseText.split('\n').forEach(l => { if (l.startsWith('data: ')) { const newText = JSON.parse(l.slice(6)).candidates?.[0]?.content?.parts?.[0]?.text; if (newText) answerText += newText; } });
+						(r.status === 200 && answerText) ? resolve(answerText) : reject(new Error(`No content received: Status ${r.status}`));
 					},
 					onerror: (response) => {
 						let errorMsg = `API error: ${response.status} ${response.statusText}`;
@@ -422,6 +419,7 @@ const AIProviders = {
 						}
 					},
 					onload: (r) => {
+						if (r.status === 200 && !answerText) r.responseText.split('\n').forEach(line => { if (line.startsWith('data: ') && !line.includes('[DONE]')) try {if (JSON.parse(line.slice(6)).choices?.[0]?.delta?.content) { answerText += JSON.parse(line.slice(6)).choices?.[0]?.delta?.content; }} catch (e) {} });
 						if (r.status === 200 && answerText) resolve(answerText);
 						else reject(new Error(`No content received: Status ${r.status}`));
 					},
@@ -476,13 +474,7 @@ const AIProviders = {
 							processedLength = response.responseText.length;
 						}
 					},
-					onload: (response) => {
-						if (response.status === 200 && answerText) {
-							resolve(answerText);
-						} else {
-							reject(new Error(`No content received: Status ${response.status}`));
-						}
-					},
+					onload: (response) => (response.status === 200 && answerText) ? resolve(answerText) : reject(new Error(`No content received: Status ${response.status}`)),
 					onerror: (response) => {
 						let errorMsg = `API error: ${response.status} ${response.statusText}`;
 						try {
