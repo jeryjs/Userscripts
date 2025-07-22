@@ -27,21 +27,45 @@
 // @downloadURL  https://github.com/jeryjs/Userscripts/raw/refs/heads/main/AnswerIT!!/AnswerIT!!_Universal-Tab-Switch-Detection-Bypass-and-AI-Answer-Generator.user.js
 // ==/UserScript==
 
-// track last version to handle version incompatible changes
+// --- track last version to handle version incompatible changes ---
 if (GM_info.script.version > GM_getValue('script_version', '0')) {
 	GM_setValue('script_version', GM_info.script.version);
 	
-	// v4.0.0
+	// --- v4.0.0 ---
 	GM_deleteValue('hotkey'); // string -> { key: string, modifier: string }
+	
+	// migrate to multi-provider API keys
+	const oldGeminiKey = GM_getValue('geminiApiKey');
+	if (oldGeminiKey) {
+		const apiKeys = GM_getValue('apiKeys', {});
+		apiKeys.gemini = oldGeminiKey;
+		GM_setValue('apiKeys', apiKeys);
+		GM_deleteValue('geminiApiKey');
+	}
 }
 
-// --- Configuration ---
+/**
+ * -----------------------------------
+ * ---- Userscript Configuration -----
+ * -----------------------------------
+ */
 const config = {
+	/** @type {{ gemini: string, openai: string, anthropic: string }} */
+	apiKeys: GM_getValue("apiKeys", {}),	// can add multiple by separating with commas
+	
+	/** @type {{ key: string, modifier: string }} */
 	hotkey: GM_getValue("hotkey", { key: "a", modifier: "alt" }), // Default hotkey is 'a' (used with Alt)
-	popupState: { visible: false, snapped: 2, window: { x: 0, y: 0, w: 500, h: 800 }, opacity: 1 }, // Default popup state (not visible, snapped to right side)
+	
+	/** @type {{ visible: boolean, snapped: number, window: { x: number, y: number, w: number, h: number }, opacity: number }} */
+	popupState: GM_getValue("popupState", { visible: false, snapped: 2, window: { x: 0, y: 0, w: 500, h: 800 }, opacity: 1 }), // Default popup state (not visible, snapped to right side)
+	
+	/** @type {"light"|"dark"} */
 	theme: GM_getValue("theme", "light"), // Default theme is 'light'
+	
+	/** @type {{ enabled: boolean, lastOffer: string, lastAnswer: string }} */
+	reflector: GM_getValue("reflector", { enabled: false }),
+	
 	autoRun: false, // Default auto-run to false to avoid wasting api calls
-	reflector: { enabled: false, lastOffer: null, lastAnswer: null },
 };
 
 // --- Website Configurations ---
@@ -105,7 +129,72 @@ const websites = [
 	}
 ];
 
-// --- Universal Detection Bypass ---
+// --- AI Models Declarations ---
+const models = [
+	{
+		name: "gemini-2.5-pro",
+		displayName: "Pro-Thinking",
+		subtitle: "Highest Quality | 5 RPM | Best for Complex Questions",
+		order: 1,
+		color: "#C8E6C9", // Light Green
+		tooltip: "Latest experimental Gemini 2.5 Pro model with 1M token context window. Best for complex reasoning and detailed responses.",
+		provider: "gemini"
+	},
+	{
+		name: "gemini-2.5-flash-preview-05-20",
+		displayName: "Flash-Thinking",
+		subtitle: "Best Quality | 10 RPM | Recommended for Complex Questions",
+		order: 2,
+		color: "#E1BEE7", // Faded Lavender
+		tooltip: "Highest quality model, may be slower and has an API quota of 10 requests per minute. Use sparingly.",
+		generationConfig: { thinkingConfig: { thinkingBudget: 8000 } },
+		provider: "gemini"
+	},
+	{
+		name: "gemini-2.5-flash",
+		displayName: "Flash",
+		subtitle: "Fast Response | 15 RPM | Recommended for General Questions",
+		order: 3,
+		color: "#FCDF80", // Faded Yellow
+		tooltip: "Faster model, good for quick answers, quality may be slightly lower. Has an API quota of 15 requests per minute.",
+		generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
+		provider: "gemini"
+	},
+	{
+		name: "gemini-2.5-flash-lite-preview-06-17",
+		displayName: "Flash Lite",
+		subtitle: "Fastest & Cheapest | 30 RPM | Recommended only for very simple questions",
+		order: 4,
+		color: "#F0F4C3", // Faded Lime
+		tooltip: "Fastest and most cost-effective model, lowest quality, use for simpler questions. Has an API quota of 30 requests per minute.",
+		provider: "gemini"
+	},
+	{
+		name: "gpt-4o",
+		displayName: "GPT-4o",
+		subtitle: "OpenAI | High Quality | Good for General Questions",
+		order: 5,
+		color: "#B3E5FC", // Light Blue
+		tooltip: "OpenAI's GPT-4 Omni model, excellent for reasoning and general tasks.",
+		provider: "openai"
+	},
+	{
+		name: "claude-3-5-sonnet-20241022",
+		displayName: "Claude Sonnet",
+		subtitle: "Anthropic | High Quality | Excellent for Analysis",
+		order: 6,
+		color: "#FFE0B2", // Light Orange
+		tooltip: "Anthropic's Claude 3.5 Sonnet, great for detailed analysis and reasoning.",
+		provider: "anthropic"
+	},
+].sort((a, b) => a.order - b.order); // Sort by order (1 = first)
+
+
+/**
+ * -----------------------------------
+ * --- Universal Detection Bypass ---
+ * -----------------------------------
+ */
 function setupDetectionBypass() {
 	// Visibility API Overrides
 	Object.defineProperties(document, {
@@ -155,70 +244,386 @@ function setupDetectionBypass() {
 }
 
 
-// --- AI Answer Generator Feature ---
+/**
+ * -----------------------------------
+ * --- AI Answer Generator Feature ---
+ * -----------------------------------
+ */
 const popup = document.createElement("div");
 Window.aitPopup = popup; // Expose popup globally for easy access
 unsafeWindow.aitPopup = popup; // Expose to unsafeWindow for compatibility with other scripts
 
-let apiKey;
-const modelState = {}; // In-memory cache for current session
-let currentWebsite = null;
+const currentSite = websites.find(s => s.urls.some(url => location.href.includes(url))) || null;
 let currentQnIdentifier = null;
-let lastUsedModel = null;
+let defaultModel = models[0].name; // This will be updated based on user's physical selection
 
 const isScriptPage = {
 	get: location.href.includes("/AnswerIT"),
 	configure: location.href.includes("/AnswerIT!!/configure.html"),
 }
 
-// Model definitions with ranking, subtitles, colors (for light theme), and tooltips
-const models = [
-	{
-		name: "gemini-2.5-pro",
-		displayName: "Pro-Thinking",
-		subtitle: "Highest Quality | 5 RPM | Best for Complex Questions",
-		rank: 1,
-		color: "#C8E6C9", // Light Green
-		tooltip: "Latest experimental Gemini 2.5 Pro model with 1M token context window. Best for complex reasoning and detailed responses.",
+// --- AI Providers ---
+const AIProviders = {
+	SYSTEM_INSTRUCTION: "You are an expert assistant helping with academic questions and coding problems. Analyze the provided content carefully and provide the most accurate answer.\nNote that the content can sometimes contain html that was directly extracted from the exam page so account that into consideration.\n\nContent Analysis:\n- If this is a multiple choice question, identify all options and select the correct one\n- If this is a coding question, provide complete, working, error-free code in the desired language\n- If this contains current code in the editor, build upon or fix that code as needed\n- If this is a theoretical or puzzle-like question, provide clear reasoning and explanation\n\nResponse Format:\n- For multiple choice: Provide reasoning, then clearly state \"Answer: [number] - [option text]\"\n- For coding: Provide the complete solution with brief explanation without any comments exactly in the format \"The Complete Code is:\n```[language]\n[Code]```\"\n- For other questions: Give concise but thorough explanations, then clearly state \"Short Answer: []\"\n- Format text clearly for textarea display (no markdown)\n- If the question is unclear or missing context, ask for specific clarification\n\nAlways prioritize accuracy over speed. Think through the problem step-by-step before providing your final answer.",
+	gemini: {
+		async call(model, questionItem, apiKey, onProgress) {
+			const contentParts = await this._buildContentParts(questionItem);
+			
+			return new Promise((resolve, reject) => {
+				let answerText = "";
+				let processedLength = 0;
+				
+				GM_xmlhttpRequest({
+					method: "POST",
+					url: `https://generativelanguage.googleapis.com/v1beta/models/${model.name}:streamGenerateContent?key=${apiKey}&alt=sse`,
+					headers: { "Content-Type": "application/json" },
+					data: JSON.stringify({
+						system_instruction: { parts: { text: AIProviders.SYSTEM_INSTRUCTION } },
+						contents: [{ parts: contentParts }],
+						generationConfig: model?.generationConfig || {}
+					}),
+					onprogress: (response) => {
+						if (response.responseText?.length > processedLength) {
+							response.responseText.slice(processedLength).split('\n').forEach(line => {
+								if (line.startsWith('data: ')) {
+									const newText = JSON.parse(line.slice(6)).candidates?.[0]?.content?.parts?.[0]?.text;
+									if (newText) {
+										answerText += newText;
+										onProgress(answerText);
+									}
+								}
+							});
+							processedLength = response.responseText.length;
+						}
+					},
+					onload: (response) => {
+						if (response.status === 200 && answerText) {
+							resolve(answerText);
+						} else {
+							reject(new Error(`No content received: Status ${response.status}`));
+						}
+					},
+					onerror: (response) => {
+						let errorMsg = `API error: ${response.status} ${response.statusText}`;
+						try {
+							const errorBody = JSON.parse(response.responseText);
+							errorMsg += ` - ${errorBody?.error?.message || JSON.stringify(errorBody)}`;
+							if (response.status === 400 && errorBody?.error?.message.includes("API key not valid")) {
+								delete config.apiKeys.gemini;
+								GM_setValue("apiKeys", config.apiKeys);
+								errorMsg = "API Key Error: Key rejected. Please provide a valid API key.";
+							}
+						} catch (e) { /* Ignore JSON parsing error */ }
+						reject(new Error(errorMsg));
+					}
+				});
+			});
+		},
+		// Helper function to build content parts for API, handling <img> tags as inline_data, else just text
+		async _buildContentParts(questionItem) {
+			let contentParts = [];
+			let html = questionItem;
+			let lastIndex = 0;
+			const imgRegex = /<img\s+[^>]*src=["']([^"']+)["'][^>]*>/gi;
+
+			let match;
+			while ((match = imgRegex.exec(html)) !== null) {
+				// Text before <img>
+				if (match.index > lastIndex) {
+					const before = html.slice(lastIndex, match.index);
+					if (before.trim()) contentParts.push({ text: before });
+				}
+				const src = match[1];
+				if (src.startsWith('data:')) {
+					const [mime, data] = src.split(',');
+					contentParts.push({ inline_data: { mime_type: mime.split(':')[1].split(';')[0], data } });
+				} else {
+					try {
+						const blob = await GM_fetch(src).then(r => r.blob()).then(b => b.type && !b.type.startsWith('image/') || b.type.includes('/octet-stream') ? new Promise(resolve => { const img = new Image(); img.onload = () => { const canvas = document.createElement('canvas'); canvas.width = img.width; canvas.height = img.height; const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0); canvas.toBlob(resolve, 'image/png'); }; img.src = URL.createObjectURL(b); }) : b);
+						const b64 = await blob.arrayBuffer().then(buf => btoa(String.fromCharCode(...new Uint8Array(buf))));
+						const mime = blob.type || 'image/*';
+						contentParts.push({ inline_data: { mime_type: mime, data: b64 } });
+					} catch {
+						contentParts.push({ text: `[Image at ${src} could not be loaded]` });
+					}
+				}
+				lastIndex = imgRegex.lastIndex;
+			}
+			// Remaining text after last <img>
+			if (lastIndex < html.length) {
+				const after = html.slice(lastIndex);
+				if (after.trim()) contentParts.push({ text: after });
+			}
+			if (!contentParts.length) contentParts = [{ text: questionItem }];
+			return contentParts;
+		},
 	},
-	{
-		name: "gemini-2.5-flash-preview-05-20",
-		displayName: "Flash-Thinking",
-		subtitle: "Best Quality | 10 RPM | Recommended for Complex Questions",
-		rank: 2,
-		color: "#E1BEE7", // Faded Lavender
-		tooltip: "Highest quality model, may be slower and has an API quota of 10 requests per minute. Use sparingly.",
-		generationConfig: { thinkingConfig: { thinkingBudget: 8000 } }
+
+	openai: {
+		async call(model, questionItem, apiKey, onProgress) {
+			return new Promise((resolve, reject) => {
+				let answerText = "";
+				let controller;
+				let processedLength = 0;
+				try { controller = new AbortController(); } catch {}
+				GM_xmlhttpRequest({
+					method: "POST",
+					url: "https://api.openai.com/v1/chat/completions",
+					headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+					data: JSON.stringify({
+						model: model.name,
+						messages: [
+							{ role: "system", content: AIProviders.SYSTEM_INSTRUCTION },
+							{ role: "user", content: questionItem }
+						],
+						stream: true,
+						...(model.generationConfig || {})
+					}),
+					onprogress: ev => {
+						const newText = ev.responseText?.slice(processedLength) || "";
+						const lines = newText.split('\n');
+						for (const line of lines) {
+							if (line.startsWith("data: ")) {
+								const data = line.slice(6).trim();
+								if (data === "[DONE]") {
+									processedLength = ev.responseText.length;
+									return resolve(answerText);
+								}
+								try {
+									const delta = JSON.parse(data);
+									const content = delta.choices?.[0]?.delta?.content;
+									if (content) {
+										answerText += content;
+										onProgress(answerText);
+									}
+								} catch {}
+							}
+						}
+						processedLength = ev.responseText.length;
+					},
+					onload: () => {
+						answerText ? resolve(answerText) : reject(new Error("No content received from OpenAI API"));
+					},
+					onerror: err => {
+						let msg = `OpenAI API error: ${err.status} ${err.statusText}`;
+						try {
+							const e = JSON.parse(err.responseText);
+							msg += ` - ${e.error?.message || err.responseText}`;
+							if (err.status === 401) {
+								delete config.apiKeys.openai;
+								GM_setValue("apiKeys", config.apiKeys);
+								msg = "API Key Error: Key rejected. Please provide a valid OpenAI API key.";
+							}
+						} catch {}
+						reject(new Error(msg));
+					},
+					signal: controller?.signal
+				});
+			});
+		}
 	},
-	// This model now points to the pro-thinking api and is redundant
-	// {
-	// 	name: "gemini-2.0-pro-exp-02-05",
-	// 	displayName: "Pro",
-	// 	subtitle: "Good Quality | 2 RPM | Recommended for knowledge-based Questions",
-	// 	rank: 3,
-	// 	color: "#B2DFDB", // Faded Mint
-	// 	tooltip: "High quality model, good balance of quality and speed. Has an API quota of 2 requests per minute. Moderate usage recommended.",
-	// },
-	{
-		name: "gemini-2.5-flash",
-		displayName: "Flash",
-		subtitle: "Fast Response | 15 RPM | Recommended for General Questions",
-		rank: 3,
-		color: "#FCDF80", // Faded Yellow
-		tooltip: "Faster model, good for quick answers, quality may be slightly lower. Has an API quota of 15 requests per minute.",
-		generationConfig: { thinkingConfig: { thinkingBudget: 0 } }
+
+	anthropic: {
+		async call(model, questionItem, apiKey, onProgress) {
+			// TODO: Implement Anthropic API call
+			throw new Error('Anthropic provider not yet implemented');
+		}
 	},
-	{
-		name: "gemini-2.5-flash-lite-preview-06-17",
-		displayName: "Flash Lite",
-		subtitle: "Fastest & Cheapest | 30 RPM | Recommended only for very simple questions",
-		rank: 4,
-		color: "#F0F4C3", // Faded Lime
-		tooltip: "Fastest and most cost-effective model, lowest quality, use for simpler questions. Has an API quota of 30 requests per minute.",
+};
+
+// --- AI State Management ---
+const AIState = {
+	/** @type {{ [key: string]: { answer: string, status: 'idle'|'generating'|'error', metadata: string, lastUsedModel: string | null, models: { [key: string]: { answer: string, status: string, metadata: string, startTime: number | null } } } } }} */
+	questions: {}, // { qnId: { answer, status, metadata, lastUsedModel, models: { modelName: { answer, status, metadata, startTime } } } }
+	currentQnId: null,
+	
+	// Get or create question state
+	getQuestion(qnId) {
+		if (!this.questions[qnId]) {
+			this.questions[qnId] = { answer: "", status: "idle", metadata: "", lastUsedModel: null, models: {} };
+		}
+		return this.questions[qnId];
 	},
-].sort((a, b) => a.rank - b.rank); // Sort by rank (1 = best)
+	
+	// Get or create model state for a question
+	getModel(qnId, modelName) {
+		const qn = this.getQuestion(qnId);
+		if (!qn.models[modelName]) {
+			qn.models[modelName] = { answer: "", status: "idle", metadata: "", startTime: null };
+		}
+		return qn.models[modelName];
+	},
+	
+	// Update model state and sync to question level
+	updateModel(qnId, modelName, updates) {
+		const model = this.getModel(qnId, modelName);
+		Object.assign(model, updates);
+		
+		// Sync to question level if this is the active model
+		const qn = this.getQuestion(qnId);
+		if (!qn.lastUsedModel && updates.status === 'generating') {
+			if (updates.answer !== undefined) qn.answer = updates.answer;
+			qn.lastUsedModel = modelName;
+			if (updates.status !== undefined) qn.status = updates.status;
+			if (updates.metadata !== undefined) qn.metadata = updates.metadata;
+		}
+		// If this model is the last used model, update question state
+		if (qn.lastUsedModel === modelName) {
+			// Sync cached data to question level
+			const qn = this.getQuestion(qnId);
+			qn.answer = model.answer;
+			qn.status = model.status;
+			qn.metadata = model.metadata;
+			this.updateUI();
+		}
+		
+		this.updateUI();
+	},
+	
+	// Update UI based on current state
+	updateUI() {
+		if (!popup.classList.contains('visible')) return;
+		
+		const qnId = this.currentQnId;
+		if (!qnId) return;
+		
+		const qn = this.getQuestion(qnId);
+		
+		// Update output area and caption
+		popup.outputArea.value = qn.answer;
+		// Auto-scroll if current scroll position is near the bottom (within 200px)
+		if (popup.outputArea.scrollTop >= popup.outputArea.scrollHeight - popup.outputArea.clientHeight - 200) {
+			popup.outputArea.scrollTop = popup.outputArea.scrollHeight;
+		}
+		
+		const caption = popup.querySelector("#ait-caption");
+		if (qn.status === 'generating' && qn.lastUsedModel) {
+			const model = this.getModel(qnId, qn.lastUsedModel);
+			if (model.startTime) {
+				const elapsed = Date.now() - model.startTime;
+				const seconds = Math.floor(elapsed / 1000).toString().padStart(2, "0");
+				const ms = Math.floor((elapsed % 1000) / 10).toString().padStart(2, "0");
+				caption.textContent = `Generating with ${qn.lastUsedModel} (${seconds}:${ms})`;
+				setTimeout(() => this.updateUI(), 50); // Continue updating timer
+			} else {
+				caption.textContent = `Generating with ${qn.lastUsedModel}...`;
+			}
+		} else {
+			caption.textContent = qn.metadata || "Response metadata will appear here";
+		}
+		
+		// Update model buttons
+		models.forEach(model => {
+			const button = popup.modelBtn[model.name];
+			if (!button) return;
+			
+			const modelState = this.getModel(qnId, model.name);
+			this.updateButton(button, modelState.status);
+		});
+		
+		// Update status text
+		const statusText = document.getElementById("ait-status-text");
+		if (statusText) {
+			statusText.textContent = qn.status === 'generating' ? "Generating..." : "Ready";
+		}
+	},
+	
+	updateButton(button, status) {
+		const progressSpinner = button?.querySelector('.ait-model-progress');
+		const statusIcon = button?.querySelector('.ait-model-status-icon');
+		
+		button.classList.remove('loading', 'success', 'error');
+		if (progressSpinner) progressSpinner.style.display = 'none';
+		if (statusIcon) statusIcon.style.display = 'none';
+		
+		switch (status) {
+			case 'generating':
+				button.classList.add('loading');
+				if (progressSpinner) progressSpinner.style.display = 'block';
+				break;
+			case 'success':
+				button.classList.add('success');
+				if (statusIcon) statusIcon.style.display = 'flex';
+				break;
+			case 'error':
+				button.classList.add('error');
+				break;
+		}
+	},
+	
+	// Switch to a question (auto-click last used model if available)
+	switchToQuestion(qnId) {
+		this.currentQnId = qnId;
+		const qn = this.getQuestion(qnId);
+		
+		// Auto-click last used model if it has a successful answer
+		if (qn.lastUsedModel && qn.models[qn.lastUsedModel]?.status === 'success') {
+			// Simulate clicking the model button to load its cached result
+			setTimeout(() => {
+				const button = popup.modelBtn[qn.lastUsedModel];
+				if (button) button.click();
+			}, 50);
+		}
+		
+		this.updateUI();
+	},
+	
+	// Generate answer with specified model
+	async generateAnswer(modelName, questionItem, questionId, forceRetry = false) {
+		const model = models.find(m => m.name === modelName);
+		if (!model) throw new Error(`Model ${modelName} not found`);
+
+		const modelState = this.getModel(questionId, modelName);
+		this.getQuestion(questionId).lastUsedModel = modelName; // Set last used model to current
+		
+		// Check cache unless force retry
+		if (!forceRetry && modelState.status === 'success') {
+			this.updateModel(questionId, modelName, {});
+			return modelState.answer;
+		}
+		
+		// Start generation
+		this.updateModel(questionId, modelName, {
+			status: 'generating',
+			startTime: Date.now(),
+			answer: ""
+		});
+		
+		try {
+			const provider = model.provider || 'gemini';
+			const apiKey = config.apiKeys[provider];
+			
+			if (!apiKey) {
+				throw new Error(`API key required for ${provider}. Please configure it.`);
+			}
+			
+			const answer = await AIProviders[provider].call(model, questionItem, apiKey, (partialAnswer) => {
+				this.updateModel(questionId, modelName, { answer: partialAnswer });
+			});
+			
+			const timeTaken = Date.now() - modelState.startTime;
+			this.updateModel(questionId, modelName, {
+				status: 'success',
+				answer: answer,
+				metadata: `Model: ${modelName} | Streamed (${timeTaken} ms)`,
+				startTime: null
+			});
+			
+			return answer;
+		} catch (error) {
+			this.updateModel(questionId, modelName, {
+				status: 'error',
+				answer: `Error: ${error.message}`,
+				metadata: `Error with ${modelName}`,
+				startTime: null
+			});
+			throw error;
+		}
+	}
+};
 
 
+// --- Build UI ---
 function createPopupUI() {
 	if (document.getElementById("ait-answer-popup")) {
 		return; // Popup already exists
@@ -567,41 +972,7 @@ function createPopupUI() {
 		`}).firstElementChild;
 		btn.onclick = () => handleGenerateAnswer(model.name);
 		btn.querySelector('.ait-model-status-icon').onclick = (e) => { e.stopPropagation(); handleGenerateAnswer(model.name, true) };
-		btn.updateState = (state, identifier = null) => {
-			const progressSpinner = btn?.querySelector('.ait-model-progress');
-			const statusIcon = btn?.querySelector('.ait-model-status-icon');
-			
-			// Clear previous states
-			btn.classList.remove('loading', 'success', 'error');
-			btn.disabled = false;
-			delete btn.dataset.loadingIdentifier;
-			delete btn.dataset.successIdentifier;
-			progressSpinner.style.display = 'none';
-			statusIcon.style.display = 'none';
-			
-			switch (state) {
-				case 'loading':
-					btn.classList.add('loading');
-					btn.disabled = true;
-					if (identifier) btn.dataset.loadingIdentifier = identifier;
-					progressSpinner.style.display = 'block';
-					break;
-				case 'success':
-					btn.classList.add('success');
-					if (identifier) btn.dataset.successIdentifier = identifier;
-					statusIcon.style.display = 'flex'; // Use flex to align center
-					break;
-				case 'error':
-					btn.classList.add('error'); // Add error class for potential styling
-					// Optionally display an error icon here
-					break;
-				case 'idle':
-					btn.classList.remove('loading', 'success', 'error');
-					btn.disabled = false;
-					break;
-				default: break;
-			}
-		};
+
 		popup.modelBtn[model.name] = btn;
 		popup.querySelector("#ait-models-grid").appendChild(btn);
 	});
@@ -628,7 +999,7 @@ function createPopupUI() {
 	// Poll for question changes every 200ms to update UI state
 	setInterval(() => {
 		if (config.popupState.visible) {
-			checkAndUpdateButtonStates();
+			handleUpdateUIStates();
 		}
 	}, 200);
 	
@@ -637,6 +1008,44 @@ function createPopupUI() {
 	document.body.appendChild(popup);
 }
 
+
+// --- Page Related Functions ---
+const page = {
+	getQnElm: () => {
+		if (!currentSite) return null;
+		let element = document.body;
+		// Try all selectors in the array
+		if (Array.isArray(currentSite.questionSelectors)) {
+			for (const selector of currentSite.questionSelectors) {
+				const found = (typeof selector === "function") ? selector() : document.querySelector(selector);
+				if (found) { element = found; break; }
+			}
+		}
+		// Update the status text with the found element
+		const statusText = document.getElementById("ait-status-text");
+		if (statusText) {
+			const elementId = element.id ? `#${element.id}` : element.className ? `.${element.className.split(" ")[0]}` : element.tagName.toLowerCase();
+			statusText.textContent = elementId == 'body' ? `Warning (entire page is selected)` : `Ready (${elementId} selected)`;
+		}
+		return element;
+	},
+	getQnId: (element) => {
+		return hashCode(currentSite?.getQuestionIdentifier(element) || element.textContent);
+	},
+	getQnItem: (element) => {
+		if (!element) return "No question element found";
+		// If currentWebsite has a custom getQuestionItem function, use it
+		if (currentSite && typeof currentSite.getQuestionItem === "function") 
+			return currentSite.getQuestionItem(element);
+		// Extract HTML content only if its length is reasonable
+		if (element.innerHTML.length < 15000) return element.innerHTML;
+		return element.textContent;
+	}
+}
+
+
+// --- Utils ---
+// Darken the given color for dark theme
 function getThemedColor(color) {
 	if (config.theme === "light") return color; // No change for light theme
 
@@ -646,42 +1055,20 @@ function getThemedColor(color) {
 	return "#" + ((1 << 24) | (d(r) << 16) | (d(g) << 8) | d(b)).toString(16).slice(1);
 }
 
-let timerInterval = null;
-let startTimestamp = 0;
-
-function startTimer() {
-	const statusText = document.getElementById("ait-status-text");
-
-	if (statusText) {
-		startTimestamp = Date.now();
-		clearInterval(timerInterval); // Clear any existing interval
-
-		timerInterval = setInterval(() => {
-			const elapsed = Date.now() - startTimestamp;
-			const seconds = Math.floor(elapsed / 1000)
-				.toString()
-				.padStart(2, "0");
-			const milliseconds = Math.floor((elapsed % 1000) / 10)
-				.toString()
-				.padStart(2, "0");
-			statusText.textContent = `Generating (${seconds}:${milliseconds})`;
-		}, 10); // Update every 10ms for smooth timer
-	}
+// Basic FNV-1a 53-bit string hash function
+function hashCode(str) {
+    let hval = 0xcbf29ce484222325n;
+    for (let i = 0; i < str.length; ++i) {
+        hval ^= BigInt(str.charCodeAt(i));
+        hval *= 0x100000001b3n;
+        hval &= 0x1fffffffffffffn; // 53 bits
+    }
+    return hval.toString(16);
 }
 
-function stopTimer(status = "Ready") {
-	const statusText = document.getElementById("ait-status-text");
-
-	clearInterval(timerInterval);
-
-	if (statusText) {
-		statusText.textContent = status;
-	}
-}
-
-function getApiKey() {
+function getApiKey(provider = 'gemini') {
 	const setupChoice = confirm(
-		"🎯 Welcome to AnswerIT!!\n\nTo get started, you need to configure your FREE Gemini API key.\n\nClick OK to open our modern setup page with easy instructions.\nClick Cancel to use the quick setup here."
+		`🎯 Welcome to AnswerIT!!\n\nTo get started, you need to configure your FREE ${provider} API key.\n\nClick OK to open our modern setup page with easy instructions.\nClick Cancel to use the quick setup here.`
 	);
 
 	if (setupChoice) {
@@ -689,7 +1076,7 @@ function getApiKey() {
 		window.open("https://jeryjs.github.io/Userscripts/AnswerIT!!/configure.html", "_blank");
 		alert(
 			"🔧 Setup page opened in a new tab!\n\n" +
-			"1. Get your FREE API key from Google AI Studio\n" +
+			`1. Get your API key from ${provider === 'gemini' ? 'Google AI Studio' : provider}\n` +
 			"2. Configure your preferences\n" +
 			"3. Return here and try again\n\n" +
 			"The setup page has detailed instructions and will save your settings automatically."
@@ -697,401 +1084,155 @@ function getApiKey() {
 		return null; // User should configure via setup page
 	} else {
 		// Fallback to quick setup
+		const urls = {
+			gemini: "https://aistudio.google.com/app/apikey",
+			openai: "https://platform.openai.com/api-keys",
+			anthropic: "https://console.anthropic.com/settings/keys"
+		};
+		
 		const info = confirm(
-			"Quick Setup: An API key is a secret token that lets our service access the AI API. Get one for FREE from https://aistudio.google.com/app/apikey.\n\nClick OK if you already have an API key.\nClick Cancel to open the key creation page."
+			`Quick Setup: An API key is a secret token that lets our service access the ${provider} API. Get one for FREE from ${urls[provider]}.\n\nClick OK if you already have an API key.\nClick Cancel to open the key creation page.`
 		);
 		if (!info) {
-			window.open("https://aistudio.google.com/app/apikey", "_blank");
+			window.open(urls[provider], "_blank");
 			alert(
-				"Please go to the following site to generate your free key:\n https://aistudio.google.com/app/apikey \n\nAfter creating your API key, return here and click OK."
+				`Please go to the following site to generate your key:\n ${urls[provider]} \n\nAfter creating your API key, return here and click OK.`
 			);
 		}
 		const key = prompt(
-			"Please paste your Gemini API Key here.\n\nYour API key is a long alphanumeric string provided by Google. Make sure to copy it exactly."
+			`Please paste your ${provider} API Key here.\n\nYour API key is a long alphanumeric string provided by ${provider}. Make sure to copy it exactly.`
 		);
 		if (key && key.trim()) {
-			GM_setValue("geminiApiKey", key.trim());
+			config.apiKeys[provider] = key.trim();
+			GM_setValue("apiKeys", config.apiKeys);
 			return key.trim();
 		}
 		return key;
 	}
 }
 
-function detectCurrentWebsite() {
-	const currentUrl = window.location.href;
-	for (const site of websites) {
-		for (const urlPattern of site.urls) {
-			if (currentUrl.includes(urlPattern)) {
-				return site;
-			}
-		}
-	}
-	return null;
-}
 
-function getQuestionElement() {
-	if (!currentWebsite) {
-		currentWebsite = detectCurrentWebsite();
-		if (!currentWebsite) {
-			return null;
-		}
-	}
-
-	// Try all selectors in the array
-	if (currentWebsite.questionSelectors && Array.isArray(currentWebsite.questionSelectors)) {
-		for (const selector of currentWebsite.questionSelectors) {
-			let element = null;
-
-			// Handle if selector is a function
-			if (typeof selector === "function") {
-				try {
-					element = selector();
-				} catch (error) {
-					console.error(`Error executing selector function: ${error.message}`);
-				}
-			}
-			// Handle if selector is a string (CSS selector)
-			else if (typeof selector === "string") {
-				element = document.querySelector(selector);
-			}
-
-			if (element) {
-				updateStatusWithFoundElement(element);
-				return element;
-			}
-		}
-	}
-
-	return null;
-}
-
-function updateStatusWithFoundElement(element) {
-	const statusText = document.getElementById("ait-status-text");
-	if (statusText) {
-		// Create a simplified identifier for the element
-		let elementId = "";
-		if (element.id) {
-			elementId = `#${element.id}`;
-		} else if (element.className) {
-			elementId = `.${element.className.split(" ")[0]}`;
-		} else {
-			elementId = element.tagName.toLowerCase();
-		}
-
-		statusText.textContent = `Ready (${elementId} found)`;
-	}
-}
-
+// --- Handlers ---
 // Helper function to check for question change and reset buttons
-function checkAndUpdateButtonStates() {
-	const currentQnElm = getQuestionElement();
+function handleUpdateUIStates() {
+	const currentQnElm = page.getQnElm();
 	if (!currentQnElm) return;
 
-	const newQnIdentifier = getQuestionIdentifier(currentQnElm);
+	const newQnIdentifier = page.getQnId(currentQnElm);
 
 	if (newQnIdentifier !== currentQnIdentifier) {
 		// Update the tracker
 		currentQnIdentifier = newQnIdentifier;
-
-		// --- Update Button States ---
-		Object.values(popup.modelBtn).forEach(button => {
-			const modelName = button.getAttribute('data-model');
-			const cacheKey = `${modelName}-${newQnIdentifier}`;
-
-			// Restore button state if it exists
-			if (modelState[cacheKey]?.state) {
-				button.updateState(modelState[cacheKey].state, newQnIdentifier);
-			} else {
-				button.updateState('idle');
-			}
-		});
-
-		// clear the output text area and caption
-		popup.outputArea.value = ""; // Clear previous output
-		const caption = document.getElementById("ait-caption");
-		caption.textContent = "Response metadata will appear here";
+		
+		// Switch AIState to new question
+		AIState.switchToQuestion(newQnIdentifier);
 
 		// --- Auto-run logic ---
 		if (config.autoRun) {
+			const qn = AIState.getQuestion(newQnIdentifier);
+			const modelToUse = qn.lastUsedModel || defaultModel;
+			
 			setTimeout(() => {
 				// Only run if question is still the same after a short delay
-				const checkQnElm = getQuestionElement();
-				const checkQnId = checkQnElm ? getQuestionIdentifier(checkQnElm) : null;
+				const checkQnElm = page.getQnElm();
+				const checkQnId = checkQnElm ? page.getQnId(checkQnElm) : null;
 				if (checkQnId === newQnIdentifier) {
-					handleGenerateAnswer(lastUsedModel.name, false);
+					handleGenerateAnswer(modelToUse, false);
 				}
 			}, 700); // Short delay to ensure question is stable
 		}
 	}
 }
 
-function getQuestionIdentifier(element) {
-	return hashCode(currentWebsite?.getQuestionIdentifier(element) || element.textContent);
-}
-
-function getQuestionItem(element) {
-	if (!element) return "No question found";
-
-	// If currentWebsite has a custom getQuestionItem function, use it
-	if (currentWebsite && typeof currentWebsite.getQuestionItem === "function") {
-		return currentWebsite.getQuestionItem(element);
-	}
-
-	// Extract HTML content only if its length is reasonable
-	if (element.innerHTML.length < 15000) return element.innerHTML;
-	return element.textContent;
-}
-
-// Helper function to build content parts for API, handling <img> tags as inline_data, else just text
-async function buildContentParts(questionItem) {
-	let contentParts = [];
-	let html = questionItem;
-	let lastIndex = 0;
-	const imgRegex = /<img\s+[^>]*src=["']([^"']+)["'][^>]*>/gi;
-
-	let match;
-	while ((match = imgRegex.exec(html)) !== null) {
-		// Text before <img>
-		if (match.index > lastIndex) {
-			const before = html.slice(lastIndex, match.index);
-			if (before.trim()) contentParts.push({ text: before });
-		}
-		const src = match[1];
-		if (src.startsWith('data:')) {
-			const [mime, data] = src.split(',');
-			contentParts.push({ inline_data: { mime_type: mime.split(':')[1].split(';')[0], data } });
-		} else {
-			try {
-				const blob = await GM_fetch(src).then(r => r.blob()).then(b => b.type && !b.type.startsWith('image/') || b.type.includes('/octet-stream') ? new Promise(resolve => { const img = new Image(); img.onload = () => { const canvas = document.createElement('canvas'); canvas.width = img.width; canvas.height = img.height; const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0); canvas.toBlob(resolve, 'image/png'); }; img.src = URL.createObjectURL(b); }) : b);
-				const b64 = await blob.arrayBuffer().then(buf => btoa(String.fromCharCode(...new Uint8Array(buf))));
-				const mime = blob.type || 'image/*';
-				contentParts.push({ inline_data: { mime_type: mime, data: b64 } });
-			} catch {
-				contentParts.push({ text: `[Image at ${src} could not be loaded]` });
-			}
-		}
-		lastIndex = imgRegex.lastIndex;
-	}
-	// Remaining text after last <img>
-	if (lastIndex < html.length) {
-		const after = html.slice(lastIndex);
-		if (after.trim()) contentParts.push({ text: after });
-	}
-	if (!contentParts.length) contentParts = [{ text: questionItem }];
-	return contentParts;
-}
-
 async function handleGenerateAnswer(modelName, forceRetry = false) {
-	const button = popup.modelBtn[modelName];
-	const model = models.find(m => m.name === modelName);
-	const caption = popup.querySelector("#ait-caption");
-
-	lastUsedModel = model;
-
 	// --- Get Question Info ---
-	const qElm = getQuestionElement();
+	const qElm = page.getQnElm();
 	if (!qElm) {
 		popup.outputArea.value = "Error: Question not found on page. This page might not be supported yet.";
-		stopTimer("Error");
-		button.updateState('error'); // Indicate error on button
 		return;
-	}
-	let questionIdentifier = getQuestionIdentifier(qElm);
-	let questionItem = getQuestionItem(qElm);
-	const cacheKey = `${modelName}-${questionIdentifier}`;
-
-	// --- Prevent Re-clicking Same Question While Loading ---
-	if (button.classList.contains('loading') && button.dataset.loadingIdentifier === questionIdentifier && !forceRetry) {
-		console.log(`[AnswerIT!!] Still generating for ${modelName} and this question.`);
-		return; // Already processing this specific question
 	}
 	
-	// --- Cache Check (Bypass if forceRetry is true) ---
-	if (!forceRetry && modelState[cacheKey]?.state === 'success') {
-		console.log(`[AnswerIT!!] Cache hit for ${modelName}.`);
-		popup.outputArea.value = modelState[cacheKey].answer;
-		caption.textContent = `Model: ${modelName} | Cached (original time: ${modelState[cacheKey].time} ms)`;
-		stopTimer("Loaded from cache");
-		button.updateState(modelState[cacheKey].state, questionIdentifier); // Show success even for cache
-		return;
-	}
-
-	// --- Reset UI and Start Loading State ---
-	popup.outputArea.value = ""; // Clear previous output
-	caption.textContent = "Response metadata will appear here"; // Clear caption
-	button.updateState('loading', questionIdentifier);	// update ui immediately
-	modelState[cacheKey] = { state: 'loading' };
-	startTimer(); // Start the main timer
-
-	// --- Add Custom Prompt ---
+	const questionIdentifier = page.getQnId(qElm);
+	const questionItem = page.getQnItem(qElm);
+	
+	// Add custom prompt if present
 	const customPromptArea = document.getElementById("ait-custom-prompt");
+	let finalQuestionItem = questionItem;
 	if (customPromptArea && customPromptArea.value.trim()) {
-		questionItem += `\n\n\nuser-prompt:[${customPromptArea.value.trim()}]`;
+		finalQuestionItem += `\n\n\nuser-prompt:[${customPromptArea.value.trim()}]`;
 	}
 
-	// --- API Key Check ---
-	if (!apiKey) {
-		apiKey = GM_getValue("geminiApiKey");
-		if (!apiKey) {
-			apiKey = getApiKey();
-			if (!apiKey) {
-				popup.outputArea.value = "API Key is required to use the answer generator. Please follow the instructions to obtain one.";
-				stopTimer("API Key Required");
-				button.updateState('error');
-				return;
-			}
-			GM_setValue("geminiApiKey", apiKey);
+	// Ensure we have the necessary API key
+	const model = models.find(m => m.name === modelName);
+	const provider = model?.provider || 'gemini';
+	if (!config.apiKeys[provider]) {
+		const key = getApiKey(provider);
+		if (!key) {
+			popup.outputArea.value = `API Key is required for ${provider}. Please follow the instructions to obtain one.`;
+			return;
 		}
 	}
 
-	// --- API Call ---
-	popup.outputArea.value = `Generating response with ${modelName}...`;
-	const startTime = Date.now();
+	// Set default model to the one being used
+	defaultModel = modelName;
 
-	// Build content: handle <img> tags as inline_data, else just text
-	const contentParts = await buildContentParts(questionItem);
-
+	// Set current question in AIState
+	AIState.currentQnId = questionIdentifier;
+	
 	try {
-		// Use GM_xmlhttpRequest for cross-origin streaming support
-		await new Promise((resolve, reject) => {
-			const thisQuestionId = questionIdentifier || "unknown";
-			let answerText = "";
-			let processedLength = 0;
-			popup.outputArea.value = "";
-
-			GM_xmlhttpRequest({
-				method: "POST",
-				url: `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?key=${apiKey}&alt=sse`,
-				headers: { "Content-Type": "application/json" },
-				data: JSON.stringify({
-					"system_instruction": {
-						"parts": {
-							"text": "You are an expert assistant helping with academic questions and coding problems. Analyze the provided content carefully and provide the most accurate answer.\nNote that the content can sometimes contain html that was directly extracted from the exam page so account that into consideration.\n\nContent Analysis:\n- If this is a multiple choice question, identify all options and select the correct one\n- If this is a coding question, provide complete, working, error-free code in the desired language\n- If this contains current code in the editor, build upon or fix that code as needed\n- If this is a theoretical or puzzle-like question, provide clear reasoning and explanation\n\nResponse Format:\n- For multiple choice: Provide reasoning, then clearly state \"Answer: [number] - [option text]\"\n- For coding: Provide the complete solution with brief explanation without any comments exactly in the format \"The Complete Code is:\n```[language]\n[Code]```\"\n- For other questions: Give concise but thorough explanations, then clearly state \"Short Answer: []\"\n- Format text clearly for textarea display (no markdown)\n- If the question is unclear or missing context, ask for specific clarification\n\nAlways prioritize accuracy over speed. Think through the problem step-by-step before providing your final answer."
-						},
-					},
-					"contents": [{ "parts": contentParts }],
-					generationConfig: model?.generationConfig || {},
-				}),
-				onprogress: (response) => {
-					if (response.responseText?.length > processedLength) {
-						response.responseText.slice(processedLength).split('\n').forEach(line => {
-							if (line.startsWith('data: ')) {
-								const newText = JSON.parse(line.slice(6)).candidates?.[0]?.content?.parts?.[0]?.text;
-								answerText += newText;
-								if (newText && lastUsedModel == model && thisQuestionId === currentQnIdentifier) {
-									popup.outputArea.value = answerText;
-									// Auto-scroll if current scroll position is near the bottom (within 200px)
-									if (popup.outputArea.scrollTop >= popup.outputArea.scrollHeight - popup.outputArea.clientHeight - 200)
-										popup.outputArea.scrollTop = popup.outputArea.scrollHeight;
-								}
-							}
-						});
-						processedLength = response.responseText.length;
-					}
-				},
-				onload: (response) => {
-					const timeTaken = Date.now() - startTime;
-					if (response.status === 200 && answerText) {
-						modelState[cacheKey] = { answer: answerText, time: timeTaken, state: 'success' };
-						caption.textContent = `Model: ${modelName} | Streamed (${timeTaken} ms)`;
-						button.updateState('success', questionIdentifier);
-						stopTimer("Response received");
-					} else {
-						const warnText = `No content received from ${modelName}: Check console for details.`;
-						popup.outputArea.value = warnText + '\n\n' + `Status: ${response.status}\n\n` + response.responseText;
-						modelState[cacheKey] = { answer: warnText, time: 0, state: 'error' };
-						button.updateState('error');
-						stopTimer("No content received");
-					}
-					resolve();
-				},
-				onerror: (response) => {
-					let errorText = `API error for ${modelName}: ${response.status} ${response.statusText}\n\n`;
-					try {
-						const errorBody = JSON.parse(response.responseText);
-						errorText += ` - ${errorBody?.error?.message || JSON.stringify(errorBody)}`;
-						if (response.status === 400 && errorBody?.error?.message.includes("API key not valid")) {
-							GM_deleteValue("geminiApiKey");
-							apiKey = "";
-							errorText = `API Key Error (400): Key rejected. Your stored API key has been cleared. Please provide a valid API key.`;
-							stopStatus = "Invalid API Key";
-						}
-					} catch (e) { /* Ignore JSON parsing error */ }
-
-					console.error(errorText);
-					popup.outputArea.value = errorText;
-					modelState[cacheKey] = { answer: errorText, time: 0, state: 'error' };
-					button.updateState('error');
-					stopTimer("Network Error");
-					reject(new Error(errorText));
-				}
-			});
-		});
+		await AIState.generateAnswer(modelName, finalQuestionItem, questionIdentifier, forceRetry);
 	} catch (error) {
-		const errorMsg = `Network/Fetch Error for ${modelName}: ${error.message}`;
-		console.error(errorMsg, error);
-		popup.outputArea.value = errorMsg;
-		modelState[cacheKey] = { answer: errorMsg, time: 0, state: 'error' };
-		button.updateState('error');
-		stopTimer("Network Error");
+		console.error('Generation error:', error);
 	}
 }
 
 function changeApiKey() {
-	apiKey = getApiKey();
-	if (apiKey !== null && apiKey !== "") {
-		GM_setValue("geminiApiKey", apiKey);
-		alert("API Key updated successfully.");
-	} else if (apiKey === "") {
-		GM_setValue("geminiApiKey", apiKey);
-		alert("API Key cleared. A valid key is required to use the service.");
+	const providers = ['gemini', 'openai', 'anthropic'];
+	const choice = prompt(`Which provider's API key would you like to change?\n\n${providers.map((p, i) => `${i + 1}. ${p}`).join('\n')}\n\nEnter the number:`, '1');
+	
+	const providerIndex = parseInt(choice) - 1;
+	if (providerIndex < 0 || providerIndex >= providers.length) {
+		alert("Invalid choice. Please try again.");
+		return;
+	}
+	
+	const provider = providers[providerIndex];
+	const newKey = getApiKey(provider);
+	
+	if (newKey !== null && newKey !== "") {
+		alert(`${provider} API Key updated successfully.`);
+	} else if (newKey === "") {
+		delete config.apiKeys[provider];
+		GM_setValue("apiKeys", config.apiKeys);
+		alert(`${provider} API Key cleared. A valid key is required to use the service.`);
 	} else {
 		alert("No API Key was provided. Please follow the instructions to obtain one.");
 	}
 }
 
 function clearCache() {
-	Object.keys(modelState).forEach((key) => delete modelState[key]);
+	AIState.questions = {};
+	AIState.updateUI();
 	alert("Cache cleared from memory.");
 }
 
 function changeHotkey() {
 	const newHotkey = prompt("Enter a new hotkey (single character) to use with Alt:", config.hotkey.key);
 	if (newHotkey && newHotkey.length === 1) {
-		config.hotkey = { key: newHotkey.toLowerCase(), modifier: "alt" };
+		config.hotkey.key = newHotkey.toLowerCase();
 		GM_setValue("hotkey", config.hotkey);
-
-		// Update hotkey info in UI if popup exists
-		const popup = document.getElementById("ait-answer-popup");
-		if (popup) {
-			const hotkeyInfo = popup.querySelector("#ait-hotkey-info"); // Changed ID to hotkey-info
-			if (hotkeyInfo) {
-				hotkeyInfo.textContent = `Press ${config.hotkey.modifier.toUpperCase()}+${config.hotkey.key.toUpperCase()} to toggle`;
-			}
+		// Update hotkey info in UI
+		const hotkeyInfo = popup.querySelector("#ait-hotkey-info"); // Changed ID to hotkey-info
+		if (hotkeyInfo) {
+			hotkeyInfo.textContent = `Press ${config.hotkey.modifier.toUpperCase()}+${config.hotkey.key.toUpperCase()} to toggle`;
 		}
-
 		alert(`Hotkey updated to ALT+${config.hotkey.key.toUpperCase()}`);
 	} else if (newHotkey) {
 		alert("Please enter a single character only.");
 	}
 }
 
-
-// Basic string hash function for cache keys
-function hashCode(str) {
-	let hash = 0;
-	for (let i = 0, len = str.length; i < len; i++) {
-		let chr = str.charCodeAt(i);
-		hash = (hash << 5) - hash + chr;
-		hash |= 0; // Convert to 32bit integer
-	}
-	return hash.toString();
-}
-
-
-// --- Event Listeners ---
-
-// Register Tampermonkey menu commands
+// --- Register Menu Commands ---
 GM_registerMenuCommand("Toggle AI Popup (Alt+" + config.hotkey.key.toUpperCase() + ")", () => popup.toggleUi());
 GM_registerMenuCommand("Change API Key", changeApiKey);
 GM_registerMenuCommand("Clear Response Cache", clearCache);
@@ -1121,18 +1262,12 @@ function initialize() {
 	// Run detection bypass
 	setupDetectionBypass();
 
-	// Restore popupState separately for better intellisense and config clarity.
-	config.popupState = { ...GM_getValue("popupState", config.popupState), visible: false };
-
-	// Default to the Flash Lite model
-	lastUsedModel = models[3];
-
-	// Detect current website
-	currentWebsite = detectCurrentWebsite();
+	// Ensure popup starts hidden by default on script initialization
+	config.popupState.visible = false;
 
 	// Only create popup on websites with questions when opened
 	document.addEventListener("DOMContentLoaded", function () {
-		if (currentWebsite) {
+		if (currentSite) {
 			let attempts = 0;
 			const maxAttempts = 30;
 
