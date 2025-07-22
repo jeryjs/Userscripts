@@ -162,7 +162,7 @@ unsafeWindow.aitPopup = popup; // Expose to unsafeWindow for compatibility with 
 
 let apiKey;
 const modelState = {}; // In-memory cache for current session
-const currentSite = websites.find(s => s.urls.some(url => location.href.includes(url))) || null;
+let currentWebsite = null;
 let currentQnIdentifier = null;
 let lastUsedModel = null;
 
@@ -171,13 +171,13 @@ const isScriptPage = {
 	configure: location.href.includes("/AnswerIT!!/configure.html"),
 }
 
-// Model definitions
+// Model definitions with ranking, subtitles, colors (for light theme), and tooltips
 const models = [
 	{
 		name: "gemini-2.5-pro",
 		displayName: "Pro-Thinking",
 		subtitle: "Highest Quality | 5 RPM | Best for Complex Questions",
-		order: 1,
+		rank: 1,
 		color: "#C8E6C9", // Light Green
 		tooltip: "Latest experimental Gemini 2.5 Pro model with 1M token context window. Best for complex reasoning and detailed responses.",
 	},
@@ -185,16 +185,25 @@ const models = [
 		name: "gemini-2.5-flash-preview-05-20",
 		displayName: "Flash-Thinking",
 		subtitle: "Best Quality | 10 RPM | Recommended for Complex Questions",
-		order: 2,
+		rank: 2,
 		color: "#E1BEE7", // Faded Lavender
 		tooltip: "Highest quality model, may be slower and has an API quota of 10 requests per minute. Use sparingly.",
 		generationConfig: { thinkingConfig: { thinkingBudget: 8000 } }
 	},
+	// This model now points to the pro-thinking api and is redundant
+	// {
+	// 	name: "gemini-2.0-pro-exp-02-05",
+	// 	displayName: "Pro",
+	// 	subtitle: "Good Quality | 2 RPM | Recommended for knowledge-based Questions",
+	// 	rank: 3,
+	// 	color: "#B2DFDB", // Faded Mint
+	// 	tooltip: "High quality model, good balance of quality and speed. Has an API quota of 2 requests per minute. Moderate usage recommended.",
+	// },
 	{
 		name: "gemini-2.5-flash",
 		displayName: "Flash",
 		subtitle: "Fast Response | 15 RPM | Recommended for General Questions",
-		order: 3,
+		rank: 3,
 		color: "#FCDF80", // Faded Yellow
 		tooltip: "Faster model, good for quick answers, quality may be slightly lower. Has an API quota of 15 requests per minute.",
 		generationConfig: { thinkingConfig: { thinkingBudget: 0 } }
@@ -203,11 +212,11 @@ const models = [
 		name: "gemini-2.5-flash-lite-preview-06-17",
 		displayName: "Flash Lite",
 		subtitle: "Fastest & Cheapest | 30 RPM | Recommended only for very simple questions",
-		order: 4,
+		rank: 4,
 		color: "#F0F4C3", // Faded Lime
 		tooltip: "Fastest and most cost-effective model, lowest quality, use for simpler questions. Has an API quota of 30 requests per minute.",
 	},
-].sort((a, b) => a.order - b.order); // Sort by order (1 = best)
+].sort((a, b) => a.rank - b.rank); // Sort by rank (1 = best)
 
 
 function createPopupUI() {
@@ -628,48 +637,6 @@ function createPopupUI() {
 	document.body.appendChild(popup);
 }
 
-
-// --- Page Related Functions ---
-const page = {
-	getQnElm: () => {
-		if (!currentSite) return null;
-		let element = document.body;
-		// Try all selectors in the array
-		if (Array.isArray(currentSite.questionSelectors)) {
-			for (const selector of currentSite.questionSelectors) {
-				const found = (typeof selector === "function") ? selector() : document.querySelector(selector);
-				if (found) { element = found; break; }
-			}
-		}
-		// Update the status text with the found element
-		const statusText = document.getElementById("ait-status-text");
-		if (statusText) {
-			const elementId = element.id ? `#${element.id}` : element.className ? `.${element.className.split(" ")[0]}` : element.tagName.toLowerCase();
-			statusText.textContent = `Warning (${elementId} selected)`;
-		}
-		// custom aliases for lazy access
-		element.getQnId = () => page.getQnId(element);
-		element.getQnItem = () => page.getQnItem(element);
-		return element;
-	},
-	getQnId: (element) => {
-		return hashCode(currentSite?.getQuestionIdentifier(element) || element.textContent);
-	},
-	getQnItem: (element) => {
-		if (!element) return "No question element found";
-		// If currentWebsite has a custom getQuestionItem function, use it
-		if (currentSite && typeof currentSite.getQuestionItem === "function") {
-			return currentSite.getQuestionItem(element);
-		}
-		// Extract HTML content only if its length is reasonable
-		if (element.innerHTML.length < 15000) return element.innerHTML;
-		return element.textContent;
-	}
-}
-
-
-// --- Utils ---
-// Darken the given color for dark theme
 function getThemedColor(color) {
 	if (config.theme === "light") return color; // No change for light theme
 
@@ -677,17 +644,6 @@ function getThemedColor(color) {
 		r = n >> 16, g = n >> 8 & 255, b = n & 255,
 		d = x => (x * 0.3 | 0);  // 30% brightness
 	return "#" + ((1 << 24) | (d(r) << 16) | (d(g) << 8) | d(b)).toString(16).slice(1);
-}
-
-// Basic FNV-1a 53-bit string hash function
-function hashCode(str) {
-    let hval = 0xcbf29ce484222325n;
-    for (let i = 0; i < str.length; ++i) {
-        hval ^= BigInt(str.charCodeAt(i));
-        hval *= 0x100000001b3n;
-        hval &= 0x1fffffffffffffn; // 53 bits
-    }
-    return hval.toString(16);
 }
 
 let timerInterval = null;
@@ -761,13 +717,77 @@ function getApiKey() {
 	}
 }
 
+function detectCurrentWebsite() {
+	const currentUrl = window.location.href;
+	for (const site of websites) {
+		for (const urlPattern of site.urls) {
+			if (currentUrl.includes(urlPattern)) {
+				return site;
+			}
+		}
+	}
+	return null;
+}
+
+function getQuestionElement() {
+	if (!currentWebsite) {
+		currentWebsite = detectCurrentWebsite();
+		if (!currentWebsite) {
+			return null;
+		}
+	}
+
+	// Try all selectors in the array
+	if (currentWebsite.questionSelectors && Array.isArray(currentWebsite.questionSelectors)) {
+		for (const selector of currentWebsite.questionSelectors) {
+			let element = null;
+
+			// Handle if selector is a function
+			if (typeof selector === "function") {
+				try {
+					element = selector();
+				} catch (error) {
+					console.error(`Error executing selector function: ${error.message}`);
+				}
+			}
+			// Handle if selector is a string (CSS selector)
+			else if (typeof selector === "string") {
+				element = document.querySelector(selector);
+			}
+
+			if (element) {
+				updateStatusWithFoundElement(element);
+				return element;
+			}
+		}
+	}
+
+	return null;
+}
+
+function updateStatusWithFoundElement(element) {
+	const statusText = document.getElementById("ait-status-text");
+	if (statusText) {
+		// Create a simplified identifier for the element
+		let elementId = "";
+		if (element.id) {
+			elementId = `#${element.id}`;
+		} else if (element.className) {
+			elementId = `.${element.className.split(" ")[0]}`;
+		} else {
+			elementId = element.tagName.toLowerCase();
+		}
+
+		statusText.textContent = `Ready (${elementId} found)`;
+	}
+}
 
 // Helper function to check for question change and reset buttons
 function checkAndUpdateButtonStates() {
-	const currentQnElm = page.getQnElm();
+	const currentQnElm = getQuestionElement();
 	if (!currentQnElm) return;
 
-	const newQnIdentifier = page.getQnId(currentQnElm);
+	const newQnIdentifier = getQuestionIdentifier(currentQnElm);
 
 	if (newQnIdentifier !== currentQnIdentifier) {
 		// Update the tracker
@@ -795,14 +815,31 @@ function checkAndUpdateButtonStates() {
 		if (config.autoRun) {
 			setTimeout(() => {
 				// Only run if question is still the same after a short delay
-				const checkQnElm = page.getQnElm();
-				const checkQnId = checkQnElm ? page.getQnId(checkQnElm) : null;
+				const checkQnElm = getQuestionElement();
+				const checkQnId = checkQnElm ? getQuestionIdentifier(checkQnElm) : null;
 				if (checkQnId === newQnIdentifier) {
 					handleGenerateAnswer(lastUsedModel.name, false);
 				}
 			}, 700); // Short delay to ensure question is stable
 		}
 	}
+}
+
+function getQuestionIdentifier(element) {
+	return hashCode(currentWebsite?.getQuestionIdentifier(element) || element.textContent);
+}
+
+function getQuestionItem(element) {
+	if (!element) return "No question found";
+
+	// If currentWebsite has a custom getQuestionItem function, use it
+	if (currentWebsite && typeof currentWebsite.getQuestionItem === "function") {
+		return currentWebsite.getQuestionItem(element);
+	}
+
+	// Extract HTML content only if its length is reasonable
+	if (element.innerHTML.length < 15000) return element.innerHTML;
+	return element.textContent;
 }
 
 // Helper function to build content parts for API, handling <img> tags as inline_data, else just text
@@ -852,12 +889,15 @@ async function handleGenerateAnswer(modelName, forceRetry = false) {
 	lastUsedModel = model;
 
 	// --- Get Question Info ---
-	const qElm = page.getQnElm();
-	if (qElm == document.body) {
-		popup.outputArea.value = "Warning: The entire page is being processed as the question.\nThis page may not be supported yet.";
+	const qElm = getQuestionElement();
+	if (!qElm) {
+		popup.outputArea.value = "Error: Question not found on page. This page might not be supported yet.";
+		stopTimer("Error");
+		button.updateState('error'); // Indicate error on button
+		return;
 	}
-	let questionIdentifier = page.getQnId(qElm);
-	let questionItem = page.getQnItem(qElm);
+	let questionIdentifier = getQuestionIdentifier(qElm);
+	let questionItem = getQuestionItem(qElm);
 	const cacheKey = `${modelName}-${questionIdentifier}`;
 
 	// --- Prevent Re-clicking Same Question While Loading ---
@@ -1018,20 +1058,40 @@ function clearCache() {
 function changeHotkey() {
 	const newHotkey = prompt("Enter a new hotkey (single character) to use with Alt:", config.hotkey.key);
 	if (newHotkey && newHotkey.length === 1) {
-		config.hotkey.key = newHotkey.toLowerCase();
+		config.hotkey = { key: newHotkey.toLowerCase(), modifier: "alt" };
 		GM_setValue("hotkey", config.hotkey);
-		// Update hotkey info in UI
-		const hotkeyInfo = popup.querySelector("#ait-hotkey-info"); // Changed ID to hotkey-info
-		if (hotkeyInfo) {
-			hotkeyInfo.textContent = `Press ${config.hotkey.modifier.toUpperCase()}+${config.hotkey.key.toUpperCase()} to toggle`;
+
+		// Update hotkey info in UI if popup exists
+		const popup = document.getElementById("ait-answer-popup");
+		if (popup) {
+			const hotkeyInfo = popup.querySelector("#ait-hotkey-info"); // Changed ID to hotkey-info
+			if (hotkeyInfo) {
+				hotkeyInfo.textContent = `Press ${config.hotkey.modifier.toUpperCase()}+${config.hotkey.key.toUpperCase()} to toggle`;
+			}
 		}
+
 		alert(`Hotkey updated to ALT+${config.hotkey.key.toUpperCase()}`);
 	} else if (newHotkey) {
 		alert("Please enter a single character only.");
 	}
 }
 
-// --- Register Menu Commands ---
+
+// Basic string hash function for cache keys
+function hashCode(str) {
+	let hash = 0;
+	for (let i = 0, len = str.length; i < len; i++) {
+		let chr = str.charCodeAt(i);
+		hash = (hash << 5) - hash + chr;
+		hash |= 0; // Convert to 32bit integer
+	}
+	return hash.toString();
+}
+
+
+// --- Event Listeners ---
+
+// Register Tampermonkey menu commands
 GM_registerMenuCommand("Toggle AI Popup (Alt+" + config.hotkey.key.toUpperCase() + ")", () => popup.toggleUi());
 GM_registerMenuCommand("Change API Key", changeApiKey);
 GM_registerMenuCommand("Clear Response Cache", clearCache);
@@ -1065,11 +1125,14 @@ function initialize() {
 	config.popupState = { ...GM_getValue("popupState", config.popupState), visible: false };
 
 	// Default to the Flash Lite model
-	lastUsedModel = models.find(m => m.name.includes('lite')) || models[0];
+	lastUsedModel = models[3];
+
+	// Detect current website
+	currentWebsite = detectCurrentWebsite();
 
 	// Only create popup on websites with questions when opened
 	document.addEventListener("DOMContentLoaded", function () {
-		if (currentSite) {
+		if (currentWebsite) {
 			let attempts = 0;
 			const maxAttempts = 30;
 
