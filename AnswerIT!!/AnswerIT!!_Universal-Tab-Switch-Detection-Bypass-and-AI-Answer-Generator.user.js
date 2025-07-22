@@ -158,6 +158,7 @@ function setupDetectionBypass() {
 // --- AI Answer Generator Feature ---
 const popup = document.createElement("div");
 Window.aitPopup = popup; // Expose popup globally for easy access
+unsafeWindow.aitPopup = popup; // Expose to unsafeWindow for compatibility with other scripts
 
 let apiKey;
 const modelState = {}; // In-memory cache for current session
@@ -473,7 +474,14 @@ function createPopupUI() {
 
 	popup.outputArea = popup.querySelector("#ait-output-textarea");
 
-	// --- Detach/Attach, Drag, and Resize ---
+	// --- Reset, Detach/Attach, Drag, and Resize ---
+	popup.resetState = () => {
+		config.popupState = { visible: false, snapped: 2, window: { x: 0, y: 0, w: 500, h: 800 }, opacity: 1 };
+		GM_setValue("popupState", config.popupState);
+		popup.style.opacity = config.popupState.opacity;
+		popup.updatePosition();
+	};
+
 	popup.updatePosition = () => {
 		const p = popup;
 		// Clamp the header to always stay within viewport
@@ -1068,15 +1076,6 @@ function changeHotkey() {
 	}
 }
 
-function resetPopupState() {
-	config.popupState = { visible: false, snapped: 2, window: { x: 0, y: 0, w: 500, h: 800 }, opacity: 1 };
-	GM_setValue("popupState", config.popupState);
-	popup.style.opacity = config.popupState.opacity;
-	// If popup exists, update its position
-	if (popup.updatePosition) {
-		popup.updatePosition();
-	}
-}
 
 // Basic string hash function for cache keys
 function hashCode(str) {
@@ -1093,11 +1092,11 @@ function hashCode(str) {
 // --- Event Listeners ---
 
 // Register Tampermonkey menu commands
-GM_registerMenuCommand("Toggle AI Popup (Alt+" + config.hotkey.key.toUpperCase() + ")", popup.toggleUi);
+GM_registerMenuCommand("Toggle AI Popup (Alt+" + config.hotkey.key.toUpperCase() + ")", () => popup.toggleUi());
 GM_registerMenuCommand("Change API Key", changeApiKey);
 GM_registerMenuCommand("Clear Response Cache", clearCache);
 GM_registerMenuCommand("Change Hotkey", changeHotkey);
-GM_registerMenuCommand("Reset Popup State", resetPopupState);
+GM_registerMenuCommand("Reset Popup State", () => popup.resetState());
 GM_registerMenuCommand("🪟 Open Setup Page", () => window.open("https://jeryjs.github.io/Userscripts/AnswerIT!!/configure.html", "_blank"));
 
 // --- Initialization ---
