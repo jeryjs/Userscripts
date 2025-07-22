@@ -23,8 +23,8 @@
                 <h2>How to Use</h2>
                 <p>Get started with AnswerIT!! in just a few steps</p>
                 <div style="text-align: left; margin-top: 1rem;">
-                    <div style="margin-bottom: 1rem;"><strong style="color: var(--primary);">Step 1:</strong> Get your free Gemini API key</div>
-                    <div style="margin-bottom: 1rem;"><strong style="color: var(--primary);">Step 2:</strong> Enter your API key above</div>
+                    <div style="margin-bottom: 1rem;"><strong style="color: var(--primary);">Step 1:</strong> Get API keys from AI providers (Gemini is free!)</div>
+                    <div style="margin-bottom: 1rem;"><strong style="color: var(--primary);">Step 2:</strong> Enter your API keys in the setup section</div>
                     <div style="margin-bottom: 1rem;"><strong style="color: var(--primary);">Step 3:</strong> Configure your preferences</div>
                     <div style="margin-bottom: 1rem;"><strong style="color: var(--primary);">Step 4:</strong> Use <span id="modifierKey">Alt</span> + [hotkey] on supported sites</div>
                 </div>
@@ -41,29 +41,58 @@
 
             <div class="card">
                 <div class="card-icon">🔑</div>
-                <h2>API Key Setup</h2>
-                <p>Configure your Gemini API key to start using AI-powered answers</p>
+                <h2>API Keys Setup</h2>
+                <p>Configure your AI provider API keys. You need at least one key to start generating answers.</p>
                 <div class="status" id="apiStatus"></div>
-                <form id="apiForm">
-                    <div class="form-group">
-                        <label class="form-label">Gemini API Key</label>
-                        <input type="password" id="apiKey" class="form-input" placeholder="Enter your Gemini API key..."
-                            autocomplete="off">
-                        <div class="help-text">Your API key is stored securely and never sent to our servers.</div>
+                
+                <!-- Provider Tabs -->
+                <div class="tabs-container providers">
+                    <div class="tabs">
+                        <button class="tab-btn active" onclick="switchProvidersTab('gemini')">Gemini</button>
+                        <button class="tab-btn" onclick="switchProvidersTab('openai')">OpenAI</button>
+                        <button class="tab-btn" onclick="switchProvidersTab('anthropic')">Anthropic</button>
                     </div>
-                    <div class="quick-links">
-                        <a href="https://aistudio.google.com/app/apikey" target="_blank" class="quick-link">🔗 Get Free
-                            API Key</a>
-                        <a href="#" id="testKey" class="quick-link">🧪 Test API Key</a>
+                    <div class="tab-content active" id="gemini-tab">
+                        <div class="form-group">
+                            <label class="form-label">Gemini API Key</label>
+                            <input type="password" id="geminiApiKey" class="form-input" placeholder="Enter your Gemini API key..." autocomplete="off">
+                            <div class="help-text">Free tier with generous limits. Supports latest Gemini 2.5 models.</div>
+                            <div class="quick-links">
+                                <a href="https://aistudio.google.com/app/apikey" target="_blank" class="quick-link">🔗 Get Free Gemini Key</a>
+                                <a data-provider="gemini" class="quick-link btn" onclick="cm.apiKey.test">🧪 Test Key</a>
+                            </div>
+                        </div>
                     </div>
-                    <button type="submit" class="btn btn-primary" id="saveApi" style="margin-top: 1rem;">
-                        <span>Save API Key</span>
-                    </button>
-                </form>
+                    <div class="tab-content" id="openai-tab">
+                        <div class="form-group">
+                            <label class="form-label">OpenAI API Key</label>
+                            <input type="password" id="openaiApiKey" class="form-input" placeholder="Enter your OpenAI API key..." autocomplete="off">
+                            <div class="help-text">Requires payment per token. Supports GPT-4o and GPT-4o Mini models.</div>
+                            <div class="quick-links">
+                                <a href="https://platform.openai.com/api-keys" target="_blank" class="quick-link">🔗 Get OpenAI Key</a>
+                                <a data-provider="openai" class="quick-link btn" onclick="cm.apiKey.test">🧪 Test Key</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tab-content" id="anthropic-tab">
+                        <div class="form-group">
+                            <label class="form-label">Anthropic API Key</label>
+                            <input type="password" id="anthropicApiKey" class="form-input" placeholder="Enter your Anthropic API key..." autocomplete="off">
+                            <div class="help-text">Requires payment per token. Supports Claude Sonnet 3.7 and 4.0 models.</div>
+                            <div class="quick-links">
+                                <a href="https://console.anthropic.com/account/keys" target="_blank" class="quick-link">🔗 Get Anthropic Key</a>
+                                <a data-provider="anthropic" class="quick-link btn" onclick="cm.apiKey.test">🧪 Test Key</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary" id="saveApiKey" style="margin-top: 1rem;">
+                    <span id="saveApiKeyText">💾 Save This Key</span>
+                    <div class="spinner" id="saveApiKeySpinner" style="display: none;"></div>
+                </button>
             </div>
-        <!-- </div> -->
 
-        <!-- <div class="grid" style="margin-top: 2rem;"> -->
             <div class="card">
                 <div class="card-icon">⚙️</div>
                 <h2>Preferences</h2>
@@ -162,6 +191,20 @@
             }
         }
 
+        function switchProvidersTab(tabName) {
+            // Update active tab button
+            $('.tab-btn').removeClass('active');
+            $(`.tab-btn[data-tab="${tabName}"]`).addClass('active');
+            
+            // Update active tab content
+            $('.tab-content').removeClass('active');
+            $(`#${tabName}-tab`).addClass('active');
+            
+            this.currentTab = tabName;
+            localStorage.setItem('apiTab', tabName);
+        }
+        switchProvidersTab(localStorage.getItem('apiTab') || 'gemini');
+
         class ConfigManager {
             constructor() {
                 this.currentTheme = localStorage.getItem('pageTheme') || 'light';
@@ -253,39 +296,86 @@
 
             initEventListeners() {
                 $('#themeToggle').on('click', () => this.theme.toggleTheme());
-                $('#apiForm').on('submit', (e) => { e.preventDefault(); this.apiKey.save(); });
+                $('#saveApiKey').on('click', (e) => { e.preventDefault(); this.apiKey.save(); });
                 $('#settingsForm').on('submit', (e) => { e.preventDefault(); this.saveSettings(); });
-                $('#testKey').on('click', (e) => { e.preventDefault(); this.apiKey.test(); });
-                $('#apiKey').on('input', (e) => this.apiKey.validate($(e.target).val()));
+                $('.providers a.quick-link.btn').on('click', (e) => { 
+                    e.preventDefault(); 
+                    const provider = $(e.target).data('provider');
+                    this.apiKey.test(provider); 
+                });
+                $('[id$="ApiKey"]').on('input', (e) => {
+                    const provider = e.target.id.replace('ApiKey', '');
+                    this.apiKey.validate(provider, $(e.target).val());
+                });
             }
 
             apiKey = {
-                validate: (key) => {
-                    const $input = $('#apiKey');
+                validate: (provider, key) => {
+                    const $input = $(`#${provider}ApiKey`);
                     if (!key) { $input.attr('class', 'form-input'); return false; }
-                    const valid = /^AIza[0-9A-Za-z-_]{35}$/.test(key);
+                    
+                    let valid = false;
+                    if (provider === 'gemini') {
+                        valid = /^AIza[0-9A-Za-z-_]{35}$/.test(key);
+                    } else if (provider === 'openai') {
+                        valid = /^sk-[a-zA-Z0-9]{48,}$/.test(key) || /^sk-proj-[a-zA-Z0-9_-]+-[a-zA-Z0-9_-]+$/.test(key);
+                    } else if (provider === 'anthropic') {
+                        valid = /^sk-ant-api03-[a-zA-Z0-9_-]{90,}$/.test(key);
+                    }
+                    
                     $input.attr('class', valid ? 'form-input success' : 'form-input error');
                     return valid;
                 },
-                test: async () => {
-                    const apiKey = $('#apiKey').val().trim();
-                    if (!apiKey) { showStatus('apiStatus', 'Please enter an API key first!', 'error'); return; }
-                    if (!this.apiKey.validate(apiKey)) { showStatus('apiStatus', 'API key format invalid', 'warning'); return; }
-                    showStatus('apiStatus', 'Testing API key...', 'warning');
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`).then( r =>
-                        showStatus('apiStatus', r.ok ? '✅ API key is valid!' : '❌ API key is invalid', r.ok ? 'success' : 'error')
-                    ).catch(e => {
-                        showStatus('apiStatus', `❌ Network error testing API key: ${e.message}`, 'error');
-                    })
+                test: async (provider) => {
+                    const apiKey = $(`#${provider}ApiKey`).val().trim();
+                    if (!apiKey) { 
+                        showStatus('apiStatus', `Please enter a ${provider} API key first!`, 'error'); 
+                        return; 
+                    }
+                    if (!this.apiKey.validate(provider, apiKey)) { 
+                        showStatus('apiStatus', `${provider} API key format invalid`, 'warning'); 
+                        return; 
+                    }
+                    
+                    showStatus('apiStatus', `Testing ${provider} API key...`, 'warning');
+                    
+                    try {
+                        let response;
+                        if (provider === 'gemini') {
+                            response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+                        } else if (provider === 'openai') {
+                            response = await fetch('https://api.openai.com/v1/models', {headers: { 'Authorization': `Bearer ${apiKey}` }});
+                        } else if (provider === 'anthropic') {
+                            response = await fetch('https://api.anthropic.com/v1/messages', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+                                body: JSON.stringify({ model: 'claude-3-5-haiku-latest', messages: [{ role: 'user', content: 'Hi' }], max_tokens: 1 })
+                            });
+                        }
+
+                        if (response.ok || (provider === 'anthropic' && response.status !== 400)) {
+                            showStatus('apiStatus', `✅ ${provider} API key is valid!`, 'success');
+                        } else {
+                            showStatus('apiStatus', `❌ ${provider} API key is invalid`, 'error');
+                        }
+                    } catch (e) {
+                        showStatus('apiStatus', `❌ Network error testing ${provider} API key: ${e.message}`, 'error');
+                    }
                 },
                 save: async () => {
-                    const apiKey = $('#apiKey').val().trim();
-                    if (!apiKey) { showStatus('apiStatus', 'Please enter an API key!', 'error'); return; }
-                    this.setButtonLoading('saveApi', true);
-                    this.GM.setValue('geminiApiKey', apiKey);
-                    showStatus('apiStatus', '✅ API key saved successfully!', 'success');
-                    setTimeout(() => this.apiKey.test(), 500);
-                    this.setButtonLoading('saveApi', false);
+                    const activeTab = $('.tab-content.active')[0].id.replace('-tab', '');
+                    const apiKey = $(`#${activeTab}ApiKey`).val().trim();
+                    if (!apiKey) { 
+                        showStatus('apiStatus', 'Please enter an API key!', 'error'); 
+                        return; 
+                    }
+                    
+                    this.setButtonLoading('saveApiKey', true);
+                    const apiKeys = this.GM.getValue('apiKeys', {});
+                    apiKeys[activeTab] = apiKey;
+                    this.GM.setValue('apiKeys', apiKeys);
+                    showStatus('apiStatus', `✅ ${activeTab} API key saved successfully!`, 'success');
+                    this.setButtonLoading('saveApiKey', false);
                 }
             }
 
@@ -294,7 +384,7 @@
                 if (!get) return;
                 // get
                 settings = {
-                    apiKey: get('geminiApiKey', ''),
+                    apiKeys: get('apiKeys', {}),
                     hotkey: get('hotkey', { key: 'a', modifier: 'alt' }),
                     theme: get('theme', 'light'),
                     makeAIOutputEditable: get('makeAIOutputEditable', false),
@@ -302,17 +392,26 @@
                 };
                 showStatus('preferencesStatus', '✅ Userscript detected - settings sync automatically!', 'success');
 
-                // set
-                if (settings) {
-                    if (settings.apiKey) {
-                        $('#apiKey').val(settings.apiKey);
-                        this.apiKey.validate(settings.apiKey);
-                        showStatus('apiStatus', 'API key loaded from userscript!', 'success');
-                    }
-                    $('#hotkey').val(settings.hotkey.key || 'a');
-                    $('#theme').val(settings.theme || 'light');
-                    $('#makeAIOutputEditable').prop('checked', get('makeAIOutputEditable', false));
+                // set API keys using jQuery to find all provider inputs
+                if (settings.apiKeys) {
+                    let hasAnyKey = false;
+                    $('[id$="ApiKey"]').each((i, input) => {
+                        const provider = input.id.replace('ApiKey', '');
+                        const key = settings.apiKeys[provider];
+                        if (key) {
+                            $(input).val(key);
+                            this.apiKey.validate(provider, key);
+                            hasAnyKey = true;
+                        }
+                    });
+                    
+                    if (hasAnyKey) showStatus('apiStatus', 'API keys loaded from userscript!', 'success');
                 }
+                
+                // set other settings
+                $('#hotkey').val(settings.hotkey.key || 'a');
+                $('#theme').val(settings.theme || 'light');
+                $('#makeAIOutputEditable').prop('checked', get('makeAIOutputEditable', false));
 
                 return settings;
             };
@@ -334,16 +433,19 @@
                 const $text = $(`#${btnId}Text`);
                 const $spinner = $(`#${btnId}Spinner`);
                 $btn.prop('disabled', loading);
-                $text.text(loading ? 'Saving...' : (btnId === 'saveApi' ? 'Save API Key' : '💾 Save Settings'));
+                
+                if (btnId === 'saveApiKey') {
+                    $text.text(loading ? 'Saving...' : '💾 Save API Key');
+                } else if (btnId === 'saveSettings') {
+                    $text.text(loading ? 'Saving...' : '💾 Save Settings');
+                }
+                
                 $spinner.css('display', loading ? 'block' : 'none');
             }
         }
 
-        // Initialize when DOM is ready using jQuery's ready function
-        $(function () {
-            console.log('[ConfigPage] DOM loaded via jQuery ready, initializing ConfigManager');
-            const cm = new ConfigManager();
-        });
+        console.log('[ConfigPage] DOM loaded via jQuery ready, initializing ConfigManager');
+        const cm = new ConfigManager();
     </script>
 </body>
 
