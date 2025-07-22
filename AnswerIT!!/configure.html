@@ -32,9 +32,9 @@
                     <a href="https://github.com/jeryjs/Userscripts/tree/main/AnswerIT!!" target="_blank" class="quick-link">📖 Github Page</a>
                     <a href="https://github.com/jeryjs/Userscripts/issues/new?title=[AnswerIT!!]%20**Title%20of%20the%20issue**%20&body=**Describe%20the%20issue:**%0A%0A**Steps%20to%20reproduce:**%0A%0A**Expected%20behavior:**%0A%0A**Screenshots%20(optional):**%0A%0A**Environment:**%0A-%20Browser:%0A-%20OS:%0A" target="_blank" class="quick-link">🐛 Report Issues</a>
                 </div>
-                <button class="btn btn-primary" id="installScript" style="margin-top: 1rem;">
+                <button class="btn btn-primary" id="installScript" style="margin-top: 1rem;" onclick="window.open('https://github.com/jeryjs/Userscripts/raw/refs/heads/main/AnswerIT!!/AnswerIT!!_Universal-Tab-Switch-Detection-Bypass-and-AI-Answer-Generator.user.js')">
                     <span class="hidden">⬇️ Install UserScript</span>
-                    <span class="hidden">✅ Userscript Installed!!</span>
+                    <span class="hidden" title="Click to reinstall">✅ Userscript Installed!!</span>
                     <div class="spinner"></div>
                 </button>
             </div>
@@ -87,7 +87,7 @@
                     </div>
                 </div>
                 
-                <button type="submit" class="btn btn-primary" id="saveApiKey" style="margin-top: 1rem;">
+                <button type="submit" class="btn btn-primary" id="saveApiKey">
                     <span id="saveApiKeyText">💾 Save This Key</span>
                     <div class="spinner" id="saveApiKeySpinner" style="display: none;"></div>
                 </button>
@@ -96,7 +96,7 @@
             <div class="card">
                 <div class="card-icon">⚙️</div>
                 <h2>Preferences</h2>
-                <p>Customize your AnswerIT!! experience</p>
+                <p>Customize your AnswerIT!! popup experience</p>
                 <div class="status" id="preferencesStatus"></div>
                 <form id="settingsForm">
                     <div class="preferences-grid">
@@ -108,14 +108,13 @@
                                 <option value="z"><span id="hotkeyModifier">Alt</span> + Z</option>
                                 <option value="x"><span id="hotkeyModifier">Alt</span> + X</option>
                             </select>
-                            <div class="help-text">Keyboard shortcut to activate AnswerIT!!</div>
+                            <div class="help-text">Keyboard shortcut to toggle popup</div>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Default Theme</label>
                             <select id="theme" class="form-input">
                                 <option value="light">Light</option>
                                 <option value="dark">Dark</option>
-                                <option value="auto">Auto (System)</option>
                             </select>
                             <div class="help-text">Choose your preferred theme for the popup</div>
                         </div>
@@ -128,7 +127,7 @@
                         </label>
                         <div class="help-text">Allow editing within the AI-generated output textarea to be able to modify the response before inserting it.</div>
                     </div>
-                    <button type="submit" class="btn btn-primary" id="saveSettings" style="margin-top: 1rem;">
+                    <button type="submit" class="btn btn-primary" id="saveSettings">
                         <span id="saveSettingsText">Save Settings</span>
                         <div class="spinner" id="saveSettingsSpinner" style="display: none;"></div>
                     </button>
@@ -194,7 +193,7 @@
         function switchProvidersTab(tabName) {
             // Update active tab button
             $('.tab-btn').removeClass('active');
-            $(`.tab-btn[data-tab="${tabName}"]`).addClass('active');
+            $(`.tab-btn[onclick*="${tabName}"]`).addClass('active');
             
             // Update active tab content
             $('.tab-content').removeClass('active');
@@ -249,11 +248,14 @@
                     updateDetectionStatus(`🔍 Checking for userscript... (${attempts}/${max})`, '');
                     if (window.AnswerIT_Config?.GM_getValue) {
                         updateDetectionStatus('✅ Userscript connected!', 'success');
+                        $('#installScript > span').get(1).classList.remove('hidden');
+                        $('#installScript > .spinner').remove();
                         onConfigDetected(this);
                     } else if (attempts < max) {
                         setTimeout(poll, Math.min(100 * 2 ** (attempts - 1), 2000));
                     } else {
                         updateDetectionStatus('⚠️ Couldn\'t detect userscript.', 'warning');
+                        $('#installScript > span').get(0).classList.remove('hidden');
                     }
                 }; poll();
                 
@@ -374,7 +376,7 @@
                     const apiKeys = this.GM.getValue('apiKeys', {});
                     apiKeys[activeTab] = apiKey;
                     this.GM.setValue('apiKeys', apiKeys);
-                    showStatus('apiStatus', `✅ ${activeTab} API key saved successfully!`, 'success');
+                    showStatus('apiStatus', `✅ Key saved successfully!`, 'success');
                     this.setButtonLoading('saveApiKey', false);
                 }
             }
