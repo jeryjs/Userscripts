@@ -120,7 +120,6 @@ const host = {
 
                 this.channel.send(JSON.stringify({
                     url: location.href,
-                    title: document.title,
                     body: body.innerHTML.slice(0, max) + (body.innerHTML.length > max ? '<!-- truncated --!>' : ''),
                     timestamp: Date.now()
                 }));
