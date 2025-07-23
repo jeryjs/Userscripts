@@ -6,24 +6,62 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, sans-serif; background: #0a0a0a; color: #fff; }
-        .header { position: fixed; top: 0; width: 100%; background: rgba(0,0,0,0.9); backdrop-filter: blur(10px); 
-                 padding: 10px 20px; z-index: 1000; display: flex; justify-content: space-between; align-items: center; }
-        .title { font-size: 18px; font-weight: 600; }
-        .stats { font-size: 12px; opacity: 0.7; text-align: right; }
-        .shadow-container { margin-top: 60px; padding: 20px; background: #111; border-radius: 8px; 
-                           box-shadow: 0 4px 20px rgba(0,0,0,0.5); min-height: calc(100vh - 80px); }
-        .log { position: fixed; bottom: 10px; left: 10px; font-size: 11px; opacity: 0.6; }
+        .header { position: fixed; top: 0; width: 100%; background: rgba(0,0,0,0.95); backdrop-filter: blur(10px); 
+                 padding: 15px 20px; z-index: 1000; border-bottom: 1px solid #333; }
+        .title { font-size: 20px; font-weight: 600; margin-bottom: 5px; }
+        .status-bar { display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
+        .connection-status { display: flex; align-items: center; gap: 8px; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .status-connected { background: #00ff88; box-shadow: 0 0 8px #00ff88; }
+        .status-connecting { background: #ffaa00; box-shadow: 0 0 8px #ffaa00; animation: pulse 1s infinite; }
+        .status-disconnected { background: #ff4444; box-shadow: 0 0 8px #ff4444; }
+        .force-reconnect { margin-left: 10px; padding: 4px 8px; background: #333; border: 1px solid #555; 
+                          border-radius: 4px; color: #fff; font-size: 10px; cursor: pointer; transition: all 0.2s; }
+        .force-reconnect:hover { background: #444; border-color: #777; }
+        .stats { text-align: right; opacity: 0.8; }
+        .shadow-container { margin-top: 80px; padding: 20px; background: #111; border-radius: 8px; 
+                           box-shadow: 0 4px 20px rgba(0,0,0,0.5); min-height: calc(100vh - 100px); }
+        .log-area { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.95); 
+                   border-top: 1px solid #333; transition: all 0.3s ease; z-index: 999; }
+        .log-header { padding: 8px 15px; cursor: pointer; display: flex; justify-content: space-between; 
+                     align-items: center; font-size: 12px; background: #1a1a1a; }
+        .log-content { padding: 10px 15px; font-size: 11px; font-family: 'Courier New', monospace; 
+                      background: #0a0a0a; max-height: 200px; overflow-y: auto; display: none; }
+        .log-expanded .log-content { display: block; }
+        .user-message { padding: 15px; text-align: center; opacity: 0.7; font-size: 14px; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
     </style>
 </head>
 <body>
     <div class="header">
-        <div class="title">🔄 Reflector Client</div>
-        <div class="stats" id="stats">Connecting...</div>
+        <div>
+            <div class="title">🔄 AnswerIT!! Reflector!</div>
+            <div class="status-bar">
+                <div class="connection-status">
+                    <div class="status-dot status-connecting" id="statusDot"></div>
+                    <span id="statusText">Connecting...</span>
+                    <button class="force-reconnect" onclick="forceReconnect()" title="Force reconnect">🔄 Reconnect</button>
+                </div>
+                <div class="stats" id="stats">
+                    <div>Pages received: <span id="receivedCount">0</span></div>
+                    <div>Last update: <span id="lastUpdate">Never</span></div>
+                </div>
+            </div>
+        </div>
     </div>
     <div class="shadow-container" id="content">
-        <p>Waiting for host connection...</p>
+        <div class="user-message">
+            🌐 Waiting for host connection...<br>
+            <small>The page will automatically mirror once connected</small>
+        </div>
     </div>
-    <div class="log" id="log">Initializing...</div>
+    <div class="log-area" id="logArea">
+        <div class="log-header" onclick="toggleLogs()">
+            <span>📋 System Logs</span>
+            <span id="logToggle">▲ Show</span>
+        </div>
+        <div class="log-content" id="logContent">Initializing connection...</div>
+    </div>
 
     <script>
         const reflector = {
@@ -33,16 +71,79 @@
             pollInterval: 10000
         };
 
+        // UI Management
+        function toggleLogs() {
+            const logArea = document.getElementById('logArea');
+            const toggle = document.getElementById('logToggle');
+            
+            if (logArea.classList.contains('log-expanded')) {
+                logArea.classList.remove('log-expanded');
+                toggle.textContent = '▲ Show';
+            } else {
+                logArea.classList.add('log-expanded');
+                toggle.textContent = '▼ Hide';
+            }
+        }
+
+        function updateStatus(status, message) {
+            const dot = document.getElementById('statusDot');
+            const text = document.getElementById('statusText');
+            
+            dot.className = `status-dot status-${status}`;
+            text.textContent = message;
+        }
+
+        function addLog(message) {
+            const logContent = document.getElementById('logContent');
+            const timestamp = new Date().toLocaleTimeString();
+            logContent.innerHTML += `<br>[${timestamp}] ${message}`;
+            document.querySelector('.log-header > span').textContent = `📋 ${message}`;
+            logContent.scrollTop = logContent.scrollHeight;
+        }
+
+        async function forceReconnect() {
+            addLog('🔄 Force reconnect initiated by user');
+            updateStatus('connecting', 'Force reconnecting...');
+            
+            // Clear any existing connection
+            if (reflectorClient.pc) {
+                reflectorClient.pc.close();
+            }
+            
+            // Clear server data for this key to force fresh session
+            try {
+                await fetch(`${reflector.endpoint}?key=${reflector.key}`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                addLog('🗑️ Cleared server signaling data');
+            } catch (e) {
+                addLog(`⚠️ Failed to clear server data: ${e.message}`);
+            }
+            
+            // Wait a moment then reinitialize
+            setTimeout(() => {
+                addLog('🚀 Starting fresh connection...');
+                reflectorClient.init();
+            }, 1000);
+        }
+
         const reflectorClient = {
             pc: null,
-            connected: false,
-            currentOfferSdp: null,  // Track current offer SDP
+            lastConnectedTime: 0,     // Track connection timestamp
+            currentOfferSdp: null,    // Track current offer SDP
             answerSent: false,
             sessionId: 0,
             stats: { received: 0, lastUpdate: 0 },
+            userFriendlyStatus: 'connecting',
+            
+            get isRecentlyConnected() {
+                return this.lastConnectedTime > 0 && (Date.now() - this.lastConnectedTime) < 45000; // 45 seconds
+            },
             
             async init() {
                 this.sessionId++;
+                this.updateUserStatus('connecting', 'Establishing connection...');
                 this.log(`Starting client session ${this.sessionId}`);
                 
                 this.pc = new RTCPeerConnection({
@@ -52,16 +153,25 @@
                 this.pc.ondatachannel = e => {
                     const channel = e.channel;
                     channel.onopen = () => {
-                        this.connected = true;
+                        this.lastConnectedTime = Date.now(); // Update connection timestamp
+                        this.updateUserStatus('connected', 'Connected and receiving updates');
                         this.log('📡 Connected to host');
                     };
-                    channel.onmessage = e => this.handleMessage(JSON.parse(e.data));
+                    channel.onmessage = e => {
+                        try {
+                            this.handleMessage(JSON.parse(e.data));
+                        } catch (error) {
+                            this.log(`Message parsing error: ${error.message}`);
+                        }
+                    };
                     channel.onclose = () => {
-                        this.connected = false;
                         this.answerSent = false;
                         this.currentOfferSdp = null;
-                        this.log('⚡ Connection lost, reconnecting...');
-                        setTimeout(() => this.init(), 2000);
+                        this.updateUserStatus('connecting', 'Connection lost, reconnecting...');
+                        this.log('⚡ Connection lost, will reconnect on next offer...');
+                    };
+                    channel.onerror = (error) => {
+                        this.log(`Data channel error: ${error}`);
                     };
                 };
                 
@@ -69,27 +179,25 @@
                     type: 'ice', candidate: e.candidate
                 });
                 
-                // Add connection state monitoring with ICE restart handling
+                // User-friendly connection monitoring
                 this.pc.onconnectionstatechange = () => {
                     this.log(`Connection state: ${this.pc.connectionState}`);
-                    if (this.pc.connectionState === 'failed') {
-                        this.log('Connection failed, waiting for ICE restart...');
-                        // Don't immediately restart - wait for host's ICE restart
+                    if (this.pc.connectionState === 'connected') {
+                        this.updateUserStatus('connected', 'Connected and receiving updates');
+                    } else if (this.pc.connectionState === 'connecting') {
+                        this.updateUserStatus('connecting', 'Establishing connection...');
+                    } else if (this.pc.connectionState === 'failed') {
+                        this.updateUserStatus('connecting', 'Reconnecting...');
+                        this.log('Connection failed, waiting for host...');
                         setTimeout(() => {
-                            if (!this.connected) {
-                                this.log('No ICE restart received, doing full restart...');
+                            if (this.userFriendlyStatus !== 'connected') {
                                 this.init();
                             }
                         }, 5000);
-                    } else if (this.pc.connectionState === 'connected') {
-                        this.log('Connection restored!');
                     }
                 };
                 this.pc.oniceconnectionstatechange = () => {
                     this.log(`ICE connection state: ${this.pc.iceConnectionState}`);
-                    if (this.pc.iceConnectionState === 'disconnected') {
-                        this.log('ICE disconnected, waiting for reconnection...');
-                    }
                 };
                 
                 this.pollForOffer();
@@ -97,7 +205,11 @@
             },
             
             async pollForOffer() {
-                if (this.connected) return;
+                if (this.lastConnectedTime > 0 && (Date.now() - this.lastConnectedTime) < 1000) {
+                    // Recently connected, don't poll immediately
+                    setTimeout(() => this.pollForOffer(), 2000);
+                    return;
+                }
                 
                 try {
                     const response = await fetch(`${reflector.endpoint}?key=${reflector.key}`, {
@@ -120,18 +232,23 @@
                                 await this.pc.setLocalDescription(data.answer);
                                 this.answerSent = true;
                             } else if (!hasExistingAnswer) {
-                                // New offer - create fresh answer
+                                // New offer - create fresh answer (only if no answer exists)
                                 this.log('📨 New offer received, sending answer...');
                                 await this.pc.setRemoteDescription(data.offer);
                                 const answer = await this.pc.createAnswer();
                                 await this.pc.setLocalDescription(answer);
                                 await this.sendSignal({ type: 'answer', sdp: answer.sdp });
                                 this.answerSent = true;
+                                this.log('📩 Answer sent, waiting for connection...');
+                            } else {
+                                // Skip if answer already exists for this offer
+                                this.log('� Answer already exists for this offer, waiting...');
+                                this.answerSent = true;
                             }
                             
-                            this.log('📩 Processing ICE candidates...');
                             // Process any pending ICE candidates from host
                             if (data.ice && data.ice.length > 0) {
+                                this.log('📩 Processing ICE candidates...');
                                 for (const iceData of data.ice) {
                                     if (iceData.candidate) {
                                         await this.pc.addIceCandidate(iceData.candidate);
@@ -158,29 +275,58 @@
             },
             
             handleMessage(data) {
-                this.stats.received++;
-                this.stats.lastUpdate = data.timestamp;
-                document.getElementById('content').innerHTML = data.body;
-                document.title = data.title;
+                try {
+                    this.stats.received++;
+                    this.stats.lastUpdate = data.timestamp;
+                    
+                    // Clear waiting message on first data
+                    if (this.stats.received === 1) {
+                        document.getElementById('content').innerHTML = '';
+                    }
+                    
+                    // Safely set content without executing scripts
+                    const contentEl = document.getElementById('content');
+                    contentEl.innerHTML = '';  // Clear first
+                    
+                    // Create a temporary element to parse HTML safely
+                    const temp = document.createElement('div');
+                    temp.innerHTML = data.body;
+                    
+                    // Remove any remaining scripts before adding
+                    temp.querySelectorAll('script, iframe, object, embed').forEach(el => el.remove());
+                    contentEl.appendChild(temp);
+                    
+                    document.title = data.title;
+                    this.updateUserStatus('connected', 'Receiving live updates');
+                } catch (error) {
+                    this.log(`Message handling error: ${error.message}`);
+                    // Don't crash the connection for message processing errors
+                }
+            },
+            
+            updateUserStatus(status, message) {
+                this.userFriendlyStatus = status;
+                updateStatus(status, message);
             },
             
             updateStats() {
-                const el = document.getElementById('stats');
-                const uptime = Math.floor((Date.now() - performance.timeOrigin) / 1000);
-                const lastUpdate = this.stats.lastUpdate ? 
-                    Math.floor((Date.now() - this.stats.lastUpdate) / 1000) : '∞';
+                const receivedEl = document.getElementById('receivedCount');
+                const lastUpdateEl = document.getElementById('lastUpdate');
                 
-                el.innerHTML = `
-                    Status: ${this.connected ? '🟢 Connected' : '🔴 Disconnected'}<br>
-                    Received: ${this.stats.received}<br>
-                    Last: ${lastUpdate}s ago<br>
-                    Uptime: ${uptime}s
-                `;
+                receivedEl.textContent = this.stats.received;
+                
+                if (this.stats.lastUpdate) {
+                    const secondsAgo = Math.floor((Date.now() - this.stats.lastUpdate) / 1000);
+                    lastUpdateEl.textContent = secondsAgo < 60 ? `${secondsAgo}s ago` : 'Over 1 min ago';
+                } else {
+                    lastUpdateEl.textContent = 'Never';
+                }
+                
                 setTimeout(() => this.updateStats(), 1000);
             },
             
             log(msg) {
-                document.getElementById('log').textContent = msg;
+                addLog(msg);
                 console.log(msg);
             }
         };
