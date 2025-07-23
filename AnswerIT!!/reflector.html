@@ -64,6 +64,14 @@
     </div>
 
     <script>
+        // Utility: exponential backoff with max delay and promise support
+        const backoff = (fn, delay = 1000, max = 300000) => {
+            const next = Math.min(delay * 1.5, max);
+            return new Promise(resolve => {
+                setTimeout(() => resolve(fn(next)), delay);
+            });
+        };
+
         // UI Management
         function toggleLogs() {
             const logArea = document.getElementById('logArea');
@@ -97,23 +105,7 @@
         async function forceReconnect() {
             addLog('🔄 Force reconnect initiated by user');
             updateStatus('connecting', 'Force reconnecting...');
-            
-            if (client.pc) client.pc.close();
-            
-            try {
-                await fetch(client.sessionUrl, {
-                    method: 'DELETE',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                addLog('🗑️ Cleared server signaling data');
-            } catch (e) {
-                addLog(`⚠️ Failed to clear server data: ${e.message}`);
-            }
-            
-            setTimeout(() => {
-                addLog('🚀 Starting fresh connection...');
-                client.init();
-            }, 1000);
+            client.startConnection();
         }
         
         const client = {
@@ -122,32 +114,42 @@
             pc: null,
             sessionId: 0,
             stats: { received: 0, lastUpdate: 0 },
-            chunks: {}, // Store incomplete chunks
-            pollTimeout: null, // Track polling timeout
-            statsTimeout: null, // Track stats timeout
-            get sessionUrl() {
-                return this.endpoint + '?key=' + this.key;
-            },
-            cleanup() {
-                if (this.pollTimeout) {
-                    clearTimeout(this.pollTimeout);
-                    this.pollTimeout = null;
-                }
-                if (this.statsTimeout) {
-                    clearTimeout(this.statsTimeout);
-                    this.statsTimeout = null;
-                }
-                if (this.pc) {
-                    this.pc.close();
-                    this.pc = null;
+            
+            signal: {
+                async send(data) {
+                    await fetch(`${client.endpoint}?key=${client.key}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data)
+                    });
+                },
+                
+                async get() {
+                    const response = await fetch(`${client.endpoint}?key=${client.key}`);
+                    return response.json();
+                },
+                
+                async pollOffer(delay = 2000) {
+                    const data = await this.get();
+                    if (data?.offer?.type === 'offer') {
+                        await client.pc.setRemoteDescription(data.offer);
+                        const answer = await client.pc.createAnswer();
+                        await client.pc.setLocalDescription(answer);
+                        await this.send({ type: 'answer', sdp: answer.sdp });
+                        if (data.ice) data.ice.forEach(ice => client.pc.addIceCandidate(ice.candidate));
+                        return true;
+                    }
+                    if (delay < 300000) {
+                        return backoff(() => this.pollOffer(), delay);
+                    }
+                    return false;
                 }
             },
             
-            async init() {
-                this.cleanup(); // Stop all previous operations
-                
+            startConnection() {
+                this.cleanup();
                 this.sessionId++;
-                this.log(`Starting session ${this.sessionId}`);
+                addLog(`Starting session ${this.sessionId}`);
                 updateStatus('connecting', 'Establishing connection...');
                 
                 this.pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.iptel.org' }] });
@@ -155,130 +157,63 @@
                 this.pc.ondatachannel = e => {
                     const channel = e.channel;
                     channel.onopen = () => {
-                        this.log('📡 Connected to host');
+                        addLog('📡 Connected to host');
                         updateStatus('connected', 'Connected and receiving updates');
                     };
-                    channel.onmessage = e => {
-                        try {
-                            this.handleMessage(JSON.parse(e.data));
-                        } catch (error) {
-                            this.log(`Message parsing error: ${error.message}`);
-                        }
-                    };
-                    channel.onerror = e => {
-                        this.log(`Data channel error: ${e.type || 'unknown'}`);
-                    };
+                    channel.onmessage = e => this.handleMessage(JSON.parse(e.data));
                     channel.onclose = () => {
-                        this.log('⚡ Connection lost, will reconnect...');
-                        updateStatus('connecting', 'Connection lost, reconnecting...');
-                        this.pollTimeout = setTimeout(() => this.init(), 2000);
+                        addLog('⚡ Connection lost');
+                        updateStatus('disconnected', 'Connection lost - press Reconnect');
                     };
                 };
                 
-                this.pc.onicecandidate = e => e.candidate && this.sendSignal({
-                    type: 'ice', candidate: e.candidate
-                });
-                
-                this.pc.onconnectionstatechange = () => {
-                    this.log(`Connection state: ${this.pc.connectionState}`);
-                    if (this.pc.connectionState === 'connected') {
-                        updateStatus('connected', 'Connected and receiving updates');
-                    } else if (this.pc.connectionState === 'connecting') {
-                        updateStatus('connecting', 'Establishing connection...');
-                    } else if (this.pc.connectionState === 'failed') {
-                        updateStatus('connecting', 'Reconnecting...');
-                        this.log('Connection failed, waiting for host...');
-                        this.pollTimeout = setTimeout(() => this.init(), 5000);
+                const _iceCandidates = [];
+                this.pc.onicecandidate = e => {
+                    if (e.candidate) _iceCandidates.push(e.candidate);
+                    else if (_iceCandidates.length > 0) {
+                        this.signal.send({ type: 'ice', candidates: _iceCandidates });
                     }
                 };
                 
-                this.pollForOffer();
+                this.pc.onconnectionstatechange = () => {
+                    addLog(`Connection state: ${this.pc.connectionState}`);
+                    if (this.pc.connectionState === 'failed') {
+                        addLog('Connection failed, waiting for host...');
+                        updateStatus('disconnected', 'Connection failed - press Reconnect or Alt+R on host');
+                    }
+                };
+                
+                this.signal.pollOffer().then(success => {
+                    if (!success) {
+                        addLog('Polling timeout after 5 minutes');
+                        updateStatus('disconnected', 'No host found - press Reconnect or start host');
+                    }
+                });
+                
                 this.updateStats();
             },
             
-            async pollForOffer() {
-                if (this.pollTimeout) clearTimeout(this.pollTimeout); // Clear any existing timeout
-                
-                try {
-                    this.log('🔄 Polling for offer...');
-                    const response = await fetch(this.sessionUrl);
-                    const data = await response.json();
-                    
-                    if (data?.offer?.type === 'offer') {
-                        await this.pc.setRemoteDescription(data.offer);
-                        const answer = await this.pc.createAnswer();
-                        await this.pc.setLocalDescription(answer);
-                        await this.sendSignal({ type: 'answer', sdp: answer.sdp });
-                        this.log('📩 Answer sent, waiting for connection...');
-                        
-                        if (data.ice) {
-                            for (const ice of data.ice) {
-                                await this.pc.addIceCandidate(ice.candidate);
-                            }
-                        }
-                    } else {
-                        this.pollTimeout = setTimeout(() => this.pollForOffer(), 1000);
-                    }
-                } catch (e) {
-                    this.log(`Error: ${e.message}`);
-                    this.pollTimeout = setTimeout(() => this.pollForOffer(), 2000);
-                }
-            },
-            
-            async sendSignal(data) {
-                await fetch(this.sessionUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
-                });
-            },
-            
             handleMessage(data) {
-                try {
-                    // Handle chunked messages
-                    if (data.type === 'chunk') {
-                        const id = data.id;
-                        if (!this.chunks[id]) this.chunks[id] = {};
-                        this.chunks[id][data.part] = data.data;
-                        
-                        // Check if all chunks received
-                        if (Object.keys(this.chunks[id]).length === data.total) {
-                            let fullMessage = '';
-                            for (let i = 1; i <= data.total; i++) {
-                                fullMessage += this.chunks[id][i];
-                            }
-                            delete this.chunks[id]; // Cleanup
-                            this.handleMessage(JSON.parse(fullMessage)); // Process complete message
-                        }
-                        return;
-                    }
-                    
-                    // Handle regular messages
-                    this.stats.received++;
-                    this.stats.lastUpdate = data.timestamp;
-                    
-                    if (this.stats.received === 1) {
-                        document.getElementById('content').innerHTML = '';
-                    }
-                    
-                    const contentEl = document.getElementById('content');
-                    contentEl.innerHTML = '';
-                    
-                    const temp = document.createElement('div');
-                    temp.innerHTML = data.body;
-                    temp.querySelectorAll('script, iframe, object, embed').forEach(el => el.remove());
-                    contentEl.appendChild(temp);
-                    
-                    document.title = data.title;
-                    updateStatus('connected', 'Receiving live updates');
-                } catch (error) {
-                    this.log(`Message handling error: ${error.message}`);
+                this.stats.received++;
+                this.stats.lastUpdate = data.timestamp;
+                
+                if (this.stats.received === 1) {
+                    document.getElementById('content').innerHTML = '';
                 }
+                
+                const contentEl = document.getElementById('content');
+                contentEl.innerHTML = '';
+                
+                const temp = document.createElement('div');
+                temp.innerHTML = data.body;
+                temp.querySelectorAll('script, iframe, object, embed').forEach(el => el.remove());
+                contentEl.appendChild(temp);
+                
+                document.title = data.title;
+                updateStatus('connected', 'Receiving live updates');
             },
             
             updateStats() {
-                if (this.statsTimeout) clearTimeout(this.statsTimeout); // Clear any existing timeout
-                
                 const receivedEl = document.getElementById('receivedCount');
                 const lastUpdateEl = document.getElementById('lastUpdate');
                 
@@ -291,16 +226,18 @@
                     lastUpdateEl.textContent = 'Never';
                 }
                 
-                this.statsTimeout = setTimeout(() => this.updateStats(), 1000);
+                setTimeout(() => this.updateStats(), 1000);
             },
             
-            log(msg) {
-                addLog(msg);
-                console.log(msg);
+            cleanup() {
+                if (this.pc) {
+                    this.pc.close();
+                    this.pc = null;
+                }
             }
         };
         
-        client.init();
+        client.startConnection();
     </script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reflector WebRTC Host
 // @namespace    https://github.com/jeryjs
-// @version      0.6
+// @version      0.7
 // @description  WebRTC host for real-time page broadcasting
 // @author       JeryJs
 // @match        https://myanimelist.net/*
@@ -13,128 +13,132 @@
 const reflector = {
     key: 'test-broadcast-123',
     endpoint: 'http://192.168.5.146:4242/reflector',
-    hotkey: {key: 'r', ctrl: false, shift: false, alt: true }   // mac: Alt -> Option
+    hotkey: { key: 'r', ctrl: false, shift: false, alt: true }
+};
+
+// Utility: exponential backoff with max delay and promise support
+const backoff = (fn, delay = 1000, max = 300000) => {
+    const next = Math.min(delay * 1.5, max);
+    return new Promise(resolve => {
+        setTimeout(() => resolve(fn(next)), delay);
+    });
 };
 
 const host = {
-    /** @type {RTCPeerConnection} */
     pc: null,
-    /** @type {RTCDataChannel} */
     channel: null,
-    interval: null,
-    setStatus(text) {
-        const statuses = { '* connecting': '#fa0', '● connected': '#0f0', '○ disconnected': '#fa0', '✕ error': '#f00', '⚠ warning': '#ff0', '↻ restarting': '#0af' };
-        text = Object.keys(statuses).find(t => t.includes(text)) || text;
-        if(!text.includes('connecting')) console.debug('Reflector Host', 'Status:', text);
-        let statusElm = document.querySelector('div[title^="AnswerIT Reflector Status:"]');
+    broadcastTimer: null,
+    
+    setStatus(text, color) {
+        if (text !== 'connecting') console.log(`Reflector status: ${text}`);
+        const colors = { connecting: '#0af', connected: '#0f0', disconnected: '#f60', error: '#f00', warning: '#ff0', restarting: '#fa0' };
+        color = color || colors[text] || '#fff';
+        let statusElm = document.querySelector('#ait-reflector-status');
         if (!statusElm) {
             statusElm = document.createElement('div');
-            statusElm.style.cssText = `position:fixed;top:8px;right:8px;background:rgba(0,0,0,0.1);color:${statuses[text]} ;padding:4px 8px;border-radius:12px;font:10px monospace;z-index:10010;opacity:0.7;pointer-events:auto;transition:width 0.2s;overflow:hidden;white-space:nowrap;width:10px;`;
-            statusElm.onmouseenter = () => { statusElm.style.width = '80px'; statusElm.textContent = text; };
-            statusElm.onmouseleave = () => { statusElm.style.width = '10px'; statusElm.textContent = text[0]; };
+            statusElm.id = 'ait-reflector-status';
+            statusElm.style.cssText = `position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,0.05);color:${color};padding:3px 6px;border-radius:8px;font:9px monospace;z-index:10010;opacity:0.6;transition:all 0.5s;`;
+            statusElm.onmouseenter = () => { statusElm.style.width = 'auto'; statusElm.textContent = text.toUpperCase(); }
+            statusElm.onmouseleave = () => { statusElm.style.width = '10px'; statusElm.textContent = text[0].toUpperCase(); }
             document.body.appendChild(statusElm);
         }
-        statusElm.textContent = text[0];
-        statusElm.title = "AnswerIT Reflector Status: " + text;
-        statusElm.style.color = statuses[text] || '#000';
-        statusElm.style.opacity = '0.5';
-        setTimeout(() => statusElm && (statusElm.style.opacity = '0.2'), 3000);
+        statusElm.textContent = text[0].toUpperCase();
+        statusElm.style.color = color;
+        statusElm.title = `Reflector: ${text}`;
+        statusElm.style.opacity = '0.8';
+        setTimeout(() => statusElm.style.opacity = '0.5', 2000);
     },
     
-    async startBroadcast() {
-        this.setStatus('connecting');
-        
-        // Cleanup
-        if (this.interval) clearInterval(this.interval);
-        if (this.pc) this.pc.close();
-        
-        try {
-            // Setup WebRTC
-            this.pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.iptel.org' }] });
-            this.channel = this.pc.createDataChannel('broadcast');
-            
-            this.channel.onopen = () => {
-                this.setStatus('connected');
-                this.broadcast();
-            };
-            
-            this.channel.onclose = () => {
-                this.setStatus('disconnected');
-                setTimeout(() => this.startBroadcast(), 3000);
-            };
-            
-            this.pc.onicecandidate = e => e.candidate && this.sendSignal({
-                type: 'ice', candidate: e.candidate
+    signal: {
+        async send(data) {
+            await GM_fetch(`${reflector.endpoint}?key=${reflector.key}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
             });
-            
-            // Create and send offer
-            const offer = await this.pc.createOffer();
-            await this.pc.setLocalDescription(offer);
-            await this.sendSignal({ type: 'offer', sdp: offer.sdp });
-            console.log('🛜', 'New offer sent:');
-            
-            // Poll for answer
-            this.pollAnswer();
-            
-        } catch (e) {
-            this.setStatus('✕');
-            setTimeout(() => this.startBroadcast(), 5000);
+        },
+        
+        async get() {
+            const response = await GM_fetch(`${reflector.endpoint}?key=${reflector.key}`);
+            return response.json();
+        },
+        
+        async pollAnswer(delay = 2000) {
+            const data = await this.get();
+            if (data?.answer?.type === 'answer' && host.pc?.signalingState === 'have-local-offer') {
+                await host.pc.setRemoteDescription(data.answer);
+                if (data.ice) data.ice.forEach(ice => host.pc.addIceCandidate(ice.candidate));
+                return true;
+            }
+            if (host.pc?.signalingState === 'have-local-offer' && delay < 300000) {
+                return backoff(() => this.pollAnswer(), delay);
+            }
+            return false;
         }
     },
     
-    async pollAnswer() {
-        try {
-            this.setStatus('connecting', 'polling for answer...');
-            const data = await GM_fetch(`${reflector.endpoint}?key=${reflector.key}`).then(r=> r.json());            
-            if (data?.answer?.type === 'answer') {
-                await this.pc.setRemoteDescription(data.answer);
-                if (data.ice) for (const ice of data.ice) await this.pc.addIceCandidate(ice.candidate);
-                return; // Stop polling once answer is found
-            } else setTimeout(() => this.pollAnswer(), 2000);
-        } catch (e) { 
-            setTimeout(() => this.pollAnswer(), 5000);
-        }
+    startBroadcast() {
+        this.setStatus('connecting');
+        this.cleanup();
+        
+        this.pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.iptel.org' }] });
+        this.channel = this.pc.createDataChannel('broadcast');
+        
+        this.channel.onopen = () => {
+            this.setStatus('connected');
+            this.broadcast();
+        };
+        
+        this.channel.onclose = () => this.setStatus('disconnected');
+        
+        const _iceCandidates = [];
+        this.pc.onicecandidate = e => {
+            if (e.candidate) _iceCandidates.push(e.candidate);
+            else if (_iceCandidates.length > 0) {
+                this.signal.send({ type: 'ice', candidates: _iceCandidates });
+            }
+        };
+        
+        this.pc.createOffer()
+            .then(offer => this.pc.setLocalDescription(offer))
+            .then(() => this.signal.send({ type: 'offer', sdp: this.pc.localDescription.sdp }))
+            .then(() => this.signal.pollAnswer());
     },
     
     broadcast() {
-        this.interval = setInterval(() => {
+        if (this.broadcastTimer) return; // Prevent duplicates
+        
+        this.broadcastTimer = setInterval(() => {
             if (this.channel?.readyState === 'open') {
-                try {
-                    const body = document.body.cloneNode(true);
-                    body.querySelectorAll('script, style, .ad, [class*="ad"]').forEach(el => el.remove());
-                    
-                    this.channel.send(JSON.stringify({
-                        url: location.href,
-                        title: document.title,
-                        body: body.innerHTML.slice(0, 64000), // Simple truncation
-                        timestamp: Date.now()
-                    }));
-                } catch (e) {
-                    if (e.message.includes('queue')) {
-                        this.setStatus('warning');
-                        setTimeout(() => this.startBroadcast(), 2000);
-                    }
-                }
+                const body = document.body.cloneNode(true);
+                body.querySelectorAll('script, style, .ad, [class*="ad"]').forEach(el => el.remove());
+                
+                this.channel.send(JSON.stringify({
+                    url: location.href,
+                    title: document.title,
+                    body: body.innerHTML.slice(0, 64000),
+                    timestamp: Date.now()
+                }));
             }
         }, 1000);
     },
     
-    async sendSignal(data) {
-        await GM_fetch(`${reflector.endpoint}?key=${reflector.key}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
+    cleanup() {
+        if (this.broadcastTimer) clearInterval(this.broadcastTimer);
+        if (this.pc) this.pc.close();
+        this.broadcastTimer = null;
+        this.pc = null;
+        this.channel = null;
     }
 };
 
-// Hotkey restart (Alt+R)
+// Hotkey restart
 document.addEventListener('keydown', e => {
     const k = reflector.hotkey;
-    if ( e.key.toLowerCase() === k.key.toLowerCase() && e.ctrlKey === !!k.ctrl && e.shiftKey === !!k.shift && e.altKey === !!k.alt) {
+    if (e.key.toLowerCase() === k.key && e.ctrlKey === !!k.ctrl && e.shiftKey === !!k.shift && e.altKey === !!k.alt) {
         e.preventDefault();
         host.setStatus('restarting');
-        setTimeout(() => host.startBroadcast(), 500);
+        setTimeout(() => host.startBroadcast(), 300);
     }
 });
 

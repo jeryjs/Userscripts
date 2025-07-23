@@ -6,7 +6,49 @@ from argparse import ArgumentParser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
-data_store = {}
+class ReflectorRelay:
+    def __init__(self):
+        self.data_store = {}
+    
+    def handle_request(self, method, key, data=None):
+        if method == 'POST' and data:
+            if key not in self.data_store:
+                self.data_store[key] = {}
+            
+            if data['type'] == 'offer':
+                # Only host can set offers - clear everything for fresh start
+                self.data_store[key] = {'offer': data}
+            elif data['type'] == 'answer':
+                self.data_store[key]['answer'] = data
+            elif data['type'] == 'ice':
+                if 'ice' not in self.data_store[key]:
+                    self.data_store[key]['ice'] = []
+                # Handle both single candidate and batch
+                if 'candidates' in data:
+                    for candidate in data['candidates']:
+                        self.data_store[key]['ice'].append({'candidate': candidate})
+                else:
+                    self.data_store[key]['ice'].append(data)
+            
+            return {'status': 'ok'}
+        
+        elif method == 'GET':
+            return self.data_store.get(key, {})
+        
+        elif method == 'DELETE':
+            # Only allow deleting specific parts, not the whole session
+            if key in self.data_store:
+                # Don't delete offer - only host controls that
+                if 'answer' in self.data_store[key]:
+                    del self.data_store[key]['answer']
+                if 'ice' in self.data_store[key]:
+                    self.data_store[key]['ice'] = []
+                return {'status': 'ok'}
+            return {'status': 'not_found'}
+        
+        return {'status': 'error'}
+
+relay = ReflectorRelay()
 
 class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
@@ -18,44 +60,32 @@ class Handler(BaseHTTPRequestHandler):
     
     def do_GET(self):
         key = parse_qs(urlparse(self.path).query).get('key', [None])[0]
-        data = data_store.get(key, {})
+        result = relay.handle_request('GET', key)
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
-        self.wfile.write(json.dumps(data).encode())
+        self.wfile.write(json.dumps(result).encode())
     
     def do_POST(self):
         key = parse_qs(urlparse(self.path).query).get('key', [None])[0]
         length = int(self.headers.get('Content-Length', 0))
         data = json.loads(self.rfile.read(length))
-        
-        if key not in data_store:
-            data_store[key] = {}
-        
-        if data['type'] == 'offer':
-            data_store[key] = {'offer': data}
-        elif data['type'] == 'answer':
-            data_store[key]['answer'] = data
-        elif data['type'] == 'ice':
-            if 'ice' not in data_store[key]:
-                data_store[key]['ice'] = []
-            data_store[key]['ice'].append(data)
+        result = relay.handle_request('POST', key, data)
         
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
-        self.wfile.write(b'{"status": "ok"}')
+        self.wfile.write(json.dumps(result).encode())
     
     def do_DELETE(self):
         key = parse_qs(urlparse(self.path).query).get('key', [None])[0]
-        if key in data_store:
-            del data_store[key]
+        result = relay.handle_request('DELETE', key)
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
-        self.wfile.write(b'{"status": "ok"}')
-        
+        self.wfile.write(json.dumps(result).encode())
+
 
 if os.environ.get('PYTHONANYWHERE_SITE'):
     try:
@@ -72,32 +102,10 @@ if os.environ.get('PYTHONANYWHERE_SITE'):
                     return response
 
                 key = request.args.get('key')
-
-                if request.method == 'POST':
-                    data = request.get_json()
-                    if key not in data_store:
-                        data_store[key] = {}
-
-                    if data['type'] == 'offer':
-                        data_store[key] = {'offer': data}
-                    elif data['type'] == 'answer':
-                        data_store[key]['answer'] = data
-                    elif data['type'] == 'ice':
-                        if 'ice' not in data_store[key]:
-                            data_store[key]['ice'] = []
-                        data_store[key]['ice'].append(data)
-
-                    response = jsonify({'status': 'ok'})
-                elif request.method == 'DELETE':
-                    if key in data_store:
-                        del data_store[key]
-                        response = jsonify({'status': 'ok'})
-                    else:
-                        response = jsonify({'status': 'not_found'})
-                else:  # GET
-                    data = data_store.get(key, {})
-                    response = jsonify(data)
-
+                data = request.get_json() if request.method == 'POST' else None
+                result = relay.handle_request(request.method, key, data)
+                
+                response = jsonify(result)
                 response.headers['Access-Control-Allow-Origin'] = '*'
                 return response
     except ImportError:
