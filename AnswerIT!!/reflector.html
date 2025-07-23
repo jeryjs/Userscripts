@@ -64,13 +64,6 @@
     </div>
 
     <script>
-        const reflector = {
-            key: 'test-broadcast-123',
-            endpoint: 'http://172.20.230.22:4242/reflector',
-            enabled: true,
-            pollInterval: 10000
-        };
-
         // UI Management
         function toggleLogs() {
             const logArea = document.getElementById('logArea');
@@ -105,14 +98,10 @@
             addLog('🔄 Force reconnect initiated by user');
             updateStatus('connecting', 'Force reconnecting...');
             
-            // Clear any existing connection
-            if (reflectorClient.pc) {
-                reflectorClient.pc.close();
-            }
+            if (client.pc) client.pc.close();
             
-            // Clear server data for this key to force fresh session
             try {
-                await fetch(`${reflector.endpoint}?key=${reflector.key}`, {
+                await fetch('http://172.20.230.22:4242/reflector?key=test-broadcast-123', {
                     method: 'DELETE',
                     headers: { 'Content-Type': 'application/json' }
                 });
@@ -121,41 +110,49 @@
                 addLog(`⚠️ Failed to clear server data: ${e.message}`);
             }
             
-            // Wait a moment then reinitialize
             setTimeout(() => {
                 addLog('🚀 Starting fresh connection...');
-                reflectorClient.init();
+                client.init();
             }, 1000);
         }
 
-        const reflectorClient = {
+        const client = {
             pc: null,
-            lastConnectedTime: 0,     // Track connection timestamp
-            currentOfferSdp: null,    // Track current offer SDP
-            answerSent: false,
             sessionId: 0,
             stats: { received: 0, lastUpdate: 0 },
-            userFriendlyStatus: 'connecting',
+            chunks: {}, // Store incomplete chunks
+            pollTimeout: null, // Track polling timeout
+            statsTimeout: null, // Track stats timeout
             
-            get isRecentlyConnected() {
-                return this.lastConnectedTime > 0 && (Date.now() - this.lastConnectedTime) < 45000; // 45 seconds
+            cleanup() {
+                if (this.pollTimeout) {
+                    clearTimeout(this.pollTimeout);
+                    this.pollTimeout = null;
+                }
+                if (this.statsTimeout) {
+                    clearTimeout(this.statsTimeout);
+                    this.statsTimeout = null;
+                }
+                if (this.pc) {
+                    this.pc.close();
+                    this.pc = null;
+                }
             },
             
             async init() {
-                this.sessionId++;
-                this.updateUserStatus('connecting', 'Establishing connection...');
-                this.log(`Starting client session ${this.sessionId}`);
+                this.cleanup(); // Stop all previous operations
                 
-                this.pc = new RTCPeerConnection({
-                    iceServers: [{ urls: 'stun:stun.iptel.org' }]
-                });
+                this.sessionId++;
+                this.log(`Starting session ${this.sessionId}`);
+                updateStatus('connecting', 'Establishing connection...');
+                
+                this.pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.iptel.org' }] });
                 
                 this.pc.ondatachannel = e => {
                     const channel = e.channel;
                     channel.onopen = () => {
-                        this.lastConnectedTime = Date.now(); // Update connection timestamp
-                        this.updateUserStatus('connected', 'Connected and receiving updates');
                         this.log('📡 Connected to host');
+                        updateStatus('connected', 'Connected and receiving updates');
                     };
                     channel.onmessage = e => {
                         try {
@@ -164,14 +161,13 @@
                             this.log(`Message parsing error: ${error.message}`);
                         }
                     };
-                    channel.onclose = () => {
-                        this.answerSent = false;
-                        this.currentOfferSdp = null;
-                        this.updateUserStatus('connecting', 'Connection lost, reconnecting...');
-                        this.log('⚡ Connection lost, will reconnect on next offer...');
+                    channel.onerror = e => {
+                        this.log(`Data channel error: ${e.type || 'unknown'}`);
                     };
-                    channel.onerror = (error) => {
-                        this.log(`Data channel error: ${error}`);
+                    channel.onclose = () => {
+                        this.log('⚡ Connection lost, will reconnect...');
+                        updateStatus('connecting', 'Connection lost, reconnecting...');
+                        this.pollTimeout = setTimeout(() => this.init(), 2000);
                     };
                 };
                 
@@ -179,25 +175,17 @@
                     type: 'ice', candidate: e.candidate
                 });
                 
-                // User-friendly connection monitoring
                 this.pc.onconnectionstatechange = () => {
                     this.log(`Connection state: ${this.pc.connectionState}`);
                     if (this.pc.connectionState === 'connected') {
-                        this.updateUserStatus('connected', 'Connected and receiving updates');
+                        updateStatus('connected', 'Connected and receiving updates');
                     } else if (this.pc.connectionState === 'connecting') {
-                        this.updateUserStatus('connecting', 'Establishing connection...');
+                        updateStatus('connecting', 'Establishing connection...');
                     } else if (this.pc.connectionState === 'failed') {
-                        this.updateUserStatus('connecting', 'Reconnecting...');
+                        updateStatus('connecting', 'Reconnecting...');
                         this.log('Connection failed, waiting for host...');
-                        setTimeout(() => {
-                            if (this.userFriendlyStatus !== 'connected') {
-                                this.init();
-                            }
-                        }, 5000);
+                        this.pollTimeout = setTimeout(() => this.init(), 5000);
                     }
-                };
-                this.pc.oniceconnectionstatechange = () => {
-                    this.log(`ICE connection state: ${this.pc.iceConnectionState}`);
                 };
                 
                 this.pollForOffer();
@@ -205,69 +193,36 @@
             },
             
             async pollForOffer() {
-                if (this.lastConnectedTime > 0 && (Date.now() - this.lastConnectedTime) < 1000) {
-                    // Recently connected, don't poll immediately
-                    setTimeout(() => this.pollForOffer(), 2000);
-                    return;
-                }
+                if (this.pollTimeout) clearTimeout(this.pollTimeout); // Clear any existing timeout
                 
                 try {
-                    const response = await fetch(`${reflector.endpoint}?key=${reflector.key}`, {
-                        headers: { 'User-Agent': navigator.userAgent }
-                    });
+                    this.log('🔄 Polling for offer...');
+                    const response = await fetch('http://172.20.230.22:4242/reflector?key=test-broadcast-123');
                     const data = await response.json();
                     
                     if (data?.offer?.type === 'offer') {
-                        // Check if this is a new offer or if we need to resume
-                        const isNewOffer = data.offer.sdp !== this.currentOfferSdp;
-                        const hasExistingAnswer = data.answer?.type === 'answer';
+                        await this.pc.setRemoteDescription(data.offer);
+                        const answer = await this.pc.createAnswer();
+                        await this.pc.setLocalDescription(answer);
+                        await this.sendSignal({ type: 'answer', sdp: answer.sdp });
+                        this.log('📩 Answer sent, waiting for connection...');
                         
-                        if (isNewOffer || !this.answerSent) {
-                            this.currentOfferSdp = data.offer.sdp;
-                            
-                            if (hasExistingAnswer && !this.answerSent) {
-                                // Resume existing session - use server's answer
-                                this.log('📨 Resuming existing session...');
-                                await this.pc.setRemoteDescription(data.offer);
-                                await this.pc.setLocalDescription(data.answer);
-                                this.answerSent = true;
-                            } else if (!hasExistingAnswer) {
-                                // New offer - create fresh answer (only if no answer exists)
-                                this.log('📨 New offer received, sending answer...');
-                                await this.pc.setRemoteDescription(data.offer);
-                                const answer = await this.pc.createAnswer();
-                                await this.pc.setLocalDescription(answer);
-                                await this.sendSignal({ type: 'answer', sdp: answer.sdp });
-                                this.answerSent = true;
-                                this.log('📩 Answer sent, waiting for connection...');
-                            } else {
-                                // Skip if answer already exists for this offer
-                                this.log('� Answer already exists for this offer, waiting...');
-                                this.answerSent = true;
-                            }
-                            
-                            // Process any pending ICE candidates from host
-                            if (data.ice && data.ice.length > 0) {
-                                this.log('📩 Processing ICE candidates...');
-                                for (const iceData of data.ice) {
-                                    if (iceData.candidate) {
-                                        await this.pc.addIceCandidate(iceData.candidate);
-                                    }
-                                }
+                        if (data.ice) {
+                            for (const ice of data.ice) {
+                                await this.pc.addIceCandidate(ice.candidate);
                             }
                         }
                     } else {
-                        setTimeout(() => this.pollForOffer(), 5000);  // Slower polling
-                        this.log('Polling for offer...');
+                        this.pollTimeout = setTimeout(() => this.pollForOffer(), 1000);
                     }
                 } catch (e) {
                     this.log(`Error: ${e.message}`);
-                    setTimeout(() => this.pollForOffer(), 10000);  // Much slower on error
+                    this.pollTimeout = setTimeout(() => this.pollForOffer(), 2000);
                 }
             },
             
             async sendSignal(data) {
-                await fetch(`${reflector.endpoint}?key=${reflector.key}`, {
+                await fetch('http://172.20.230.22:4242/reflector?key=test-broadcast-123', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
@@ -276,40 +231,50 @@
             
             handleMessage(data) {
                 try {
+                    // Handle chunked messages
+                    if (data.type === 'chunk') {
+                        const id = data.id;
+                        if (!this.chunks[id]) this.chunks[id] = {};
+                        this.chunks[id][data.part] = data.data;
+                        
+                        // Check if all chunks received
+                        if (Object.keys(this.chunks[id]).length === data.total) {
+                            let fullMessage = '';
+                            for (let i = 1; i <= data.total; i++) {
+                                fullMessage += this.chunks[id][i];
+                            }
+                            delete this.chunks[id]; // Cleanup
+                            this.handleMessage(JSON.parse(fullMessage)); // Process complete message
+                        }
+                        return;
+                    }
+                    
+                    // Handle regular messages
                     this.stats.received++;
                     this.stats.lastUpdate = data.timestamp;
                     
-                    // Clear waiting message on first data
                     if (this.stats.received === 1) {
                         document.getElementById('content').innerHTML = '';
                     }
                     
-                    // Safely set content without executing scripts
                     const contentEl = document.getElementById('content');
-                    contentEl.innerHTML = '';  // Clear first
+                    contentEl.innerHTML = '';
                     
-                    // Create a temporary element to parse HTML safely
                     const temp = document.createElement('div');
                     temp.innerHTML = data.body;
-                    
-                    // Remove any remaining scripts before adding
                     temp.querySelectorAll('script, iframe, object, embed').forEach(el => el.remove());
                     contentEl.appendChild(temp);
                     
                     document.title = data.title;
-                    this.updateUserStatus('connected', 'Receiving live updates');
+                    updateStatus('connected', 'Receiving live updates');
                 } catch (error) {
                     this.log(`Message handling error: ${error.message}`);
-                    // Don't crash the connection for message processing errors
                 }
             },
             
-            updateUserStatus(status, message) {
-                this.userFriendlyStatus = status;
-                updateStatus(status, message);
-            },
-            
             updateStats() {
+                if (this.statsTimeout) clearTimeout(this.statsTimeout); // Clear any existing timeout
+                
                 const receivedEl = document.getElementById('receivedCount');
                 const lastUpdateEl = document.getElementById('lastUpdate');
                 
@@ -322,7 +287,7 @@
                     lastUpdateEl.textContent = 'Never';
                 }
                 
-                setTimeout(() => this.updateStats(), 1000);
+                this.statsTimeout = setTimeout(() => this.updateStats(), 1000);
             },
             
             log(msg) {
@@ -330,8 +295,8 @@
                 console.log(msg);
             }
         };
-
-        reflectorClient.init();
+        
+        client.init();
     </script>
 </body>
 </html>

@@ -1,228 +1,59 @@
 #!/usr/bin/env python3
-"""
-Reflector Server - WebRTC Signaling Relay for WebRTC offer/answer/ICE exchange using key-based channels.
-Minimal server using only Python stdlib. (cuz its a pain to write another shell script for supporting devices that dont have Flask installed)
-"""
-
 import json
 import time
-import os
-import ssl
-import socket
-from argparse import ArgumentParser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
-class SignalingData:
-    def __init__(self):
-        self.channels = {}
-        self.ttl = 3600
-    
-    def set_data(self, key, data):
-        if not key or not isinstance(data, dict) or 'type' not in data:
-            return False
-        
-        if key not in self.channels:
-            self.channels[key] = {'offer': None, 'answer': None, 'ice': [], 'timestamp': time.time()}
-        
-        channel = self.channels[key]
-        data_type = data['type']
-        
-        if data_type == 'offer':
-            # New offer completely clears all previous session data
-            channel['offer'] = data
-            channel['answer'] = None  # Clear old answer
-            channel['ice'] = []       # Clear old ICE candidates
-            channel['timestamp'] = time.time()
-            return True
-        elif data_type == 'answer':
-            # Only accept answer if we have a current offer AND no existing answer
-            if channel['offer'] and not channel['answer']:
-                channel['answer'] = data
-                # Keep ICE candidates but mark this as a new session
-            else:
-                return False  # Reject duplicate or orphaned answers
-        elif data_type == 'clear_answer':
-            # Clear stale answer (used when host detects wrong state)
-            if channel['answer']:
-                channel['answer'] = None
-                channel['ice'] = []  # Clear ICE too since they're tied to the answer
-                return True
-            return False
-        elif data_type in ['ice', 'candidate']:
-            # Only accept ICE if we have both offer and answer
-            if channel['offer'] and channel['answer']:
-                channel['ice'].append(data)
-                if len(channel['ice']) > 10:  # Keep only 10 most recent ICE candidates
-                    channel['ice'] = channel['ice'][-10:]
-            else:
-                return False  # Reject orphaned ICE candidates
-        
-        channel['timestamp'] = time.time()
-        return True
-    
-    def get_data(self, key):
-        if not key or key not in self.channels:
-            return None
-        
-        # Cleanup expired
-        if time.time() - self.channels[key]['timestamp'] > self.ttl:
-            del self.channels[key]
-            return None
-        
-        return self.channels[key]
-    
-    def clear_data(self, key):
-        if key and key in self.channels:
-            del self.channels[key]
-            return True
-        return False
+data_store = {}
 
-signaling_store = SignalingData()
-
-class ReflectorHandler(BaseHTTPRequestHandler):
+class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
     
     def do_GET(self):
-        path = urlparse(self.path).path
-        query = parse_qs(urlparse(self.path).query)
-        
-        if path == '/reflector':
-            key = query.get('key', [None])[0]
-            data = signaling_store.get_data(key)
-            self.send_json_response(data)
-        else:
-            self.send_error(404)
+        key = parse_qs(urlparse(self.path).query).get('key', [None])[0]
+        data = data_store.get(key, {})
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode())
     
     def do_POST(self):
-        path = urlparse(self.path).path
-        query = parse_qs(urlparse(self.path).query)
+        key = parse_qs(urlparse(self.path).query).get('key', [None])[0]
+        length = int(self.headers.get('Content-Length', 0))
+        data = json.loads(self.rfile.read(length))
         
-        if path == '/reflector':
-            key = query.get('key', [None])[0]
-            try:
-                content_length = int(self.headers.get('Content-Length', 0))
-                raw_data = self.rfile.read(content_length).decode('utf-8')
-                data = json.loads(raw_data)
-                
-                if signaling_store.set_data(key, data):
-                    self.send_json_response({'status': 'ok'})
-                else:
-                    self.send_error(400)
-            except:
-                self.send_error(400)
-        else:
-            self.send_error(404)
+        if key not in data_store:
+            data_store[key] = {}
+        
+        if data['type'] == 'offer':
+            data_store[key] = {'offer': data}
+        elif data['type'] == 'answer':
+            data_store[key]['answer'] = data
+        elif data['type'] == 'ice':
+            if 'ice' not in data_store[key]:
+                data_store[key]['ice'] = []
+            data_store[key]['ice'].append(data)
+        
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(b'{"status": "ok"}')
     
     def do_DELETE(self):
-        path = urlparse(self.path).path
-        query = parse_qs(urlparse(self.path).query)
-        
-        if path == '/reflector':
-            key = query.get('key', [None])[0]
-            if signaling_store.clear_data(key):
-                self.send_json_response({'status': 'cleared'})
-            else:
-                self.send_json_response({'status': 'not_found'})
-        else:
-            self.send_error(404)
-    
-    def send_json_response(self, data):
-        try:
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(data).encode())
-        except:
-            pass
+        key = parse_qs(urlparse(self.path).query).get('key', [None])[0]
+        if key in data_store:
+            del data_store[key]
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(b'{"status": "ok"}')
 
-def run_server(port, handler_class):
-    HTTPServer(('0.0.0.0', port), handler_class).serve_forever()
-
-if os.environ.get('PYTHONANYWHERE_SITE'):
-    try:
-        from flask import request, jsonify
-        
-        def add_reflector_routes(app):
-            @app.route('/reflector', methods=['GET', 'POST', 'DELETE', 'OPTIONS'])
-            def reflector():
-                if request.method == 'OPTIONS':
-                    response = jsonify({})
-                    response.headers['Access-Control-Allow-Origin'] = '*'
-                    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS'
-                    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-                    return response
-                
-                key = request.args.get('key')
-                
-                if request.method == 'POST':
-                    data = request.get_json()
-                    if signaling_store.set_data(key, data):
-                        response = jsonify({'status': 'ok'})
-                    else:
-                        response = jsonify({'error': 'failed'})
-                        response.status_code = 400
-                elif request.method == 'DELETE':
-                    if signaling_store.clear_data(key):
-                        response = jsonify({'status': 'cleared'})
-                    else:
-                        response = jsonify({'status': 'not_found'})
-                else:  # GET
-                    data = signaling_store.get_data(key)
-                    response = jsonify(data)
-                
-                response.headers['Access-Control-Allow-Origin'] = '*'
-                return response
-    except ImportError:
-        pass
-    
-    
 if __name__ == '__main__':
-    banner = f"{'-'*66}\n" + r"""\033[1;35m
-   _____                                      .______________._._.
-  /  _  \   ____   ________  _  __ ___________|   \__    ___/| | |
- /  /_\  \ /    \ /  ___/\ \/ \/ // __ \_  __ \   | |    |   | | |
-/    |    \   |  \\___ \  \     /\  ___/|  | \/   | |    |    \|\|
-\____|__  /___|  /____  >  \/\_/  \___  >__|  |___| |____|    ____ 
-        \/     \/     \/              \/                      \/\/
-""" + f"{'-'*66}\n"
-
-    parser = ArgumentParser()
-    # parser.add_argument('--certfile', '-c', default=os.environ.get('SSL_CERT_FILE', './reflector_cert.pem'))
-    parser.add_argument('--certfile', '-c', default='')
-    # parser.add_argument('--keyfile', '-k', default=os.environ.get('SSL_KEY_FILE', './reflector_key.pem'))
-    parser.add_argument('--keyfile', '-k', default='')
-    parser.add_argument('--port', '-p', default=4242, type=int)
-    args = parser.parse_args()
-    
-    certfile = args.certfile
-    keyfile = args.keyfile
-    port = args.port
-
-    # Get local IP
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(('8.8.8.8', 80))
-        local_ip = s.getsockname()[0]
-        s.close()
-    except:
-        local_ip = 'your-ip-address'
-
-    protocol = "https" if os.path.exists(certfile) and os.path.exists(keyfile) else "http"
-    print(banner)
-    print(f'''\033[1;36m
-Reflector Server is running! 
-In your AnswerIT Reflector configuration, set the endpoint as: 
-    -\033[1;32m {protocol}://{local_ip}:{port}/reflector\033[0m
-    ''')
-    print(f"Routes:")
-    print(f"  POST /reflector?key=YOUR_KEY - Store signaling data")
-    print(f"  GET  /reflector?key=YOUR_KEY - Retrieve signaling data\n")
-
-    run_server(port, ReflectorHandler)
+    print("Reflector Server running on port 4242")
+    HTTPServer(('0.0.0.0', 4242), Handler).serve_forever()
