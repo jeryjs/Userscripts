@@ -2,33 +2,66 @@
 import json
 import os
 import socket
+import time
 from argparse import ArgumentParser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
-class ReflectorRelay:
+class SignalingServer:
     def __init__(self):
         self.data_store = {}
+        self.last_cleanup = time.time()
+    
+    def cleanup_old_sessions(self):
+        """Remove sessions older than 10 minutes - called on each request"""
+        current_time = time.time()
+        # Only run cleanup every 60 seconds
+        if current_time - self.last_cleanup < 60:
+            return
+            
+        cutoff_time = current_time - 600  # 10 minutes
+        expired_keys = []
+        
+        for key, session in self.data_store.items():
+            # Check if session has an offer with timestamp
+            if 'offer' in session:
+                offer_time = session.get('_created', 0)
+                if offer_time == 0:
+                    # Add timestamp to existing sessions without one
+                    session['_created'] = current_time
+                elif offer_time < cutoff_time:
+                    expired_keys.append(key)
+        
+        # Remove expired sessions
+        for key in expired_keys:
+            del self.data_store[key]
+            
+        self.last_cleanup = current_time
+        if expired_keys:
+            print(f"Cleaned up {len(expired_keys)} expired sessions")
     
     def handle_request(self, method, key, data=None):
+        # Trigger cleanup on every request (but throttled internally)
+        self.cleanup_old_sessions()
+        
         if method == 'POST' and data:
-            if key not in self.data_store:
-                self.data_store[key] = {}
+            self.data_store.setdefault(key, {})
             
             if data['type'] == 'offer':
                 # Only host can set offers - clear everything for fresh start
-                self.data_store[key] = {'offer': data}
+                self.data_store[key] = {
+                    'offer': data,
+                    '_created': time.time()  # Add timestamp for cleanup
+                }
             elif data['type'] == 'answer':
                 self.data_store[key]['answer'] = data
             elif data['type'] == 'ice':
-                if 'ice' not in self.data_store[key]:
-                    self.data_store[key]['ice'] = []
+                ice_list = self.data_store[key].setdefault('ice', [])
                 # Handle both single candidate and batch
                 if 'candidates' in data:
-                    for candidate in data['candidates']:
-                        self.data_store[key]['ice'].append({'candidate': candidate})
+                    ice_list.extend({'candidate': c} for c in data['candidates'])
                 else:
-                    self.data_store[key]['ice'].append(data)
+                    ice_list.append(data)
             
             return {'status': 'ok'}
         
@@ -39,16 +72,14 @@ class ReflectorRelay:
             # Only allow deleting specific parts, not the whole session
             if key in self.data_store:
                 # Don't delete offer - only host controls that
-                if 'answer' in self.data_store[key]:
-                    del self.data_store[key]['answer']
-                if 'ice' in self.data_store[key]:
-                    self.data_store[key]['ice'] = []
+                self.data_store[key].pop('answer', None)
+                self.data_store[key]['ice'] = []
                 return {'status': 'ok'}
             return {'status': 'not_found'}
         
         return {'status': 'error'}
 
-relay = ReflectorRelay()
+signal = SignalingServer()
 
 class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
@@ -60,7 +91,7 @@ class Handler(BaseHTTPRequestHandler):
     
     def do_GET(self):
         key = parse_qs(urlparse(self.path).query).get('key', [None])[0]
-        result = relay.handle_request('GET', key)
+        result = signal.handle_request('GET', key)
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -71,7 +102,7 @@ class Handler(BaseHTTPRequestHandler):
         key = parse_qs(urlparse(self.path).query).get('key', [None])[0]
         length = int(self.headers.get('Content-Length', 0))
         data = json.loads(self.rfile.read(length))
-        result = relay.handle_request('POST', key, data)
+        result = signal.handle_request('POST', key, data)
         
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -80,7 +111,7 @@ class Handler(BaseHTTPRequestHandler):
     
     def do_DELETE(self):
         key = parse_qs(urlparse(self.path).query).get('key', [None])[0]
-        result = relay.handle_request('DELETE', key)
+        result = signal.handle_request('DELETE', key)
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
@@ -103,7 +134,7 @@ if os.environ.get('PYTHONANYWHERE_SITE'):
 
                 key = request.args.get('key')
                 data = request.get_json() if request.method == 'POST' else None
-                result = relay.handle_request(request.method, key, data)
+                result = signal.handle_request(request.method, key, data)
                 
                 response = jsonify(result)
                 response.headers['Access-Control-Allow-Origin'] = '*'
@@ -113,14 +144,14 @@ if os.environ.get('PYTHONANYWHERE_SITE'):
 
 
 if __name__ == '__main__':
-    banner = f"{'-'*66}\n" + r"""\033[1;35m
+    banner = f"\033[1;35m{'-'*66}" + r"""
    _____                                      .______________._._.
   /  _  \   ____   ________  _  __ ___________|   \__    ___/| | |
  /  /_\  \ /    \ /  ___/\ \/ \/ // __ \_  __ \   | |    |   | | |
 /    |    \   |  \\___ \  \     /\  ___/|  | \/   | |    |    \|\|
 \____|__  /___|  /____  >  \/\_/  \___  >__|  |___| |____|    ____ 
         \/     \/     \/              \/                      \/\/
-""" + f"{'-'*66}\n"
+""" + f"{'-'*66}\033[0m\n"
 
     parser = ArgumentParser()
     parser.add_argument('--port', '-p', default=4242, type=int)
@@ -139,7 +170,7 @@ if __name__ == '__main__':
 
     print(banner)
     print(f'''\033[1;36m
-Reflector Server is running! 
+Reflector Signaling Server is running! 
 In your AnswerIT Reflector configuration, set the endpoint as: 
     -\033[1;32m http://{local_ip}:{port}/reflector\033[0m
     ''')

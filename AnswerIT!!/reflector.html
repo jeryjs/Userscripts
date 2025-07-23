@@ -71,7 +71,6 @@
         // exponential backoff with max delay and promise support
         const backoff = (fn, delay = 2000, max = 60000) => {
             const next = Math.min(Math.max(delay, 1000) * 1.5, max);
-            addLog(`🔄 ${fn.name}@${next}`);
             return new Promise(resolve => {
                 setTimeout(() => {
                     if (delay >= max) resolve(false); // Timeout reached
@@ -125,18 +124,11 @@
             
             signal: {
                 async send(data) {
-                    await fetch(`${client.endpoint}?key=${client.key}`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(data)
-                    });
+                    await fetch(`${client.endpoint}?key=${client.key}`, { method: 'POST',body: JSON.stringify(data) });
                 },
-                
                 async get() {
-                    const response = await fetch(`${client.endpoint}?key=${client.key}`);
-                    return response.json();
+                    return await fetch(`${client.endpoint}?key=${client.key}`).then(r => r.json());
                 },
-                
                 async pollOffer() {
                     const data = await this.get();
                     if (data?.offer?.type === 'offer') {
@@ -165,7 +157,21 @@
                         addLog('📡 Connected to host');
                         updateStatus('connected', 'Connected and receiving updates');
                     };
-                    channel.onmessage = e => this.handleMessage(JSON.parse(e.data));
+                    channel.onmessage = e => {
+                        const data = JSON.parse(e.data);
+                        this.stats.received++;
+                        this.stats.lastUpdate = data.timestamp;
+                        $('#shadow-url').get(0).textContent = data.url || 'unknown';
+                        
+                        clearTimeout(this._messageTimer);
+                        this._messageTimer = setTimeout(() => {
+                                addLog('⚠️ No response received, check connection');
+                                updateStatus('disconnected', 'No updates received - click Reconnect');
+                        }, 10000);
+
+                        document.querySelector('#shadow-content').innerHTML = data.body;
+                        updateStatus('connected', 'Receiving live updates');
+                    };
                     channel.onclose = () => {
                         addLog('⚡ Connection lost, reconnecting...');
                         updateStatus('connecting', 'Reconnecting...');
@@ -182,9 +188,7 @@
                 const _iceCandidates = [];
                 this.pc.onicecandidate = e => {
                     if (e.candidate) _iceCandidates.push(e.candidate);
-                    else if (_iceCandidates.length > 0) {
-                        this.signal.send({ type: 'ice', candidates: _iceCandidates });
-                    }
+                    else if (_iceCandidates.length > 0) this.signal.send({ type: 'ice', candidates: _iceCandidates });
                 };
                 
                 this.pc.onconnectionstatechange = () => {
@@ -214,25 +218,6 @@
                 
                 this.updateStats(); // Always start stats tracking
                 return true; // Return success for backoff
-            },
-            
-            handleMessage(data) {
-                this.stats.received++;
-                this.stats.lastUpdate = data.timestamp;
-                $('#shadow-url').get(0).textContent = data.url || 'unknown';
-                
-                clearTimeout(this._messageTimer);
-                this._messageTimer = setTimeout(() => {
-                        addLog('⚠️ No response received, check connection');
-                        updateStatus('disconnected', 'No updates received - click Reconnect');
-                }, 10000);
-
-
-                if (this.stats.received === 1)
-                    document.querySelector('#shadow-content').innerHTML = '';
-                document.querySelector('#shadow-content').innerHTML = data.body;
-
-                updateStatus('connected', 'Receiving live updates');
             },
             
             updateStats() {
