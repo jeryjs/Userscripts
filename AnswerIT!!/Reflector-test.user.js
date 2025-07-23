@@ -12,11 +12,11 @@
 
 const reflector = {
     key: 'test-broadcast-123',
-    endpoint: 'http://192.168.5.146:4242/reflector',
+    endpoint: 'http://172.20.230.22:4242/reflector',
     hotkey: { key: 'r', ctrl: false, shift: false, alt: true }
 };
 
-// Utility: exponential backoff with max delay and promise support
+// exponential backoff with max delay and promise support
 const backoff = (fn, delay = 1000, max = 300000) => {
     const next = Math.min(delay * 1.5, max);
     return new Promise(resolve => {
@@ -31,23 +31,23 @@ const host = {
     channel: null,
     broadcastTimer: null,
 
-    setStatus(text, color) {
-        if (text !== 'connecting') console.log(`Reflector status: ${text}`);
+    async setStatus(text, color) {
+        if (text !== 'pending') console.log(`Reflector status: ${text}`);
         color = color || { connecting: '#0af', connected: '#0f0', disconnected: '#f60', error: '#f00', warning: '#ff0', restarting: '#fa0' }[text] || '#fff';
         let statusElm = document.querySelector('#ait-reflector-status');
         if (!statusElm) {
             statusElm = document.createElement('div');
             statusElm.id = 'ait-reflector-status';
-            statusElm.style.cssText = `position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,0.05);color:${color};padding:3px 6px;border-radius:8px;font:9px monospace;z-index:10010;opacity:0.6;transition:all 0.5s;`;
-            statusElm.onmouseenter = () => { statusElm.style.width = 'auto'; statusElm.textContent = text.toUpperCase(); }
-            statusElm.onmouseleave = () => { statusElm.style.width = '10px'; statusElm.textContent = text[0].toUpperCase(); }
+            statusElm.style.cssText = `position:fixed;bottom:8px;right:8px;background:rgba(0,0,0,0.05);padding:3px 6px;border-radius:8px;font:9px monospace;z-index:10010;opacity:0.6;transition:all 0.5s;`;
             document.body.appendChild(statusElm);
         }
+        statusElm.onmouseenter = () => { statusElm.style.width = 'auto'; statusElm.textContent = text.toUpperCase(); }
+        statusElm.onmouseleave = () => { statusElm.style.width = '10px'; statusElm.textContent = text[0].toUpperCase(); }
         statusElm.textContent = text[0].toUpperCase();
         statusElm.style.color = color;
         statusElm.title = `Reflector: ${text}`;
         statusElm.style.opacity = '0.8';
-        setTimeout(() => statusElm.style.opacity = '0.5', 2000);
+        setTimeout(() => statusElm.style.opacity = '0.5', 1000);
     },
 
     signal: {
@@ -70,19 +70,21 @@ const host = {
         }
     },
 
-    init() {
-        this.setStatus('connecting');
-        this.cleanup();
+    async init() {
+        if (this.pc?.connectionState === 'connecting' || this.pc?.signalingState === 'have-local-offer') return; // Prevent spam
+        
+        await this.cleanup();
+        this.setStatus('initializing');
 
         this.pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.iptel.org' }] });
         this.channel = this.pc.createDataChannel('broadcast');
         this.channel.onopen = () => { this.setStatus('connected'); this.broadcast(); };
-        this.channel.onclose = () => this.setStatus('disconnected');
+        this.channel.onclose = () => { this.setStatus('disconnected'); backoff(() => this.init(), 5000); };
         
         this.pc.createOffer()
             .then(offer => this.pc.setLocalDescription(offer))
             .then(() => this.signal.send({ type: 'offer', sdp: this.pc.localDescription.sdp }))
-            .then(() => this.signal.pollAnswer());
+            .then(() => { this.setStatus('polling answer', '#fa0'); this.signal.pollAnswer() })
 
         let batch = []; // Batch ICE candidates to avoid spamming
         this.pc.onicecandidate = e => {
@@ -97,8 +99,8 @@ const host = {
             const k = reflector.hotkey;
             if (e.key.toLowerCase() === k.key && e.ctrlKey === !!k.ctrl && e.shiftKey === !!k.shift && e.altKey === !!k.alt) {
                 e.preventDefault();
-                host.setStatus('restarting');
-                setTimeout(() => host.init(), 300);
+                this.setStatus('restarting');
+                setTimeout(() => this.init(), 300);
             }
         });
     },
@@ -109,25 +111,32 @@ const host = {
         this.broadcastTimer = setInterval(() => {
             if (this.channel?.bufferedAmount > 128 * 1024) {    // clients are probably not available
                 this.setStatus('⚠ buffer warning', '#ff0');
-                setTimeout(() => this.init(), 2000);    // reconnect after 2 seconds
+                this._initTimer = setTimeout(() => this.init(), 2000);    // reconnect after 2 seconds
             }
             if (this.channel?.readyState === 'open') {
                 const body = document.body.cloneNode(true);
                 body.querySelectorAll('script, style, .ad, [class*="ad"]').forEach(el => el.remove());
+                const max = this.pc.sctp.maxMessageSize - 1000; // Leave space for metadata
 
                 this.channel.send(JSON.stringify({
                     url: location.href,
                     title: document.title,
-                    body: body.innerHTML.slice(0, 64000),
+                    body: body.innerHTML.slice(0, max) + (body.innerHTML.length > max ? '<!-- truncated --!>' : ''),
                     timestamp: Date.now()
                 }));
             }
         }, 1000);
     },
 
-    cleanup() {
-        if (this.broadcastTimer) clearInterval(this.broadcastTimer);
-        if (this.pc) this.pc.close();
+    async cleanup() {
+        clearInterval(this.broadcastTimer);
+        clearTimeout(this._initTimer);
+        clearTimeout(this._iceTimer);
+        if (this.pc) {
+            // this.pc.close();
+            // Give time for cleanup before nulling
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
         this.broadcastTimer = null;
         this.pc = null;
         this.channel = null;
