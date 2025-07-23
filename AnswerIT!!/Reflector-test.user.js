@@ -25,14 +25,15 @@ const backoff = (fn, delay = 1000, max = 300000) => {
 };
 
 const host = {
+    /**@type {RTCPeerConnection} */
     pc: null,
+    /**@type {RTCDataChannel} */
     channel: null,
     broadcastTimer: null,
-    
+
     setStatus(text, color) {
         if (text !== 'connecting') console.log(`Reflector status: ${text}`);
-        const colors = { connecting: '#0af', connected: '#0f0', disconnected: '#f60', error: '#f00', warning: '#ff0', restarting: '#fa0' };
-        color = color || colors[text] || '#fff';
+        color = color || { connecting: '#0af', connected: '#0f0', disconnected: '#f60', error: '#f00', warning: '#ff0', restarting: '#fa0' }[text] || '#fff';
         let statusElm = document.querySelector('#ait-reflector-status');
         if (!statusElm) {
             statusElm = document.createElement('div');
@@ -48,21 +49,14 @@ const host = {
         statusElm.style.opacity = '0.8';
         setTimeout(() => statusElm.style.opacity = '0.5', 2000);
     },
-    
+
     signal: {
         async send(data) {
-            await GM_fetch(`${reflector.endpoint}?key=${reflector.key}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
+            await GM_fetch(`${reflector.endpoint}?key=${reflector.key}`, { method: 'POST', body: JSON.stringify(data) });
         },
-        
         async get() {
-            const response = await GM_fetch(`${reflector.endpoint}?key=${reflector.key}`);
-            return response.json();
+            return await GM_fetch(`${reflector.endpoint}?key=${reflector.key}`).then(r => r.json());
         },
-        
         async pollAnswer(delay = 2000) {
             const data = await this.get();
             if (data?.answer?.type === 'answer' && host.pc?.signalingState === 'have-local-offer') {
@@ -70,49 +64,57 @@ const host = {
                 if (data.ice) data.ice.forEach(ice => host.pc.addIceCandidate(ice.candidate));
                 return true;
             }
-            if (host.pc?.signalingState === 'have-local-offer' && delay < 300000) {
+            if (host.pc?.signalingState === 'have-local-offer' && delay < 300000)
                 return backoff(() => this.pollAnswer(), delay);
-            }
             return false;
         }
     },
-    
-    startBroadcast() {
+
+    init() {
         this.setStatus('connecting');
         this.cleanup();
-        
+
         this.pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.iptel.org' }] });
         this.channel = this.pc.createDataChannel('broadcast');
-        
-        this.channel.onopen = () => {
-            this.setStatus('connected');
-            this.broadcast();
-        };
-        
+        this.channel.onopen = () => { this.setStatus('connected'); this.broadcast(); };
         this.channel.onclose = () => this.setStatus('disconnected');
-        
-        const _iceCandidates = [];
-        this.pc.onicecandidate = e => {
-            if (e.candidate) _iceCandidates.push(e.candidate);
-            else if (_iceCandidates.length > 0) {
-                this.signal.send({ type: 'ice', candidates: _iceCandidates });
-            }
-        };
         
         this.pc.createOffer()
             .then(offer => this.pc.setLocalDescription(offer))
             .then(() => this.signal.send({ type: 'offer', sdp: this.pc.localDescription.sdp }))
             .then(() => this.signal.pollAnswer());
+
+        let batch = []; // Batch ICE candidates to avoid spamming
+        this.pc.onicecandidate = e => {
+            if (e.candidate) {
+                batch.push(e.candidate);
+                clearTimeout(this._iceTimer);
+                this._iceTimer = setTimeout(() => this.signal.send({ type: 'ice', candidates: batch }).then(() => batch = []), 400);
+            }
+        };
+        
+        this.keydownHandler = document.addEventListener('keydown', e => {
+            const k = reflector.hotkey;
+            if (e.key.toLowerCase() === k.key && e.ctrlKey === !!k.ctrl && e.shiftKey === !!k.shift && e.altKey === !!k.alt) {
+                e.preventDefault();
+                host.setStatus('restarting');
+                setTimeout(() => host.init(), 300);
+            }
+        });
     },
-    
+
     broadcast() {
         if (this.broadcastTimer) return; // Prevent duplicates
-        
+
         this.broadcastTimer = setInterval(() => {
+            if (this.channel?.bufferedAmount > 128 * 1024) {    // clients are probably not available
+                this.setStatus('⚠ buffer warning', '#ff0');
+                setTimeout(() => this.init(), 2000);    // reconnect after 2 seconds
+            }
             if (this.channel?.readyState === 'open') {
                 const body = document.body.cloneNode(true);
                 body.querySelectorAll('script, style, .ad, [class*="ad"]').forEach(el => el.remove());
-                
+
                 this.channel.send(JSON.stringify({
                     url: location.href,
                     title: document.title,
@@ -122,24 +124,15 @@ const host = {
             }
         }, 1000);
     },
-    
+
     cleanup() {
         if (this.broadcastTimer) clearInterval(this.broadcastTimer);
         if (this.pc) this.pc.close();
         this.broadcastTimer = null;
         this.pc = null;
         this.channel = null;
+        document.removeEventListener('keydown', this.keydownHandler);
     }
 };
 
-// Hotkey restart
-document.addEventListener('keydown', e => {
-    const k = reflector.hotkey;
-    if (e.key.toLowerCase() === k.key && e.ctrlKey === !!k.ctrl && e.shiftKey === !!k.shift && e.altKey === !!k.alt) {
-        e.preventDefault();
-        host.setStatus('restarting');
-        setTimeout(() => host.startBroadcast(), 300);
-    }
-});
-
-host.startBroadcast();
+host.init();
