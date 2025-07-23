@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reflector WebRTC Host
 // @namespace    https://github.com/jeryjs
-// @version      0.4
+// @version      0.6
 // @description  WebRTC host for real-time page broadcasting
 // @author       JeryJs
 // @match        https://myanimelist.net/*
@@ -12,7 +12,7 @@
 
 const reflector = {
     key: 'test-broadcast-123',
-    endpoint: 'http://172.20.230.22:4242/reflector',
+    endpoint: 'http://192.168.5.146:4242/reflector',
     hotkey: {key: 'r', ctrl: false, shift: false, alt: true }   // mac: Alt -> Option
 };
 
@@ -21,178 +21,102 @@ const host = {
     pc: null,
     /** @type {RTCDataChannel} */
     channel: null,
-    sessionId: Date.now(),
-    broadcastInterval: null,
-    lastBufferCheck: 0,
-    reconnectTimeout: null,
-    pollTimeout: null,
-    isReconnecting: false,
-    
-    cleanup() {
-        if (this.reconnectTimeout) {
-            clearTimeout(this.reconnectTimeout);
-            this.reconnectTimeout = null;
+    interval: null,
+    setStatus(text) {
+        const statuses = { '* connecting': '#fa0', '● connected': '#0f0', '○ disconnected': '#fa0', '✕ error': '#f00', '⚠ warning': '#ff0', '↻ restarting': '#0af' };
+        text = Object.keys(statuses).find(t => t.includes(text)) || text;
+        if(!text.includes('connecting')) console.debug('Reflector Host', 'Status:', text);
+        let statusElm = document.querySelector('div[title^="AnswerIT Reflector Status:"]');
+        if (!statusElm) {
+            statusElm = document.createElement('div');
+            statusElm.style.cssText = `position:fixed;top:8px;right:8px;background:rgba(0,0,0,0.1);color:${statuses[text]} ;padding:4px 8px;border-radius:12px;font:10px monospace;z-index:10010;opacity:0.7;pointer-events:auto;transition:width 0.2s;overflow:hidden;white-space:nowrap;width:10px;`;
+            statusElm.onmouseenter = () => { statusElm.style.width = '80px'; statusElm.textContent = text; };
+            statusElm.onmouseleave = () => { statusElm.style.width = '10px'; statusElm.textContent = text[0]; };
+            document.body.appendChild(statusElm);
         }
-        if (this.pollTimeout) {
-            clearTimeout(this.pollTimeout);
-            this.pollTimeout = null;
-        }
-        if (this.pc) {
-            this.pc.close();
-            this.pc = null;
-        }
-        this.stopBroadcast();
-        this.isReconnecting = false;
+        statusElm.textContent = text[0];
+        statusElm.title = "AnswerIT Reflector Status: " + text;
+        statusElm.style.color = statuses[text] || '#000';
+        statusElm.style.opacity = '0.5';
+        setTimeout(() => statusElm && (statusElm.style.opacity = '0.2'), 3000);
     },
     
-    async init() {
-        // Prevent multiple concurrent reconnection attempts
-        if (this.isReconnecting) {
-            console.log('[HOST] Already reconnecting, skipping...');
-            return;
-        }
+    async startBroadcast() {
+        this.setStatus('connecting');
         
-        this.cleanup(); // Stop all previous operations
-        this.isReconnecting = true;
+        // Cleanup
+        if (this.interval) clearInterval(this.interval);
+        if (this.pc) this.pc.close();
         
-        console.log(`[HOST] Starting session ${this.sessionId}`);
-        
-        this.pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.iptel.org' }] });
-        this.channel = this.pc.createDataChannel('broadcast');
-        
-        this.channel.onopen = () => {
-            console.log('[HOST] Connected, starting broadcast');
-            this.isReconnecting = false; // Reset reconnection flag
-            this.startBroadcast();
-        };
-        
-        this.channel.onclose = () => {
-            console.log('[HOST] Channel closed, scheduling reconnect...');
-            this.stopBroadcast();
-            if (!this.isReconnecting) {
-                this.reconnectTimeout = setTimeout(() => this.init(), 3000); // 3 second delay
-            }
-        };
-
-        this.channel.onerror = e => {
-            console.log(`[HOST] Channel error, scheduling reconnect...`);
-            this.stopBroadcast();
-            if (!this.isReconnecting) {
-                this.reconnectTimeout = setTimeout(() => this.init(), 2000); // 2 second delay
-            }
-        };
-        
-        // Monitor connection state
-        this.pc.onconnectionstatechange = () => {
-            console.log(`[HOST] Connection state: ${this.pc.connectionState}`);
-            if (this.pc.connectionState === 'connected') {
-                this.isReconnecting = false; // Reset reconnection flag
-            } else if ((this.pc.connectionState === 'disconnected' || this.pc.connectionState === 'failed') && !this.isReconnecting) {
-                console.log('[HOST] Connection lost, scheduling reconnect...');
-                this.stopBroadcast();
-                this.reconnectTimeout = setTimeout(() => this.init(), 5000); // 5 second delay for failed connections
-            }
-        };
-        
-        this.pc.onicecandidate = e => e.candidate && this.sendSignal({
-            type: 'ice', candidate: e.candidate
-        });
-        
-        const offer = await this.pc.createOffer();
-        await this.pc.setLocalDescription(offer);
-        await this.sendSignal({ type: 'offer', sdp: offer.sdp });
-        
-        this.pollForAnswer();
-    },
-    
-    stopBroadcast() {
-        if (this.broadcastInterval) {
-            clearInterval(this.broadcastInterval);
-            this.broadcastInterval = null;
-            console.log('[HOST] Stopped broadcasting');
+        try {
+            // Setup WebRTC
+            this.pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.iptel.org' }] });
+            this.channel = this.pc.createDataChannel('broadcast');
+            
+            this.channel.onopen = () => {
+                this.setStatus('connected');
+                this.broadcast();
+            };
+            
+            this.channel.onclose = () => {
+                this.setStatus('disconnected');
+                setTimeout(() => this.startBroadcast(), 3000);
+            };
+            
+            this.pc.onicecandidate = e => e.candidate && this.sendSignal({
+                type: 'ice', candidate: e.candidate
+            });
+            
+            // Create and send offer
+            const offer = await this.pc.createOffer();
+            await this.pc.setLocalDescription(offer);
+            await this.sendSignal({ type: 'offer', sdp: offer.sdp });
+            console.log('🛜', 'New offer sent:');
+            
+            // Poll for answer
+            this.pollAnswer();
+            
+        } catch (e) {
+            this.setStatus('✕');
+            setTimeout(() => this.startBroadcast(), 5000);
         }
     },
     
-    startBroadcast() {
-        this.stopBroadcast(); // Ensure no duplicate intervals
-        
-        this.broadcastInterval = setInterval(() => {
+    async pollAnswer() {
+        try {
+            this.setStatus('connecting', 'polling for answer...');
+            const data = await GM_fetch(`${reflector.endpoint}?key=${reflector.key}`).then(r=> r.json());            
+            if (data?.answer?.type === 'answer') {
+                await this.pc.setRemoteDescription(data.answer);
+                if (data.ice) for (const ice of data.ice) await this.pc.addIceCandidate(ice.candidate);
+                return; // Stop polling once answer is found
+            } else setTimeout(() => this.pollAnswer(), 2000);
+        } catch (e) { 
+            setTimeout(() => this.pollAnswer(), 5000);
+        }
+    },
+    
+    broadcast() {
+        this.interval = setInterval(() => {
             if (this.channel?.readyState === 'open') {
-                // Monitor buffer health - if it's consistently full, client likely disconnected
-                const bufferAmount = this.channel.bufferedAmount;
-                
-                if (bufferAmount > 256 * 1024) { // 256KB threshold
-                    console.log(`[HOST] Buffer full (${bufferAmount} bytes), checking connection health...`);
-                    
-                    // If buffer has been full for too long, assume client disconnected
-                    if (this.lastBufferCheck === 0) {
-                        this.lastBufferCheck = Date.now();
-                    } else if (Date.now() - this.lastBufferCheck > 10000) { // 10 seconds
-                        console.log('[HOST] Buffer full for too long, client likely disconnected. Restarting...');
-                        this.stopBroadcast();
-                        if (!this.isReconnecting) {
-                            this.reconnectTimeout = setTimeout(() => this.init(), 3000);
-                        }
-                        return;
-                    }
-                    return; // Skip this frame
-                } else {
-                    this.lastBufferCheck = 0; // Reset buffer check timer
-                }
-                
                 try {
                     const body = document.body.cloneNode(true);
-                    body.querySelectorAll(`
-                        script, iframe, object, embed, noscript,
-                        style, link[rel="stylesheet"],
-                        .ad, .advertisement, .ads, [class*="ad-"],
-                        .sidebar, .footer, .header, .navigation,
-                        img[src*="banner"], img[src*="ad"],
-                        [style*="display: none"], [style*="visibility: hidden"]
-                    `).forEach(el => el.remove());
+                    body.querySelectorAll('script, style, .ad, [class*="ad"]').forEach(el => el.remove());
                     
-                    const fullMessage = JSON.stringify({
+                    this.channel.send(JSON.stringify({
                         url: location.href,
                         title: document.title,
-                        body: body.innerHTML,
+                        body: body.innerHTML.slice(0, 64000), // Simple truncation
                         timestamp: Date.now()
-                    });
-                    
-                    // Send in chunks if too large
-                    const maxChunk = 256000; // 256KB chunks (much larger)
-                    if (fullMessage.length > maxChunk) {
-                        const id = Date.now();
-                        const chunks = Math.ceil(fullMessage.length / maxChunk);
-                        
-                        for (let i = 0; i < chunks; i++) {
-                            const chunk = fullMessage.slice(i * maxChunk, (i + 1) * maxChunk);
-                            this.channel.send(JSON.stringify({
-                                type: 'chunk',
-                                id: id,
-                                part: i + 1,
-                                total: chunks,
-                                data: chunk
-                            }));
-                        }
-                        console.log(`[HOST] Sent ${chunks} chunks`);
-                    } else {
-                        this.channel.send(fullMessage);
-                    }
+                    }));
                 } catch (e) {
-                    console.log('[HOST] Broadcast error:', e.message);
-                    if (e.message.includes('send queue is full')) {
-                        console.log('[HOST] Send queue full - will restart connection');
-                        this.stopBroadcast();
-                        if (!this.isReconnecting) {
-                            this.reconnectTimeout = setTimeout(() => this.init(), 3000);
-                        }
+                    if (e.message.includes('queue')) {
+                        this.setStatus('warning');
+                        setTimeout(() => this.startBroadcast(), 2000);
                     }
                 }
-            } else {
-                console.log(`[HOST] Channel not open (${this.channel?.readyState}), stopping broadcast`);
-                this.stopBroadcast();
             }
-        }, 500);
+        }, 1000);
     },
     
     async sendSignal(data) {
@@ -201,30 +125,17 @@ const host = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
-    },
-    
-    async pollForAnswer() {
-        if (this.pollTimeout) clearTimeout(this.pollTimeout); // Clear any existing timeout
-        
-        try {
-            const response = await GM_fetch(`${reflector.endpoint}?key=${reflector.key}`);
-            const data = await response.json();
-            
-            if (data?.answer?.type === 'answer' && this.pc.signalingState === 'have-local-offer') {
-                await this.pc.setRemoteDescription(data.answer);
-                this.isReconnecting = false; // Reset reconnection flag on successful answer
-                if (data.ice) {
-                    for (const ice of data.ice) {
-                        await this.pc.addIceCandidate(ice.candidate);
-                    }
-                }
-            } else {
-                this.pollTimeout = setTimeout(() => this.pollForAnswer(), 2000); // Slower polling
-            }
-        } catch (error) {
-            this.pollTimeout = setTimeout(() => this.pollForAnswer(), 5000); // Much slower on error
-        }
     }
 };
 
-host.init();
+// Hotkey restart (Alt+R)
+document.addEventListener('keydown', e => {
+    const k = reflector.hotkey;
+    if ( e.key.toLowerCase() === k.key.toLowerCase() && e.ctrlKey === !!k.ctrl && e.shiftKey === !!k.shift && e.altKey === !!k.alt) {
+        e.preventDefault();
+        host.setStatus('restarting');
+        setTimeout(() => host.startBroadcast(), 500);
+    }
+});
+
+host.startBroadcast();

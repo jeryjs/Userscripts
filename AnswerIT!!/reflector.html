@@ -101,7 +101,7 @@
             if (client.pc) client.pc.close();
             
             try {
-                await fetch('http://172.20.230.22:4242/reflector?key=test-broadcast-123', {
+                await fetch(client.sessionUrl, {
                     method: 'DELETE',
                     headers: { 'Content-Type': 'application/json' }
                 });
@@ -115,15 +115,19 @@
                 client.init();
             }, 1000);
         }
-
+        
         const client = {
+            key: 'test-broadcast-123',
+            endpoint: 'http://192.168.5.146:4242/reflector',
             pc: null,
             sessionId: 0,
             stats: { received: 0, lastUpdate: 0 },
             chunks: {}, // Store incomplete chunks
             pollTimeout: null, // Track polling timeout
             statsTimeout: null, // Track stats timeout
-            
+            get sessionUrl() {
+                return this.endpoint + '?key=' + this.key;
+            },
             cleanup() {
                 if (this.pollTimeout) {
                     clearTimeout(this.pollTimeout);
@@ -197,7 +201,7 @@
                 
                 try {
                     this.log('🔄 Polling for offer...');
-                    const response = await fetch('http://172.20.230.22:4242/reflector?key=test-broadcast-123');
+                    const response = await fetch(this.sessionUrl);
                     const data = await response.json();
                     
                     if (data?.offer?.type === 'offer') {
@@ -222,7 +226,7 @@
             },
             
             async sendSignal(data) {
-                await fetch('http://172.20.230.22:4242/reflector?key=test-broadcast-123', {
+                await fetch(this.sessionUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
