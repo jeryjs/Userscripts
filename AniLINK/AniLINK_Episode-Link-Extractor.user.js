@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.15.1
+// @version     6.15.2
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -80,7 +80,7 @@ class Episode {
     _processLinks(links) {
         for (const linkObj of Object.values(links)) {
             linkObj.stream &&= new URL(linkObj.stream, location.origin).href;   // Ensure stream URLs are absolute
-            linkObj.referer = linkObj.referer || location.href; // Set referer to the current page origin if not provided
+            linkObj.referer ??= location.href; // Set referer to current page if not present
             linkObj.type = (linkObj.type.startsWith('.') || (linkObj.type === 'embed')) ? linkObj.type : `.${linkObj.type}`; // Ensure type starts with a dot, but not for 'embed'
             linkObj.tracks?.forEach?.(track => track.kind = /^(caption|subtitle)s?/.test(track.kind) ? 'caption' : track.kind); // normalize all 'kind' values's subtitle(s) or caption(s) to 'caption'
             linkObj.tracks?.forEach?.(track => track.file &&= new URL(track.file, location.origin).href);   // Ensure track file URLs are absolute
@@ -1173,7 +1173,7 @@ async function extractEpisodes() {
         // Helper function to prepare m3u8 playlist string from given episodes
         function _preparePlaylist(episodes, quality) {
             let playlistContent = '#EXTM3U\n';
-            playlistContent += `#EXTVLCOPT:http-referrer=${episodes[0].referer}\n`;
+            playlistContent += `#EXTVLCOPT:http-referrer=${Object.values(episodes[0]?.links)[0]?.referer}\n`;
             episodes.forEach(episode => {
                 const linkObj = episode.links[quality];
                 if (!linkObj) {
