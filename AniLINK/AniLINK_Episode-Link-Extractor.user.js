@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.15.0
+// @version     6.15.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -798,7 +798,7 @@ async function* yieldEpisodesFromPromises(episodePromises) {
 /**
  * encodes a string to base64url format thats safe for URLs
  */
-const safeBtoa = str => btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const safeBtoa = str => btoa(unescape(encodeURIComponent(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 /**
  * Analyzes the given media url to return duration, size, and resolution of the media.
@@ -1116,7 +1116,7 @@ async function extractEpisodes() {
                 });
                 epnumSpan.addEventListener('click', e => {
                     e.preventDefault();
-                    location.replace('mpv://play/' + safeBtoa(link) + `/?v_title=${safeBtoa(name)}` + `&cookies=${location.hostname}.txt`);
+                    location.replace('mpv://play/' + safeBtoa(link) + `/?v_title=${safeBtoa(name)}` + `&cookies=${location.hostname}.txt` + `&subfile=${safeBtoa(ep.links[quality].tracks?.filter(t => t.kind=='caption').map(t => t.file).join(';') || '')}`);
                     showToast('Sent to MPV. If nothing happened, install <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a>.');
                 });
 
@@ -1173,6 +1173,7 @@ async function extractEpisodes() {
         // Helper function to prepare m3u8 playlist string from given episodes
         function _preparePlaylist(episodes, quality) {
             let playlistContent = '#EXTM3U\n';
+            playlistContent += `#EXTVLCOPT:http-referrer=${episodes[0].referer}\n`;
             episodes.forEach(episode => {
                 const linkObj = episode.links[quality];
                 if (!linkObj) {
@@ -1181,7 +1182,6 @@ async function extractEpisodes() {
                 }
                 // Add tracks if present (subtitles, audio, etc.)
                 if (linkObj.tracks && Array.isArray(linkObj.tracks) && linkObj.tracks.length > 0) {
-                    playlistContent += `#EXTVLCOPT:http-referrer=${linkObj.referer}\n`;
                     linkObj.tracks.forEach(track => {
                         // EXT-X-MEDIA for subtitles or alternate audio
                         if (track.kind && track.kind.startsWith('audio')) {
