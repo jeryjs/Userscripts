@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.14.2
+// @version     6.15.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -40,6 +40,7 @@
 // @match       https://hianime.nz/watch/*
 // @match       https://hianimeZ.*/watch/*
 // @match       https://aninow.tv/w/*
+// @match       https://www.animegg.org/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
 // @grant       GM.xmlHttpRequest
@@ -647,6 +648,21 @@ const Websites = [
                 }));
         },
     },
+    {
+        name: "Animegg",
+        url: ['animegg.org/'],
+        extractEpisodes: async function* (status) {
+            const epLinks = $((!!$('.anm_det_pop').length) ? document : $(await fetchPage($('.nap > a[href^="/series/"]').get(0).href))).find('.newmanga > li > div').get().reverse();
+            for (let i = 0, l = await applyEpisodeRangeFilter(epLinks); i < l.length; i += 1)
+                yield* yieldEpisodesFromPromises(l.slice(i, i + 1).map(async div => {
+                    const pg = $(await fetchPage($(div).find('.anm_det_pop').get(0).href));
+                    const epNum = pg.find('.info > a').text().split(' ').pop();
+                    status.text = `Extracting Episodes ${(epNum-Math.min(1, epNum)+1)} - ${epNum}...`;
+                    const links = Object.fromEntries(await Promise.all(pg.find('#videos a').get().map(async a => [a.dataset.version, { stream: (await fetch((await fetchPage('/embed/' + a.dataset.id)).querySelector('[property="og:video"]')?.content, { method: 'HEAD' }).catch(e => showToast(`Error fetching ep ${epNum} - ${a.dataset.version}: ${e}`)))?.url, type: 'mp4', referer: location.origin }])).then(r => r.filter(([_, v]) => v.stream)));
+                    return new Episode(epNum, pg.find('.titleep a').text().trim(), links, $('a > img').get(0).src, $(div).find('.anititle').text());
+                }));
+        },
+    }
 ];
 
 const USER_AGENT_HEADER = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
