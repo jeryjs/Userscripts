@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.15.2
+// @version     6.15.3
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -48,6 +48,8 @@
 // @grant       GM_addStyle
 // @grant       GM_getValue
 // @grant       GM_setValue
+// @downloadURL https://update.greasyfork.org/scripts/492029/AniLINK%20-%20Episode%20Link%20Extractor.user.js
+// @updateURL https://update.greasyfork.org/scripts/492029/AniLINK%20-%20Episode%20Link%20Extractor.meta.js
 // ==/UserScript==
 
 // track last version as it might be needed by potential future updates
@@ -454,7 +456,7 @@ const Websites = [
         baseApiUrl: `${location.origin}/api`,
         addStartButton: function (id) {
             const intervalId = setInterval(() => {
-                const target = document.querySelector('.title-actions-container');
+                const target = document.querySelector('.App + div > div > div + div > div > div > div > div + div > div + div');
                 if (target) {
                     clearInterval(intervalId);
                     const btn = document.createElement('button');
@@ -476,54 +478,39 @@ const Websites = [
             const malId = document.querySelector(`a[href*="/myanimelist.net/anime/"]`)?.href.split('/').pop();
             if (!malId) return showToast('MAL ID not found.');
 
-            const res = await fetch(`${this.baseApiUrl}/episodes?malId=${malId}`).then(r => r.json());
-            const providers = Object.entries(res).flatMap(([p, s]) => {
-                if (p === "ANIMEZ") {
-                    // AnimeZ: treat sub and dub as separate providers
-                    const v = Object.values(s)[0], animeId = Object.keys(s)[0], eps = v?.episodeList?.episodes;
-                    if (!eps) return [];
-                    return ["sub", "dub"].map(type =>eps[type]?.length ? { source: `animez-${type}`, animeId, useEpId: true, epList: eps[type] } : null);
-                } else {
-                    // Default: original logic
-                    let v = Object.values(s)[0], epl = v?.episodeList?.episodes || v?.episodeList;
-                    // Fix the ep numbering offset for animepahe (sometimes S2 starts from ep 13 instead of ep 1)
-                    if (p === "ANIMEPAHE") epl = epl?.map((e) => ({...e, number: (e.number - epl[0]?.number + 1)}));
-                    return epl && { source: p.toLowerCase(), animeId: Object.keys(s)[0], useEpId: !!v?.episodeList?.episodes, epList: epl };
-                }
-            }).filter(Boolean);
+            const res = await this._secureFetch(`${this.baseApiUrl}/episodes`, { query: { malId } });
+            const eps = Object.entries(res.providers).reduce((a, [provider, { episodes }]) => (
+                Object.entries(episodes).forEach(([type, list]) => list.forEach(ep => (a[ep.number] ??= []).push({ ...ep, provider, type }))), a
+            ), {});
 
-            // Get the provider with most episodes to use as base for thumbnails, epTitle, epNumber, etc.
-            // Preferred provider is Zoro, if available, since it has the best title format
-            let baseProvider = providers.find(p => p.source === 'zoro') || providers.find(p => p.epList.length == Math.max(...providers.map(p => p.epList.length)));
-            baseProvider = { ...baseProvider, epList: await applyEpisodeRangeFilter(baseProvider.epList) };
-
-            if (!baseProvider) return showToast('No episodes found.');
-
-            for (const baseEp of baseProvider.epList) {
-                const num = String(baseEp.number).padStart(3, '0');
-                let epTitle = baseEp.jptitle || baseEp.title, thumbnail = baseEp.snapshot; // will try to update with other providers if this is blank
-
-                status.text = `Fetching Ep ${num}...`;
-                let links = {};
-                await Promise.all(providers.map(async ({ source, animeId, useEpId, epList }) => {
-                    const ep = epList.find(ep => ep.number == baseEp.number);
-                    epTitle = epTitle || ep.title; // update title if blank
-                    const epId = !useEpId ? `${animeId}/ep-${ep.number}` : ep.id;
-                    try {
-                        const apiProvider = source.startsWith('animez-') ? 'animez' : source;
-                        const sres = await fetchWithRetry(`${this.baseApiUrl}/sources?episodeId=${epId}&provider=${apiProvider}`);
-                        const sresJson = await sres.json();
-                        links[this._getLocalSourceName(source)] = { stream: sresJson.streams[0].url, type: "m3u8", tracks: sresJson.tracks || [] };
-                    } catch (e) { showToast(`Failed to fetch ep-${ep.number} from ${source}: ${e}`); return null; }
+            for (const epNum of Object.keys(eps).sort((a, b) => a - b)) {
+                const baseEp = eps[epNum][0];
+                status.text = `Fetching Ep ${epNum}...`;
+                const links = {};
+                await Promise.all(eps[epNum].map(async ({ id, provider, type }) => {
+                    if ([...document.querySelectorAll('select')].map(e => e.textContent).includes(this._getLocalSourceName(provider))) {
+                        const source = this._getLocalSourceName(provider, type);
+                        try {
+                            const sresJson = await this._secureFetch(`${this.baseApiUrl}/sources`, { query: { episodeId: id, provider } });
+                            links[this._getLocalSourceName(source)] = { stream: sresJson.streams[0].url, type: "m3u8", tracks: sresJson.tracks || [] };
+                        } catch (e) { showToast(`Failed to fetch ep-${epNum} from ${source}: ${e}`); }
+                    }
                 }));
-
-                if (!epTitle || /^Episode \d+/.test(epTitle)) epTitle = undefined; // remove epTitle if episode title is blank or just "Episode X"
-                yield new Episode(num, animeTitle, links, thumbnail || document.querySelector(this.thumbnail).src, epTitle);
+                yield new Episode(epNum, animeTitle, links, baseEp.image, baseEp.title);
             }
         },
-        _getLocalSourceName: function (source) {
-            const sourceNames = { 'animepahe': 'kiwi', 'animekai': 'arc', 'animez-sub': 'jet-sub', 'animez-dub': 'jet-dub', 'zoro': 'zoro' };
-            return sourceNames[source] || source.charAt(0).toUpperCase() + source.slice(1);
+        _secureFetch: async (url, options = {}) => {
+            const payload = { path: url.split('/api/').pop(), method: 'GET', query: options.query || {}, body: null, version: '0.1.0'};
+            const encode = o => btoa(encodeURIComponent(JSON.stringify(o)).replace(/%([0-9A-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+            const decode = async s => JSON.parse(new TextDecoder().decode(await new Response(new Blob([Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()));
+            const res = await fetch(`${location.origin}/api/secure/pipe?e=${encode(payload)}`, {headers: { 'x-protocol-version': payload.version }});
+            if (res.headers.get('x-obfuscated') === '1') return await decode(await res.text());
+            return await res.json();
+        },
+        _getLocalSourceName: function (source, type) {
+            source = source.toLowerCase();
+            const sourceNames = { 'animepahe': 'kiwi', 'animekai': 'arc', 'animez': 'jet', 'zoro': 'zoro', 'kickassanime': 'kaa' };
+            return (sourceNames[source] || source) + (type !== undefined ? `-${type.toLowerCase()}` : '');
         },
     },
     {
@@ -1116,7 +1103,7 @@ async function extractEpisodes() {
                 });
                 epnumSpan.addEventListener('click', e => {
                     e.preventDefault();
-                    location.replace('mpv://play/' + safeBtoa(link) + `/?v_title=${safeBtoa(name)}` + `&cookies=${location.hostname}.txt` + `&subfile=${safeBtoa(ep.links[quality].tracks?.filter(t => t.kind=='caption').map(t => t.file).join(';') || '')}`);
+                    location.replace('mpv://play/' + safeBtoa(link) + `/?v_title=${safeBtoa(name)}&cookies=${location.hostname}.txt` + (ep.links[quality].tracks?.some(t => t.kind === 'caption') ? `&subfile=${safeBtoa(ep.links[quality].tracks.filter(t => t.kind === 'caption').map(t => t.file).join(';'))}` : ''));
                     showToast('Sent to MPV. If nothing happened, install <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a>.');
                 });
 
