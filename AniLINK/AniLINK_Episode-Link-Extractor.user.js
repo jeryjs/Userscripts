@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.15.3
+// @version     6.15.4
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -13,9 +13,7 @@
 // @match       https://gogoanime3.*/*
 // @match       https://animepahe.*/play/*
 // @match       https://animepahe.*/anime/*
-// @match       https://animepahe.ru/play/*
-// @match       https://animepahe.com/play/*
-// @match       https://animepahe.org/play/*
+// @match       https://animepahe.si/play/*
 // @match       https://yugenanime.*/anime/*/*/watch/
 // @match       https://yugenanime.tv/anime/*/*/watch/
 // @match       https://yugenanime.sx/anime/*/*/watch/
@@ -239,7 +237,7 @@ const Websites = [
     },
     {
         name: 'AnimePahe',
-        url: ['animepahe.ru', 'animepahe.com', 'animepahe.org'],
+        url: ['animepahe.si', 'animepahe'],
         epLinks: (location.pathname.startsWith('/anime/')) ? 'a.play' : '.dropup.episode-menu a.dropdown-item',
         epTitle: '.theatre-info > h1',
         linkElems: '#resolutionMenu > button',
