@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.3.4
+// @version     2.3.5
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -16,7 +16,7 @@
 // @match       https://gogoanime3.*/*
 // @match       https://gogoanime3.co/*
 // @match       https://animepahe.*/
-// @match       https://animepahe.ru/
+// @match       https://animepahe.si/
 // @match       https://animesuge.to/*
 // @match       https://animesuge.*/*
 // @match       https://*animesuge.cc/*
@@ -94,7 +94,7 @@ const animeSites = [
     },
     {
         name: 'animepahe',
-        url: ['animepahe.ru', 'animepahe.com', 'animepahe'],
+        url: ['animepahe.si', 'animepahe.ru', 'animepahe.com', 'animepahe'],
         item: '.episode-wrap > .episode',
         title: '.episode-title > a',
         thumbnail: '.episode-snapshot > img',
@@ -246,6 +246,10 @@ class AnimeList {
         this.entries.push(entry);
     }
 
+    getEntry(title) {
+        return this.entries.find(e => e.titles.some(t => t.includes(title)) );
+    }
+
     // Use jaro-winkler algorithm to compare whether the given title is similar present in the animelist
     isEntryExist(title) {
         const threshold = 0.8;
@@ -316,7 +320,9 @@ class Website {
     undarkenRelatedEps(animeList) {
         this.getAnimeItems().forEach(item => {
             const thumbnail = item.querySelector(this.site.thumbnail);
-            thumbnail.style.cssText = animeList.isEntryExist(this.getAnimeTitle(item))
+            const title = this.getAnimeTitle(item);
+            const shouldUndarken = animeList.isEntryExist(title) && !manualList.getEntry(title).skip;
+            thumbnail.style.cssText = shouldUndarken
                 ? 'opacity:1;   filter:brightness(1);   transition:.2s ease-in-out'
                 : 'opacity:0.5; filter:brightness(0.3); transition:.4s ease-in-out';
         });
