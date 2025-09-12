@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.6.3
+// @version     2.6.4
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -10,7 +10,7 @@
 // @match       https://yugenanime.tv/*
 // @match       https://yugenanime.sx/*
 // @match       https://animepahe.*/*
-// @match       https://animepahe.com/*/
+// @match       https://animepahe.si/*/
 // @match       https://anitaku.*/*
 // @match       https://anitaku.bz/*
 // @match       https://gogoanime.*/*
@@ -56,6 +56,8 @@
 // @require     https://unpkg.com/axios/dist/axios.min.js
 //				Using GM_fetch for bypassing CORS
 // @require     https://cdn.jsdelivr.net/npm/@trim21/gm-fetch@0.2.1
+// @downloadURL https://update.greasyfork.org/scripts/485793/AniCHAT%20-%20Discuss%20Anime%20Episodes.user.js
+// @updateURL https://update.greasyfork.org/scripts/485793/AniCHAT%20-%20Discuss%20Anime%20Episodes.meta.js
 // ==/UserScript==
 
 /**************************
@@ -79,7 +81,7 @@ const animeSites = [
 	},
 	{
 		name: "animepahe",
-		url: ["animepahe.ru", "animepahe.com"],
+		url: ["animepahe.si", "animepahe"],
 		chatArea: ".theatre",
 		getAnimeTitle: () => document.querySelector(".theatre-info > h1 > a").textContent.split(' - ')[0],
 		getEpTitle: () => document.querySelector(".theatre-info > h1 > a").textContent.split(' - ')[0],
