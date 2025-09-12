@@ -321,7 +321,7 @@ class Website {
         this.getAnimeItems().forEach(item => {
             const thumbnail = item.querySelector(this.site.thumbnail);
             const title = this.getAnimeTitle(item);
-            const shouldUndarken = animeList.isEntryExist(title) && !manualList.getEntry(title).skip;
+            const shouldUndarken = animeList.isEntryExist(title) && !manualList.getEntry(title)?.skip;
             thumbnail.style.cssText = shouldUndarken
                 ? 'opacity:1;   filter:brightness(1);   transition:.2s ease-in-out'
                 : 'opacity:0.5; filter:brightness(0.3); transition:.4s ease-in-out';
