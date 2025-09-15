@@ -6,7 +6,7 @@
 // @match       https://www.miruro.online/*
 // @icon        https://www.miruro.tv/icons/favicon-32x32.png
 // @grant       none
-// @version     1.3
+// @version     1.4
 // @author      Jery
 // @description 2/23/2025, 9:39:09 AM
 // ==/UserScript==
@@ -34,7 +34,7 @@ const miruro = {
 	// Extracts the anime ID from the item's href query parameter (?id=...)
 	getAnimeId: (item) => {
 		const href = item.getAttribute("href") || "";
-		const idMatch = href.match(/[?&]id=([^&]+)/);
+		const idMatch = href.match(/watch\/([^&]+)\//);
 		return idMatch ? idMatch[1] : "";
 	},
 	// Extracts the episode number from the item's specific DOM structure
@@ -111,7 +111,7 @@ console.log("AniMARK: Injecting progress bars under episode thumbnails...");
 	// Polls for the target container; once detected, attaches the observer
 	function pollForTarget(target) {
 		if (target) {
-			updateProgressBars();
+			setTimeout(updateProgressBars, 500);
 			attachObserver();
 		} else {
 			setTimeout(() => pollForTarget(miruro.observeTarget()), 1000);
@@ -126,6 +126,7 @@ console.log("AniMARK: Injecting progress bars under episode thumbnails...");
 			if (url !== lastUrl) {
 				lastUrl = url;
 				console.log("URL changed, re-running AniMARK");
+				setTimeout(updateProgressBars, 500);
 				attachObserver();
 			}
 		}).observe(document.querySelector("body"), { subtree: true, childList: true });
