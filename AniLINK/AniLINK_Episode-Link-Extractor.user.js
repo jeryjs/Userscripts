@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.15.4
+// @version     6.15.5
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
 // @license     MIT
 // @match       https://anitaku.*/*
-// @match       https://anitaku.bz/*
+// @match       https://anitaku.io/*
 // @match       https://gogoanime.*/*
 // @match       https://gogoanime3.cc/*
 // @match       https://gogoanime3.*/*
@@ -27,9 +27,9 @@
 // @match       https://animeheaven.me/anime.php?*
 // @match       https://animez.org/*/*
 // @match       https://animeyy.com/*/*
-// @match       https://*.miruro.to/watch?id=*
-// @match       https://*.miruro.tv/watch?id=*
-// @match       https://*.miruro.online/watch?id=*
+// @match       https://*.miruro.to/watch/*
+// @match       https://*.miruro.tv/watch/*
+// @match       https://*.miruro.online/watch/*
 // @match       https://anizone.to/anime/*
 // @match       https://anixl.to/title/*
 // @match       https://sudatchi.com/watch/*/*
@@ -137,7 +137,7 @@ class Episode {
 const Websites = [
     {
         name: 'GoGoAnime',
-        url: ['anitaku.to/', 'gogoanime3.co/', 'gogoanime3', 'anitaku', 'gogoanime'],
+        url: ['anitaku.to/', 'gogoanime3.co/', 'gogoanime3', 'anitaku.bz', 'gogoanime'],
         epLinks: '#episode_related > li > a',
         epTitle: '.title_name > h2',
         linkElems: '.cf-download > a',
@@ -176,6 +176,24 @@ const Websites = [
 
                 yield* yieldEpisodesFromPromises(episodePromises); // Use helper function
             }
+        }
+    },
+    {
+        name: "Anitaku",
+        url: ['anitaku.io'],
+        extractEpisodes: async function* (status) {
+            const epLinks = document.querySelectorAll('.episodelist li > a');
+            for (let i = 0, l = [...await applyEpisodeRangeFilter(epLinks)]; i < l.length; i += 12)
+                yield* yieldEpisodesFromPromises(l.slice(i, i + 12).map(async a => {
+                    const pg = await fetchPage(a.href);
+                    const epNum = a.href.match(/-episode-(\d+)-/)[1];
+                    status.text = `Extracting Episodes ${(epNum-Math.min(1, epNum)+1)} - ${epNum}...`;
+                    try { 
+                        const src = await Extractors.use(pg.querySelector('iframe').src, location.href);
+                        const links = { 'Links': { stream: src.sources.file, tracks: src.tracks, type: 'm3u8', referer: location.href } };
+                        return new Episode(epNum, pg.querySelector('.det > h2 > a').textContent.trim(), links, pg.querySelector('img').src);
+                    } catch (e) { showToast(`Error fetching ep ${epNum}: ${e}`); }
+                }));
         }
     },
     {
@@ -665,7 +683,7 @@ const Extractors = {
     'megaplay.buzz': async function (embed, referer) {
         referer = referer || 'https://megaplay.buzz/';
         const id = await fetch(embed, { headers: { Referer: referer } }).then(r=>r.text()).then(t => t.match(/<title>File ([0-9]+)/)[1]);
-        return await fetch('https://megaplay.buzz/stream/getSources?id=' + id, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(e => e.json())
+        return await GM_fetch('https://megaplay.buzz/stream/getSources?id=' + id, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(e => e.json())
     },
     'megacloud.blog': async function (embed, referer) {
         // adapted from https://github.com/middlegear/hakai-extensions/blob/main/src/utils/getClientKey.ts
