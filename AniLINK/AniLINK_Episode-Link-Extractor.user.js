@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.15.5
+// @version     6.15.6
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -637,16 +637,19 @@ const Websites = [
         _chunkSize: 6, // Number of episodes to extract in parallel
         _decryptUrl: async (encryptedUrl) => (new TextDecoder()).decode(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: (encryptedBytes => encryptedBytes.slice(0, 16))(Uint8Array.from(atob(encryptedUrl), c => c.charCodeAt(0))) }, await crypto.subtle.importKey('raw', (new TextEncoder()).encode('superaninowq8hgl1'.padEnd(32, '\0').slice(0, 32)), { name: 'AES-CBC' }, false, ['decrypt']), (encryptedBytes => encryptedBytes.slice(16))(Uint8Array.from(atob(encryptedUrl), c => c.charCodeAt(0))))),
         extractEpisodes: async function* (status) {
-            for (let i = 0, l = await applyEpisodeRangeFilter([...document.querySelectorAll('a.episode-item')]); i < l.length; i+=this._chunkSize)
+            for (let i = 0, l = await applyEpisodeRangeFilter([...document.querySelectorAll('a[data-episode]')]); i < l.length; i+=this._chunkSize)
                 yield* yieldEpisodesFromPromises(l.slice(i, i + this._chunkSize).map(async a => {
                     const epNum = a.innerText;
                     status.text = `Extracting Episodes ${(epNum-Math.min(this._chunkSize, epNum)+1)} - ${epNum}...`;
                     const data = await fetchPage(a.href).then(p => JSON.parse(p.querySelector("#media-sources-data").dataset.mediaSources)).then(d => d.filter(l => !!l.url));
-                    const links = await data.reduce(async (acc, m) => ({...acc, [`${m.providerdisplayname}-${m.language}-${m.quality}`]: {
-                        stream: m.url.startsWith('videos/') ? await this._decryptUrl((await fetch('https://aninow.tv/api/presigned/media/' + m.url).then(r => r.json())).url) : m.url,
-                        type: m.url.endsWith('mp4') ? 'mp4' : 'm3u8',
-                        tracks: m.subtitles.map(s => ({ file: s.filename, label: s.displayname, kind: 'caption' }))
-                    }}), {});
+                    const links = Object.fromEntries(await Promise.all(data.map(async m => [
+                        `${m.providerdisplayname}-${m.language}-${m.quality}`,
+                        {
+                            stream: !m.url.startsWith('videos/') ? m.url : await this._decryptUrl((await fetch('https://aninow.tv/api/presigned/media/' + m.url).then(r => r.json())).url),
+                            type: m.url.endsWith('mp4') ? 'mp4' : 'm3u8',
+                            tracks: m.subtitles.map(s => ({ file: s.filename.startsWith('subtitles/') ? 'https://aninow.tv/api/subtitles/C:/Users/GraceAshby/OneDrive/aninow-copy/subzzzzzz/' + s.filename : s.filename, label: s.displayname, kind: 'caption' }))
+                        }
+                    ])));
                     return new Episode(epNum.padStart(3, '0'), document.querySelector('h1').innerText, links, document.querySelector('a>img').src);
                 }));
         },
