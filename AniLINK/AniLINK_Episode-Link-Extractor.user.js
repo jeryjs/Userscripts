@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.15.6
+// @version     6.15.7
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -188,11 +188,17 @@ const Websites = [
                     const pg = await fetchPage(a.href);
                     const epNum = a.href.match(/-episode-(\d+)-/)[1];
                     status.text = `Extracting Episodes ${(epNum-Math.min(1, epNum)+1)} - ${epNum}...`;
-                    try { 
-                        const src = await Extractors.use(pg.querySelector('iframe').src, location.href);
-                        const links = { 'Links': { stream: src.sources.file, tracks: src.tracks, type: 'm3u8', referer: location.href } };
-                        return new Episode(epNum, pg.querySelector('.det > h2 > a').textContent.trim(), links, pg.querySelector('img').src);
-                    } catch (e) { showToast(`Error fetching ep ${epNum}: ${e}`); }
+                    const links = {};
+                    for (const [sel, name, attr, ref] of [['.fa-cloud-download-alt', u => 'GoFile', 'href', 0], ['iframe', u => u.includes('megaplay') ? 'MegaPlay' : 'VKSpeed', 'src', 1]]) {
+                        try {
+                            const el = pg.querySelector(sel);
+                            if (!el) continue;
+                            const url = attr === 'href' ? el.closest('a')[attr] : el[attr];
+                            const src = await Extractors.use(url, ref ? location.href : undefined);
+                            links[typeof name === 'function' ? name(url) : name] = { stream: src.file, tracks: src.tracks || [], type: src.type || 'm3u8', ...(ref && { referer: location.href }) };
+                        } catch (e) { showToast(`${typeof name === 'function' ? 'iframe' : name} error ep ${epNum}: ${e}`); }
+                    }
+                    return new Episode(epNum, pg.querySelector('.det > h2 > a').textContent.trim(), links, pg.querySelector('img').src);
                 }));
         }
     },
@@ -686,7 +692,8 @@ const Extractors = {
     'megaplay.buzz': async function (embed, referer) {
         referer = referer || 'https://megaplay.buzz/';
         const id = await fetch(embed, { headers: { Referer: referer } }).then(r=>r.text()).then(t => t.match(/<title>File ([0-9]+)/)[1]);
-        return await GM_fetch('https://megaplay.buzz/stream/getSources?id=' + id, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(e => e.json())
+        const src = await GM_fetch('https://megaplay.buzz/stream/getSources?id=' + id, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(e => e.json())
+        return { file: src.sources?.file, type: 'm3u8', tracks: src.tracks || []}
     },
     'megacloud.blog': async function (embed, referer) {
         // adapted from https://github.com/middlegear/hakai-extensions/blob/main/src/utils/getClientKey.ts
@@ -747,9 +754,37 @@ const Extractors = {
         if (data.error) throw new Error(data.error);
         showToast(`Couldnt decrypt sources for ${embed}`);
         return { file: embed, type: 'embed', tracks: data?.tracks }
+    },
+    'gofile.io': async function (url) {
+        const id = url.split('/').pop();
+        const stored = JSON.parse(localStorage.gofile_token || '{}');
+        let token = stored.token;
+        if (!token || Date.now() - stored.timestamp > 604800000) {
+            if (token !== 'fetching') {
+                localStorage.gofile_token = JSON.stringify({ token: 'fetching', timestamp: Date.now() });
+                token = (await GM_fetch('https://api.gofile.io/accounts', { method: 'POST', body: '{}' }).then(r => r.json())).data.token;
+                localStorage.gofile_token = JSON.stringify({ token, timestamp: Date.now() });
+            } else {
+                while ((token = JSON.parse(localStorage.gofile_token || '{}').token) === 'fetching') await new Promise(r => setTimeout(r, 500));
+            }
+        }
+        const data = await GM_fetch(`https://api.gofile.io/contents/${id}?wt=4fd6sg89d7s6`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json());
+        if (data.status !== 'ok') throw new Error(data.status);
+        const file = Object.values(data.data.children || {}).find(f => f.name?.endsWith('.m3u8') || f.mimetype?.startsWith('video/'));
+        if (!file) throw new Error('No video file found');
+        return { file: file.link, type: file.name?.endsWith('.m3u8') ? 'm3u8' : 'mp4', tracks: [] };
+    },
+    'vkspeed.com': async function(url) {
+        const html = await GM_fetch(url).then(r => r.text());
+        const [, e, r, c, d] = html.match(/eval\(function\(p,a,c,k,e,d\)\{while\(c--\)if\(k\[c\]\)p=p\.replace\(new RegExp\('\\\\b'\+c\.toString\(a\)\+'\\\\b','g'\),k\[c\]\);return p\}\('(.+?)',(\d+),(\d+),'(.+?)'\.split\('\|'\)\)\)/) || [];
+        if (!e) throw new Error('No packed script found');
+        let decoded = e; const dict = d.split('|');
+        for (let i = +c - 1; i >= 0; i--) if (dict[i]) decoded = decoded.replace(new RegExp('\\b' + i.toString(+r) + '\\b', 'g'), dict[i]);
+        const sources = eval(decoded.match(/sources:\[.*?\]/)[0]);
+        const source = sources.reduce((best, curr) => (s => parseInt(s.label) || 0)(curr) > (s => parseInt(s.label) || 0)(best) ? curr : best, sources[0]);
+        return { file: source.file, type: source.file.includes('.m3u8') ? 'm3u8' : 'mp4', tracks: [] };
     }
 }
-
 /**
  * Fetches the HTML content of a given URL and parses it into a DOM object.
  *
