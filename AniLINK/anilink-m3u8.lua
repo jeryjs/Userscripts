@@ -1,5 +1,5 @@
 -- AniLINK M3U8 Player for MPV
--- Auto-adds subtitles from M3U8 playlists with referrer support
+-- Auto-adds subtitles from M3U8 playlists with referrer/origin support
 
 local mp = require 'mp'
 
@@ -7,15 +7,23 @@ local m3u8_data = {}
 
 local function parse_m3u8(path)
     mp.msg.info("Parsing M3U8:", path)
-    local file = io.open(path, 'r')
+    local file
+    -- handle network file
+    if path:match('^https?://') then
+        local curl_cmd = string.format('curl -L --silent "%s"', path)
+        file = io.popen(curl_cmd, 'r')
+    else
+        file = io.open(path, 'r')
+    end
     if not file then return {} end
     
     local entries = {}
-    local referrer, current_subs = nil, {}
+    local referrer, origin, current_subs = nil, nil, {}
     
     for line in file:lines() do
         if line:match('^#EXTVLCOPT:http%-referrer=(.+)') then
             referrer = line:match('=(.+)')
+            origin = referrer:match('^(https?://[^/]+)'):gsub('/$', '') -- TODO: implement origin extraction in AniLINK userscript
         elseif line:match('^#EXT%-X%-MEDIA:TYPE=SUBTITLES') then
             -- Parse subtitle entry
             local name = line:match('NAME="([^"]+)"')
@@ -30,8 +38,8 @@ local function parse_m3u8(path)
     
     -- Set HTTP referrer if provided
     if referrer then
-        mp.set_property('http-header-fields', 'Referer:' .. referrer)
-        mp.msg.info("Set HTTP Referrer to: ", referrer)
+        mp.set_property('http-header-fields', 'Referer:' .. referrer .. ',Origin:' .. origin)
+        mp.msg.info("Set http-header-fields as Referrer:" .. referrer .. ",Origin:" .. origin)
     end
 
     file:close()

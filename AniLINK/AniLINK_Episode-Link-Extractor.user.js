@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.15.7
+// @version     6.15.8
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -27,9 +27,9 @@
 // @match       https://animeheaven.me/anime.php?*
 // @match       https://animez.org/*/*
 // @match       https://animeyy.com/*/*
-// @match       https://*.miruro.to/watch/*
-// @match       https://*.miruro.tv/watch/*
-// @match       https://*.miruro.online/watch/*
+// @match       https://*.miruro.to/*
+// @match       https://*.miruro.tv/*
+// @match       https://*.miruro.online/*
 // @match       https://anizone.to/anime/*
 // @match       https://anixl.to/title/*
 // @match       https://sudatchi.com/watch/*/*
@@ -477,10 +477,17 @@ const Websites = [
         thumbnail: 'a[href^="/info?id="] > img',
         baseApiUrl: `${location.origin}/api`,
         addStartButton: function (id) {
+            let last_known = { location: location.href, source: null };
             const intervalId = setInterval(() => {
+                const currSource = [...document.querySelectorAll('select')].slice(1).map(e => e.value).toString();
+                if (last_known.location !== location.href || last_known.source !== currSource) {
+                    last_known = { location: location.href, source: currSource };
+                    document.getElementById('AniLINK_Overlay')?.remove();
+                }
+                // Append the extract button
                 const target = document.querySelector('.App + div > div > div + div > div > div > div > div + div > div + div');
-                if (target) {
-                    clearInterval(intervalId);
+                if (target && !document.getElementById(id)) {
+                    // clearInterval(intervalId);
                     const btn = document.createElement('button');
                     btn.id = id;
                     btn.style.cssText = `${target.lastChild.style.cssText} display: flex; justify-content: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: auto;`;
@@ -492,7 +499,7 @@ const Websites = [
                     btn.addEventListener('click', extractEpisodes);
                     target.appendChild(btn);
                 }
-            }, 200);
+            }, 500);
         },
         extractEpisodes: async function* (status) {
             status.text = 'Fetching episode list...';
@@ -505,16 +512,19 @@ const Websites = [
                 Object.entries(episodes).forEach(([type, list]) => list.forEach(ep => (a[ep.number] ??= []).push({ ...ep, provider, type }))), a
             ), {});
 
-            for (const epNum of Object.keys(eps).sort((a, b) => a - b)) {
+            showToast('Found Providers: ' + Object.entries(Object.values(eps).flat().reduce((m, ep) => ((m[this._getLocalSourceName(ep.provider)] ??= new Set()).add(ep.type), m), {})).map(([p, t]) => `${p.toLowerCase()} (${[...t].join(', ')})`).join(', '));
+
+            for (const epNum of await applyEpisodeRangeFilter(Object.keys(eps).sort((a, b) => a - b))) {
                 const baseEp = eps[epNum][0];
                 status.text = `Fetching Ep ${epNum}...`;
                 const links = {};
                 await Promise.all(eps[epNum].map(async ({ id, provider, type }) => {
-                    if ([...document.querySelectorAll('select')].map(e => e.textContent).includes(this._getLocalSourceName(provider))) {
+                    if ([...document.querySelectorAll('select')][2].value.includes(provider.toLowerCase()) && [...document.querySelectorAll('select')][1].value.includes(type)) {
                         const source = this._getLocalSourceName(provider, type);
                         try {
-                            const sresJson = await this._secureFetch(`${this.baseApiUrl}/sources`, { query: { episodeId: id, provider } });
-                            links[this._getLocalSourceName(source)] = { stream: sresJson.streams[0].url, type: "m3u8", tracks: sresJson.tracks || [] };
+                            const sresJson = await this._secureFetch(`${this.baseApiUrl}/sources`, { query: { episodeId: id, provider, category: type } });
+                            const referer = provider == 'KICKASSANIME' ? 'https://kaa.to/' : provider == 'ZORO' ? 'https://megacloud.blog/' : location.href;
+                            links[this._getLocalSourceName(source)] = { stream: sresJson.streams[0].url, type: "m3u8", tracks: sresJson.tracks || [], referer };
                         } catch (e) { showToast(`Failed to fetch ep-${epNum} from ${source}: ${e}`); }
                     }
                 }));
@@ -1162,6 +1172,9 @@ async function extractEpisodes() {
                 });
 
                 episodeListElem.appendChild(listItem);
+
+                // Fix checkbox state double toggling due to label click
+                (listItem.querySelector('.anlink-episode-checkbox')).onclick = e => e.stopPropagation();
             });
 
             // Restore expand state only if section was previously expanded
@@ -1232,7 +1245,7 @@ async function extractEpisodes() {
                         }
                     });
                 }
-                playlistContent += `#EXTINF:-1,${episode.filename}\n`;
+                playlistContent += `#EXTINF:-1,${episode.filename.replaceAll('/', '|')}\n`;
                 playlistContent += `${linkObj.stream}\n`;
             });
             return playlistContent;
