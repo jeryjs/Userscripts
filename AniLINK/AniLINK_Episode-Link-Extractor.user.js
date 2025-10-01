@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.15.8
+// @version     6.16.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -39,6 +39,7 @@
 // @match       https://hianimeZ.*/watch/*
 // @match       https://aninow.tv/w/*
 // @match       https://www.animegg.org/*
+// @match       https://www.animeonsen.xyz/watch/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
 // @grant       GM.xmlHttpRequest
@@ -62,7 +63,7 @@ class Episode {
     /**
      * @param {string} number - The episode number.
      * @param {string} animeTitle - The title of the anime.
-     * @param {Object.<string, {stream: string, type: '.m3u8'|'.mp4'|'embed', tracks: Array<{file: string, kind: 'caption'|'audio', label: string}>}>, referer: string} links - An object containing streaming links and tracks for each source along with the referer (for use in CORS requests).
+     * @param {Object.<string, {stream: string, type: '.m3u8'|'.mp4'|'.mpd'|'embed', tracks: Array<{file: string, kind: 'caption'|'audio', label: string}>}>, referer: string} links - An object containing streaming links and tracks for each source along with the referer (for use in CORS requests).
      * @param {string} thumbnail - The URL of the episode's thumbnail image.
      * @param {string} [epTitle] - The title of the episode (optional).
      */
@@ -684,6 +685,21 @@ const Websites = [
                     return new Episode(epNum, pg.find('.titleep a').text().trim(), links, $('a > img').get(0).src, $(div).find('.anititle').text());
                 }));
         },
+    },
+    {
+        name: "AnimeOnsen",
+        url: ['animeonsen.xyz/'],
+        extractEpisodes: async function* (status) {
+            for (let i = 0, epLinks = await applyEpisodeRangeFilter([...$('.ao-player-metadata-episode').options].map(o=>o.value.split('-')[1])); i < epLinks.length; i += 12) {
+                yield* yieldEpisodesFromPromises(epLinks.slice(i, i + 12).map(async epNum => {
+                    status.text = `Extracting Episodes ${(epNum-Math.min(12, epNum)+1)} - ${epNum}...`;
+                    const token = atob(decodeURIComponent(document.cookie.match(new RegExp('(^|;\\s*)' + 'ao.session' + '=([^;]*)'))[2])).split("").map(c => String.fromCharCode(c.charCodeAt(0) + 1)).join("");
+                    const data = await fetch(`https://api.animeonsen.xyz/v4/content/${document.querySelector('[name="ao-content-id"]').content}/video/${epNum}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
+                    const links = { "AnimeOnsen": { stream: data.uri.stream, type: ".mpd", tracks: Object.entries(data.uri.subtitles).map(([label, file]) => ({ file, label, kind: 'caption' })), referer: location.origin } };
+                    return new Episode(epNum.toString().padStart(3, '0'), data.metadata.content_title, links, $('[property="og:image"]').content, data.metadata.episode[1].contentTitle_episode_en);
+                }));
+            }
+        }
     }
 ];
 
@@ -1589,3 +1605,7 @@ function showToast(message) {
 function showMPVHandlerHelp() {
     showToast('To play directly in MPV, install <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a> and reload this page.');
 }
+
+// Simple query selector shortcuts
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
