@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.3.5
+// @version     2.4.0
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -25,6 +25,9 @@
 // @match       https://miruro.to/*
 // @match       https://miruro.online/*
 // @match       https://animekai.to/*
+// @match       https://animetsu.cc/*
+// @match       https://kaido.to/*
+// @match       https://kuudere.to/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_addStyle
 // @grant       GM_getValue
@@ -74,8 +77,8 @@ const manualListKey = 'manualList';
 /***************************************************************
  * ANIME SITES
  * -----------
- * the timeout variable is a workaround for sites like
- * AnimePahe which generate episodes page dynamically.
+ * the timeout variable is a workaround for SPA sites like
+ * Miruro which generate the page dynamically.
  ***************************************************************/
 const animeSites = [
     {
@@ -138,6 +141,30 @@ const animeSites = [
         title: '.title',
         thumbnail: 'img',
         observe: '.tab-body',
+    },
+    {
+        name: 'gojo',
+        url: ['animetsu.cc'],
+        item: '.mx-auto > [title], .swiper-slide[title]',
+        title: 'a.font-medium, div.text-xs.tracking-wide',
+        thumbnail: 'img',
+        observe: 'main',
+        timeout: 700
+    },
+    {
+        name: 'kaido',
+        url: ['kaido.to'],
+        item: '.flw-item',
+        title: '.film-name > a',
+        thumbnail: '.film-poster > img',
+    },
+    {
+        name: 'kuudere',
+        url: ['kuudere.to'],
+        item: '.anime-card-wrapper',
+        title: '.title',
+        thumbnail: 'img',
+        timeout: 700
     }
 ];
 
@@ -320,6 +347,7 @@ class Website {
     undarkenRelatedEps(animeList) {
         this.getAnimeItems().forEach(item => {
             const thumbnail = item.querySelector(this.site.thumbnail);
+            if (!thumbnail) return;
             const title = this.getAnimeTitle(item);
             const shouldUndarken = animeList.isEntryExist(title) && !manualList.getEntry(title)?.skip;
             thumbnail.style.cssText = shouldUndarken
