@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.16.0
+// @version     6.17.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -40,6 +40,7 @@
 // @match       https://aninow.tv/w/*
 // @match       https://www.animegg.org/*
 // @match       https://www.animeonsen.xyz/watch/*
+// @match       https://kaido.to/watch/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
 // @grant       GM.xmlHttpRequest
@@ -699,6 +700,25 @@ const Websites = [
                     return new Episode(epNum.toString().padStart(3, '0'), data.metadata.content_title, links, $('[property="og:image"]').content, data.metadata.episode[1].contentTitle_episode_en);
                 }));
             }
+        }
+    },
+    {
+        name: "Kaido",
+        url: ["kaido.to"],
+        extractEpisodes: async function* (status) {
+            for (let i = 0, epLinks = await applyEpisodeRangeFilter([...document.querySelectorAll('a.ep-item')]); i < epLinks.length; i += 12)
+                yield* yieldEpisodesFromPromises(epLinks.slice(i, i + 12).map(async epLink => {
+                    const epNum = epLink.dataset.number;
+                    status.text = `Extracting Episodes ${(epNum-Math.min(12, epNum)+1)} - ${epNum}...`;
+                    return await fetch(`/ajax/episode/servers?episodeId=${epLink.dataset.id}`).then(async r => (await r.json()).html).then(t => (new DOMParser()).parseFromString(t, 'text/html'))
+                        .then(h => [...h.querySelectorAll('[data-server-id]')].map(e => ({id: e.dataset.id, type: e.dataset.type, name: e.textContent.trim()})))
+                        .then(async servers => {
+                            const links = Object.fromEntries(await Promise.all(servers.map(async s => fetch(`/ajax/episode/sources?id=${s.id}`).then(r => r.json())
+                                .then(d => GM_fetch(d.link.replace('/e-1/', '/e-1/getSources?id=').replace('?z=', '')).then(r => r.json())
+                                .then(src => [s.name, { stream: src.sources[0].file, tracks: src.tracks, type: 'm3u8', referer: src.server == 4 ? 'https://megacloud.blog/' : undefined }])))));
+                            return new Episode(epNum, $('h2.film-name > a').textContent, links, $('.film-poster > img').src, epLink.querySelector('.ep-name').textContent)
+                        });
+                }));
         }
     }
 ];
