@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.17.0
+// @version     6.17.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -691,13 +691,13 @@ const Websites = [
         name: "AnimeOnsen",
         url: ['animeonsen.xyz/'],
         extractEpisodes: async function* (status) {
-            for (let i = 0, epLinks = await applyEpisodeRangeFilter([...$('.ao-player-metadata-episode').options].map(o=>o.value.split('-')[1])); i < epLinks.length; i += 12) {
+            for (let i = 0, epLinks = await applyEpisodeRangeFilter([..._$('.ao-player-metadata-episode').options].map(o=>o.value.split('-')[1])); i < epLinks.length; i += 12) {
                 yield* yieldEpisodesFromPromises(epLinks.slice(i, i + 12).map(async epNum => {
                     status.text = `Extracting Episodes ${(epNum-Math.min(12, epNum)+1)} - ${epNum}...`;
                     const token = atob(decodeURIComponent(document.cookie.match(new RegExp('(^|;\\s*)' + 'ao.session' + '=([^;]*)'))[2])).split("").map(c => String.fromCharCode(c.charCodeAt(0) + 1)).join("");
                     const data = await fetch(`https://api.animeonsen.xyz/v4/content/${document.querySelector('[name="ao-content-id"]').content}/video/${epNum}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
                     const links = { "AnimeOnsen": { stream: data.uri.stream, type: ".mpd", tracks: Object.entries(data.uri.subtitles).map(([label, file]) => ({ file, label, kind: 'caption' })), referer: location.origin } };
-                    return new Episode(epNum.toString().padStart(3, '0'), data.metadata.content_title, links, $('[property="og:image"]').content, data.metadata.episode[1].contentTitle_episode_en);
+                    return new Episode(epNum.toString().padStart(3, '0'), data.metadata.content_title, links, _$('[property="og:image"]').content, data.metadata.episode[1].contentTitle_episode_en);
                 }));
             }
         }
@@ -706,7 +706,7 @@ const Websites = [
         name: "Kaido",
         url: ["kaido.to"],
         extractEpisodes: async function* (status) {
-            for (let i = 0, epLinks = await applyEpisodeRangeFilter([...document.querySelectorAll('a.ep-item')]); i < epLinks.length; i += 12)
+            for (let i = 0, epLinks = await applyEpisodeRangeFilter([..._$$('a.ep-item')]); i < epLinks.length; i += 12)
                 yield* yieldEpisodesFromPromises(epLinks.slice(i, i + 12).map(async epLink => {
                     const epNum = epLink.dataset.number;
                     status.text = `Extracting Episodes ${(epNum-Math.min(12, epNum)+1)} - ${epNum}...`;
@@ -715,8 +715,8 @@ const Websites = [
                         .then(async servers => {
                             const links = Object.fromEntries(await Promise.all(servers.map(async s => fetch(`/ajax/episode/sources?id=${s.id}`).then(r => r.json())
                                 .then(d => GM_fetch(d.link.replace('/e-1/', '/e-1/getSources?id=').replace('?z=', '')).then(r => r.json())
-                                .then(src => [s.name, { stream: src.sources[0].file, tracks: src.tracks, type: 'm3u8', referer: src.server == 4 ? 'https://megacloud.blog/' : undefined }])))));
-                            return new Episode(epNum, $('h2.film-name > a').textContent, links, $('.film-poster > img').src, epLink.querySelector('.ep-name').textContent)
+                                .then(src => src.encrypted ? undefined : [`${s.name}-${s.type}`, { stream: src.sources[0].file, tracks: src.tracks, type: 'm3u8', referer: src.server == 4 ? 'https://megacloud.blog/' : undefined }])))));
+                            return new Episode(epNum, _$('h2.film-name > a').textContent, links, _$('.film-poster > img').src, epLink.querySelector('.ep-name').textContent)
                         });
                 }));
         }
@@ -1627,5 +1627,5 @@ function showMPVHandlerHelp() {
 }
 
 // Simple query selector shortcuts
-const $ = s => document.querySelector(s);
-const $$ = s => document.querySelectorAll(s);
+const _$ = s => document.querySelector(s);
+const _$$ = s => document.querySelectorAll(s);
