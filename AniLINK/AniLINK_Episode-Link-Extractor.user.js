@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.17.1
+// @version     6.18.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -41,6 +41,7 @@
 // @match       https://www.animegg.org/*
 // @match       https://www.animeonsen.xyz/watch/*
 // @match       https://kaido.to/watch/*
+// @match       https://animetsu.cc/watch/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
 // @grant       GM.xmlHttpRequest
@@ -718,6 +719,42 @@ const Websites = [
                                 .then(src => src.encrypted ? undefined : [`${s.name}-${s.type}`, { stream: src.sources[0].file, tracks: src.tracks, type: 'm3u8', referer: src.server == 4 ? 'https://megacloud.blog/' : undefined }])))));
                             return new Episode(epNum, _$('h2.film-name > a').textContent, links, _$('.film-poster > img').src, epLink.querySelector('.ep-name').textContent)
                         });
+                }));
+        }
+    },
+    {
+        name: "Gojo",
+        url: ["animetsu.cc"],
+        addStartButton: function (id) {
+            // Use same logic as Miruro, but target gojo layout
+            let last_known_location = location.href;
+            setInterval(() => {
+                if (last_known_location !== location.href) { last_known_location = location.href; document.getElementById('AniLINK_Overlay')?.remove() };
+                // Prepend the extract button
+                const target = document.querySelector('.Video .items-center.gap-2 + div');
+                if (target && !document.getElementById(id)) {
+                    const btn = Object.assign(document.createElement('button'), {id, className: (target.lastChild?.className || '') + " font-light w-fit !shrink-0 text-[.6rem] sm:text-xs justify-center items-center whitespace-nowrap overflow-hidden text-ellipsis flex", innerHTML: `<svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="3 3 18 18" style="margin-right:6px;"><path fill="currentColor" d="M5 21q-.825 0-1.413-.588T3 19V5q0-.825.588-1.413T5 3h14q.825 0 1.413.588T21 5v14q0 .825-.588 1.413T19 21H5Zm0-2h14V5H5v14Zm3-4.5h2.5v-6H8v6Zm5.25 0h2.5v-6h-2.5v6Zm5.25 0h2.5v-6h-2.5v6Z"/></svg>Extract Episode Links`});
+                    btn.addEventListener('click', extractEpisodes);
+                    target.prepend(btn);
+                }
+            }, 500);
+        },
+        extractEpisodes: async function* (status) {
+            const id = location.pathname.split('/').pop();
+            for (let i = 0, epElms = await applyEpisodeRangeFilter([..._$$('.Episode button:not(:nth-child(1))')]); i < epElms.length; i += 3)
+                yield* yieldEpisodesFromPromises(epElms.slice(i, i + 3).map(async epElm => {
+                    const epNum = epElm.querySelector('.font-medium').textContent.split(' ').pop();
+                    status.text = `Extracting Episodes ${(epNum-Math.min(3, epNum)+1)} - ${epNum}...`;
+                    const servers = await fetch(`https://backend.animetsu.cc/api/anime/servers?id=${id}&num=${epNum}`).then(r => r.json());
+                    const links = Object.fromEntries((await Promise.allSettled(servers.flatMap(srv => {
+                        if (!_$('button[disabled]').textContent.includes(srv.id)) return []; // process only selected server
+                        return ['sub', ...(srv.hasDub ? ['dub'] : [])].map(async subType => 
+                            fetch(`https://backend.animetsu.cc/api/anime/tiddies?server=${srv.id}&id=${id}&num=${epNum}&subType=${subType}`).then(r => r.json())
+                                .then(data => data.sources.map(src => [`${srv.id}-${subType}-${src.quality}`, { stream: src.url, type: 'm3u8', tracks: data.subtitles?.map(s => ({ file: s.url, label: s.lang, kind: 'caption' })) || [] }]))
+                                .catch(e => { showToast(`Failed to fetch Ep ${epNum} from ${srv.id}-${subType}: ${e.message || e}`); return []; })
+                        );
+                    }))).flatMap(r => r.status === 'fulfilled' ? r.value : []));
+                    return new Episode(epNum, _$('.cover + div span').textContent, links, epElm.querySelector('img')?.src || '', epElm.querySelector('.text-sm').textContent);
                 }));
         }
     }
