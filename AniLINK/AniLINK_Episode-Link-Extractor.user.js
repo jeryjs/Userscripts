@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.18.0
+// @version     6.18.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -555,7 +555,7 @@ const Websites = [
         epTitle: 'div.space-y-2 > div.text-center',
         epNumber: 'a[x-ref="activeEps"] > div > div',
         thumbnail: 'media-poster',
-        epLinks: () => [...new Set(Array.from(document.querySelectorAll('a[href^="https://anizone.to/anime/"]')).map(a => a.href))],
+        epLinks: () => [...new Set(Array.from(document.querySelectorAll('a[wire\\:key][href^="https://anizone.to/anime/"]')).map(a => a.href))],
         addStartButton: function () {
             const target = document.querySelector('button > span.truncate')?.parentElement || document.querySelector('.grow + div select');
             const button = Object.assign(document.createElement('button'), {
@@ -578,7 +578,7 @@ const Websites = [
                         const animeTitle = page.querySelector(this.animeTitle)?.textContent.trim();
                         const epNum = page.querySelector(this.epNumber)?.textContent.trim();
                         const epTitle = page.querySelector(this.epTitle)?.textContent.trim();
-                        const thumbnail = page.querySelector(this.thumbnail)?.src;
+                        const thumbnail = page.querySelectorAll('media-poster')[0].outerHTML.match(/src="([^"]*)"/)[1]; // using outerHTML as workaround for a weird bug
 
                         status.text = `Extracting ${epNum} - ${epTitle}...`;
                         const links = { [page.querySelector('button > span.truncate').textContent]: { stream: page.querySelector("media-player").getAttribute("src"), type: "m3u8", tracks: [...page.querySelectorAll("media-provider>track")].map(t => ({ file: t.src, kind: t.kind, label: t.label })) } };
