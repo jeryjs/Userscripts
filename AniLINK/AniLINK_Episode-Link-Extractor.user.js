@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.18.1
+// @version     6.19.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -42,6 +42,10 @@
 // @match       https://www.animeonsen.xyz/watch/*
 // @match       https://kaido.to/watch/*
 // @match       https://animetsu.cc/watch/*
+// @match       https://animekai.to/watch/*
+// @match       https://animekai.ac/watch/*
+// @match       https://animekai.cc/watch/*
+// @match       https://anikai.to/watch/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
 // @grant       GM.xmlHttpRequest
@@ -757,10 +761,47 @@ const Websites = [
                     return new Episode(epNum, _$('.cover + div span').textContent, links, epElm.querySelector('img')?.src || '', epElm.querySelector('.text-sm').textContent);
                 }));
         }
+    },
+    {
+        name: 'AnimeKai',
+        url: ['animekai.to/', 'animekai.ac/', 'animekai.cc/', 'anikai.to/'],
+        _chunkSize: 12,
+        addStartButton: function (id) {
+            setInterval(() => {
+                if ($('#' + id).get(0)) return;
+                const button = Object.assign(document.createElement('button'), { id, className: "btn btn-primary", textContent: "Extract Episode Links" });
+                const target = document.querySelector('.episode-section');
+                if (target) target.appendChild(button);
+                else document.querySelector('.eplist-nav')?.appendChild(button);
+                button.addEventListener('click', extractEpisodes);
+            }, 500);
+        },
+        extractEpisodes: async function* (status) {
+            status.text = 'Fetching episode list...';
+            // const epItems = await applyEpisodeRangeFilter($('a[num]').get().map(e=> ({id: e.getAttribute('token'), num: e.getAttribute('num'), type: e.getAttribute('langs'), name: e.querySelector('span').textContent})));
+            const epElms = await applyEpisodeRangeFilter($('a[num]').get());
+            for (let i = 0; i < epElms.length; i += this._chunkSize) 
+                yield* yieldEpisodesFromPromises(epElms.slice(i, i + this._chunkSize).map(async ep => {
+                    const epNum = ep.getAttribute('num');
+                    status.text = `Extracting Episodes ${(epNum-Math.min(this._chunkSize, epNum)+1)} - ${epNum}...`;
+                    const servers = await fetch(`/ajax/links/list?token=${ep.getAttribute('token')}&_=${await this._decode(ep.getAttribute('token'))}`).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html'))
+                        .then(doc => $(doc).find('.server').map((i, e) => ({ lid: e.dataset.lid, name: `${this._typeSuffix(e.closest('div').dataset.id)} - ${e.textContent}` })).get())
+                        .catch(e => showToast(`Failed to fetch servers for Ep ${epNum}`));
+                    const links = {};
+                    await Promise.all(servers.map(async s => {
+                        links[s.name] = await fetch(`/ajax/links/view?id=${s.lid}&_=${await this._decode(s.lid)}`).then(r => r.json().then(d => d.result))
+                            .then(val => this._decode(val, 'd').then(JSON.parse)).then(async d => await Extractors.use(d.url))
+                            .catch(e => showToast(`Failed to fetch Ep ${epNum} from ${s.name}: ${e.message || e}`))
+                    }));
+                    return new Episode(epNum, $('h1').text(), links, $('.poster-wrap-bg').attr('style').match(/https.*\.[a-z]+/g)[0], ep.querySelector('span').textContent);
+                }))
+        },
+        _decode: async (s, t = 'e') => await GM_fetch(`https://c-kai-8090.amarullz.com/?f=${t}&d=${s}`).then(r => r.text()),
+        _typeSuffix: type => ({ sub: "Hard Sub", softsub: "Soft Sub", dub: "Dub & S-Sub" }[type] || type)
     }
 ];
 
-const USER_AGENT_HEADER = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+const USER_AGENT_HEADER = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0";
 const Extractors = {
     use: function (url, ...args) {
         const extractor = this[(new URL(url)).host];
@@ -866,6 +907,12 @@ const Extractors = {
         const sources = eval(decoded.match(/sources:\[.*?\]/)[0]);
         const source = sources.reduce((best, curr) => (s => parseInt(s.label) || 0)(curr) > (s => parseInt(s.label) || 0)(best) ? curr : best, sources[0]);
         return { file: source.file, type: source.file.includes('.m3u8') ? 'm3u8' : 'mp4', tracks: [] };
+    },
+    'megaup.live': async function(url, referer='https://megaup.live/') {
+        // workaround: use GM_xmlhttpRequest to avoid passing cookies (coudnt do that with GM_fetch)
+        const encToken = await new Promise((r, j) => GM_xmlhttpRequest({ method: 'GET', url: url.replace('/e/', '/media/'), headers: { 'User-Agent': USER_AGENT_HEADER }, anonymous: true, onload: res => { try { r(JSON.parse(res.responseText).result); } catch (e) { j(e); } }, onerror: j }));
+        const src = (await GM_fetch('https://enc-dec.app/api/dec-mega', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({text: encToken, agent: USER_AGENT_HEADER}) }).then(r => r.json())).result; 
+        return { stream: src.sources[0].file, type: 'm3u8', tracks: src.tracks?.map(t => ({ file: t.file, label: t.label, kind: t.kind, default: !!t.default })), referer: 'https://megaup.cc/' }; 
     }
 }
 /**
