@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.19.0
+// @version     6.19.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -820,64 +820,23 @@ const Extractors = {
         return { file: src.sources?.file, type: 'm3u8', tracks: src.tracks || []}
     },
     'megacloud.blog': async function (embed, referer) {
-        // adapted from https://github.com/middlegear/hakai-extensions/blob/main/src/utils/getClientKey.ts
-        _getClientKey = async (embed, referer) => {
-            const salts = [];
-            for (let attempt = 0; attempt < 100; attempt++) {
-                const html = await GM_fetch(embed, { headers: { referer, 'User-Agent': USER_AGENT_HEADER } }).then(r => r.text());
-                const match1 = html.match(/\b[a-zA-Z0-9]{48}\b/), match2 = html.match(/\b([a-zA-Z0-9]{16})\b.*?\b([a-zA-Z0-9]{16})\b.*?\b([a-zA-Z0-9]{16})\b/);
-                if (match1) salts.push(match1[0]);
-                if (match2 && match2.length === 4) salts.push([match2[1], match2[2], match2[3]].join(""));
-                const page = (new DOMParser()).parseFromString(html, 'text/html');
-                for (const script of page.scripts) {
-                    const content = script.getHTML(); if (!content) continue;
-                    const varMatch = content.match(/_[a-zA-Z0-9_]+\s*=\s*['"]([a-zA-Z0-9]{32,})['"]/);
-                    if (varMatch?.[1]) salts.push(varMatch[1]);
-                    const objMatch = content.match(/_[a-zA-Z0-9_]+\s*=\s*{[^}]*x\s*:\s*['"]([a-zA-Z0-9]{16,})['"][^}]*y\s*:\s*['"]([a-zA-Z0-9]{16,})['"][^}]*z\s*:\s*['"]([a-zA-Z0-9]{16,})['"]/);
-                    if (objMatch?.[1] && objMatch[2] && objMatch[3]) { const key = objMatch[1] + objMatch[2] + objMatch[3]; salts.push(key); }
-                }
-                const nonceAttr =  page.querySelector("script[nonce]")?.getAttribute("nonce");
-                if (nonceAttr && nonceAttr.length >= 32) salts.push(nonceAttr);
-                const metaContent = Array.from(page.querySelectorAll("meta[name]")).filter((el) => el.getAttribute("name")?.startsWith("_")).map((el) => el.getAttribute("content")).join("");
-                if (metaContent && /[a-zA-Z0-9]{32,}/.test(metaContent)) salts.push(metaContent);
-                const dataAttr = Object.fromEntries(Array.from(page.querySelectorAll('[data-dpi],[data-key],[data-token]'))[0]?.attributes ?? []);
-                const dataKey = dataAttr?.["data-dpi"] || dataAttr?.["data-key"] || dataAttr?.["data-token"];
-                if (dataKey && /[a-zA-Z0-9]{32,}/.test(dataKey)) salts.push(dataKey);
-                const uniqueSalts = [...new Set(salts)].filter((key) => key.length >= 32 && key.length <= 64);
-                if (uniqueSalts.length > 0) return uniqueSalts[0];
-            }
-        };
-        // adapted from https://github.com/middlegear/hakai-extensions/blob/main/src/source-extractors/megacloud.ts
-        _decrypt = (secret, nonce, encrypted, rounds = 3) => {
-            const _DEFAULT_CHARSET = Array.from({ length: 95 }, (_, i) => String.fromCharCode(i + 32));
-            const _deriveKey = (secret, nonce) => { const input = secret + nonce; let hash = 0n; for (let i = 0; i < input.length; i++) hash += hash * 173n + BigInt(input.charCodeAt(i)); const modHash = hash % 0x7fffffffffffffffn; const xorProcessed = [...input].map((char) => String.fromCharCode(char.charCodeAt(0) ^ 15835827 & 255)).join(""); const shift = Number(modHash) % xorProcessed.length + 7; const rotated = xorProcessed.slice(shift) + xorProcessed.slice(0, shift); const reversedNonce = [...nonce].reverse().join(""); let interleaved = ""; for (let i = 0; i < Math.max(rotated.length, reversedNonce.length); i++) interleaved += (rotated[i] || "") + (reversedNonce[i] || ""); return [...interleaved.substring(0, (96 + Number(modHash) % 33))].map((ch) => String.fromCharCode(ch.charCodeAt(0) % 95 + 32)).join(""); }
-            const _columnarTranspositionCipher = (text, key) => { const cols = key.length; const rows = Math.ceil(text.length / cols); const grid = Array.from({ length: rows }, () => Array(cols).fill("")); let i = 0; for (const { idx } of [...key].map((char, idx) => ({ char, idx })).sort((a, b) => a.char.charCodeAt(0) - b.char.charCodeAt(0))) for (let row = 0; row < rows; row++) grid[row][idx] = text[i++] || ""; return grid.flat().join(""); }
-            const _deterministicUnshuffle = (charset, key) => { let seed = [...key].reduce((acc, char) => acc * 31n + BigInt(char.charCodeAt(0)) & 0xffffffffn, 0n); const result = [...charset]; for (let i = result.length - 1; i > 0; i--) { const j = ((limit) => { seed = seed * 1103515245n + 12345n & 0x7fffffffn; return Number(seed % BigInt(limit)); })(i + 1);[result[i], result[j]] = [result[j], result[i]]; } return result; }
-            let data = new TextDecoder("utf-8").decode(Uint8Array.from(atob(encrypted), c => c.charCodeAt(0)));
-            for (let round = rounds; round >= 1; round--) {
-                const passphrase = _deriveKey(secret, nonce) + round;
-                let seed = [...passphrase].reduce((acc, char) => acc * 31n + BigInt(char.charCodeAt(0)) & 0xffffffffn, 0n);
-                data = [...data].map((char) => { const idx = _DEFAULT_CHARSET.indexOf(char); if (idx === -1) return char; return _DEFAULT_CHARSET[(idx - (() => { seed = seed * 1103515245n + 12345n & 0x7fffffffn; return Number(seed % BigInt(95)); })() + 95) % 95]; }).join("");
-                data = _columnarTranspositionCipher(data, passphrase);
-                const shuffled = _deterministicUnshuffle(_DEFAULT_CHARSET, passphrase);
-                data = [...data].map(char => (Object.fromEntries(shuffled.map((c, i) => [c, _DEFAULT_CHARSET[i]])))[char] || char).join("");
-            }
-            let length = parseInt(data.slice(0, 4), 10);
-            if (isNaN(length) || length <= 0 || length > data.length - 4) throw new Error("Decryption failed: Invalid length in decrypted string");
-            return data.slice(4, 4 + length);
-        }
-        const sId = embed.split('/').pop().split('?')[0];
-        const key = await _getClientKey(embed, referer);
-        const url = `https://megacloud.blog/embed-2/v3/e-1/getSources?id=${sId}&_k=${key}`;
-        const data = await GM_fetch(url).then(r=>r.json());
-        if (data.encrypted) {
-            const secret = await fetch('https://raw.githubusercontent.com/yogesh-hacker/MegacloudKeys/refs/heads/main/keys.json').then(r => r.json()).then(j => j['mega']);
-            const sources = JSON.parse(_decrypt(secret, key, data.sources));
-            return { file: sources[0].file, type: sources[0].type, tracks: data.tracks || [] }
-        }
-        if (data.error) throw new Error(data.error);
-        showToast(`Couldnt decrypt sources for ${embed}`);
-        return { file: embed, type: 'embed', tracks: data?.tracks }
+        // adapted from https://github.com/yuzono/aniyomi-extensions/blob/master/lib/megacloud-extractor/src/main/java/eu/kanade/tachiyomi/lib/megacloudextractor/MegaCloudExtractor.kt
+        const html = await GM_fetch(embed, { headers: { referer, 'User-Agent': USER_AGENT_HEADER } }).then(r => r.text());
+        const match1 = html.match(/\b[a-zA-Z0-9]{48}\b/), match2 = html.match(/\b([a-zA-Z0-9]{16})\b.*?\b([a-zA-Z0-9]{16})\b.*?\b([a-zA-Z0-9]{16})\b/);
+        const nonce = match1?.[0] || (match2 ? match2[1] + match2[2] + match2[3] : null);
+        if (!nonce) throw new Error('Failed to extract nonce from response');
+        const sId = embed.split('/e-1/')[1]?.split('?')[0];
+        if (!sId) throw new Error('Failed to extract ID from URL');
+        const host = (new URL(embed)).host;
+        const url = `https://${host}/embed-2/v3/e-1/getSources?id=${sId}&_k=${nonce}`;
+        const data = await GM_fetch(url, { headers: { 'Accept': '*/*', 'X-Requested-With': 'XMLHttpRequest', 'Referer': `https://${host}/` } }).then(r => r.json());
+        if (!data.encrypted || data.sources[0].file.includes('.m3u8')) return { file: data.sources[0].file, type: data.sources[0].type, tracks: data.tracks || [] };
+        const secret = await fetch('https://raw.githubusercontent.com/yogesh-hacker/MegacloudKeys/refs/heads/main/keys.json').then(r => r.json()).then(j => j['mega']);
+        const decryptUrl = `https://megacloud-api-nine.vercel.app/?encrypted_data=${encodeURIComponent(data.sources[0].file)}&nonce=${encodeURIComponent(nonce)}&secret=${encodeURIComponent(secret)}`;
+        const decrypted = await GM_fetch(decryptUrl).then(r => r.text());
+        const m3u8 = decrypted.match(/"file":"(.*?)"/)?.[1];
+        if (!m3u8) throw new Error('Video URL not found in decrypted response');
+        return { file: m3u8, type: 'hls', tracks: data.tracks || [] };
     },
     'gofile.io': async function (url) {
         const id = url.split('/').pop();
