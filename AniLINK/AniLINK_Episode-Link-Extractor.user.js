@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.19.1
+// @version     6.20.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -636,12 +636,12 @@ const Websites = [
     {
         name: 'HiAnime',
         url: ['hianime.to/', 'hianimez.is/', 'hianimez.to/', 'hianime.nz/', 'hianime.bz/', 'hianime.pe/', 'hianime.cx/', 'hianime.gs/'],
-        _chunkSize: 6, // Number of episodes to extract in parallel
+        _chunkSize: 1, // Number of episodes to extract in parallel
         extractEpisodes: async function* (status) {
             for (let i = 0, epList = await applyEpisodeRangeFilter($('.ss-list > a').get()); i < epList.length; i += this._chunkSize) {
                 yield* yieldEpisodesFromPromises(epList.slice(i, i + this._chunkSize).map(async e => {
                     const [epId, epNum, epTitle] = [$(e).data('id'), $(e).data('number'), $(e).find('.ep-name').text()]; let thumbnail = '';
-                    status.text = `Extracting Episodes ${epNum-Math.min(this._chunkSize, epNum)+1} - ${epNum}...`;
+                    status.text = `Extracting Episode ${epNum-Math.min(this._chunkSize, epNum)+1}...`;
                     const servers = await $((await $.get(`/ajax/v2/episode/servers?episodeId=${epId}`, r => $(r).responseJSON)).html).find('.server-item').map((_, i) => [[$(i).text().trim(), { id: $(i).data('id'), type: $(i).data('type') }]]).get();
                     // Prefer HD-2 if available. (HD-1 and HD-3 might have CORS issues)
                     const filteredServers = servers.filter(([s]) => !['HD-1', 'HD-3'].includes(s));
@@ -821,12 +821,18 @@ const Extractors = {
     },
     'megacloud.blog': async function (embed, referer) {
         // adapted from https://github.com/yuzono/aniyomi-extensions/blob/master/lib/megacloud-extractor/src/main/java/eu/kanade/tachiyomi/lib/megacloudextractor/MegaCloudExtractor.kt
-        const html = await GM_fetch(embed, { headers: { referer, 'User-Agent': USER_AGENT_HEADER } }).then(r => r.text());
+        const res = await GM_fetch(embed, { headers: { referer, 'User-Agent': USER_AGENT_HEADER } });
+        const retryAfter = res.headers.get('Retry-After');  // Rate limit Policy: 10 requests per minute
+        if (retryAfter) {
+            const hhmmss = new Date(new Date().getTime() + parseInt(retryAfter) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+            showToast(`Rate limited by megacloud.blog, retrying in ${retryAfter} seconds (at ${hhmmss})...`, parseInt(retryAfter) * 1000);
+            return await new Promise(res => setTimeout(res, 500 + parseInt(retryAfter) * 1000)).then(() => Extractors['megacloud.blog'](embed, referer)); // recursive retry
+        }
+        const html = await res.text();
         const match1 = html.match(/\b[a-zA-Z0-9]{48}\b/), match2 = html.match(/\b([a-zA-Z0-9]{16})\b.*?\b([a-zA-Z0-9]{16})\b.*?\b([a-zA-Z0-9]{16})\b/);
         const nonce = match1?.[0] || (match2 ? match2[1] + match2[2] + match2[3] : null);
         if (!nonce) throw new Error('Failed to extract nonce from response');
         const sId = embed.split('/e-1/')[1]?.split('?')[0];
-        if (!sId) throw new Error('Failed to extract ID from URL');
         const host = (new URL(embed)).host;
         const url = `https://${host}/embed-2/v3/e-1/getSources?id=${sId}&_k=${nonce}`;
         const data = await GM_fetch(url, { headers: { 'Accept': '*/*', 'X-Requested-With': 'XMLHttpRequest', 'Referer': `https://${host}/` } }).then(r => r.json());
@@ -1127,6 +1133,7 @@ async function extractEpisodes() {
     try {
         const episodeGenerator = site.extractEpisodes(status);
         const qualityLinkLists = {}; // Stores lists of links for each quality
+        const startTime = Date.now();
 
         for await (const episode of episodeGenerator) {
             if (!status.isExtracting) { // Check if extraction is stopped
@@ -1144,15 +1151,17 @@ async function extractEpisodes() {
             // Update UI in real-time - RENDER UI HERE BASED ON qualityLinkLists
             renderQualityLinkLists(qualityLinkLists, qualitiesContainer);
         }
+        
+        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
         statusIconElement.querySelector('i').classList.remove('extracting');
         if (qualityLinkLists && Object.keys(qualityLinkLists).length > 0) {
-            status = { isExtracting: false, text: "Extraction Complete!" };
+            status = { isExtracting: false, text: `Extraction Complete in ${duration} seconds` };
         } else {
             status = { isExtracting: false, text: "No episodes found." };
         }
     } catch (error) {
         console.error('Error during episode extraction:', error);
-        status = { isExtracting: false, text: "Extraction Failed.", error: error.message || error.toString() };
+        status = { isExtracting: false, text: `Extraction Failed after ${duration} seconds.`, error: error.message || error.toString() };
     }
 
     // Renders quality link lists inside a given container element
@@ -1611,55 +1620,103 @@ async function applyEpisodeRangeFilter(allEpLinks) {
  ***************************************************************/
 let toasts = [];
 
-function showToast(message) {
+function showToast(message, duration = 5000) {
     const maxToastHeight = window.innerHeight * 0.5;
-    const toastHeight = 50; // Approximate height of each toast
+    const toastHeight = 70;
     const maxToasts = Math.floor(maxToastHeight / toastHeight);
 
     console.log(message);
 
+    // Inject toast styles if not already present
+    if (!document.getElementById('anlink-toast-styles')) {
+        GM_addStyle(`
+            @keyframes anlink-toast-slide-in { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+            @keyframes anlink-toast-slide-out { from { transform: translateX(0); opacity: 1; } to { transform: translateX(400px); opacity: 0; } }
+            .anlink-toast { position: fixed; right: 20px; min-width: 300px; max-width: 400px; background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%); border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 12px; padding: 16px 20px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08); z-index: 10000; display: flex; align-items: flex-start; gap: 12px; animation: anlink-toast-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1); backdrop-filter: blur(10px); transition: top 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+            .anlink-toast.slide-out { animation: anlink-toast-slide-out 0.3s cubic-bezier(0.7, 0, 0.84, 0) forwards; }
+            .anlink-toast-icon { flex-shrink: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #26a69a 0%, #20847a 100%); border-radius: 50%; color: white; font-size: 14px; font-weight: bold; }
+            .anlink-toast-content { flex: 1; color: #1a1a1a; font-size: 14px; line-height: 1.5; font-weight: 500; }
+            .anlink-toast-content a { color: #26a69a; text-decoration: none; font-weight: 600; border-bottom: 1px solid transparent; transition: border-color 0.2s; }
+            .anlink-toast-content a:hover { border-bottom-color: #26a69a; }
+            .anlink-toast-close { flex-shrink: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.05); border: none; border-radius: 50%; color: #666; cursor: pointer; font-size: 16px; line-height: 1; transition: all 0.2s; padding: 0; }
+            .anlink-toast-close:hover { background: rgba(0, 0, 0, 0.1); color: #1a1a1a; transform: scale(1.1); }
+            /* Dark mode support */
+            @media (prefers-color-scheme: dark) { 
+                .anlink-toast { background: linear-gradient(135deg, #2d2d2d 0%, #1a1a1a 100%); border-color: rgba(255, 255, 255, 0.1); }
+                .anlink-toast-content { color: #e0e0e0; }
+                .anlink-toast-close { background: rgba(255, 255, 255, 0.1); color: #ccc; }
+                .anlink-toast-close:hover { background: rgba(255, 255, 255, 0.2); color: #fff; }
+            }
+        `);
+        const styleTag = document.createElement('style');
+        styleTag.id = 'anlink-toast-styles';
+        document.head.appendChild(styleTag);
+    }
+
     // Create the new toast element
-    const x = document.createElement("div");
-    x.innerHTML = message;
-    x.style.color = "#000";
-    x.style.backgroundColor = "#fdba2f";
-    x.style.borderRadius = "10px";
-    x.style.padding = "10px";
-    x.style.position = "fixed";
-    x.style.top = `${toasts.length * toastHeight}px`;
-    x.style.right = "5px";
-    x.style.fontSize = "large";
-    x.style.fontWeight = "bold";
-    x.style.zIndex = "10000";
-    x.style.display = "block";
-    x.style.borderColor = "#565e64";
-    x.style.transition = "right 2s ease-in-out, top 0.5s ease-in-out";
-    document.body.appendChild(x);
+    const toast = document.createElement("div");
+    toast.className = "anlink-toast";
+    toast.style.top = `${20 + toasts.length * toastHeight}px`;
+    
+    // Infer toast type and icon from message content
+    const lowerMsg = message.toLowerCase();
+    const iconMap = { error: ['❌', '#ef5350'], success: ['✅', '#66bb6a'], warning: ['⚠️', '#ffa726'], loading: ['⏳', '#42a5f5'], help: ['💡', '#ab47bc'], info: ['ℹ️', null] };
+    const typeChecks = [
+        [['error', 'failed', 'couldn\'t', 'could not'], 'error'],
+        [['success', 'complete', 'copied', 'exported', 'sent to'], 'success'],
+        [['warning', 'no episodes', 'not found', 'rate limited'], 'warning'],
+        [['loading', 'fetching', 'extracting', 'processing'], 'loading'],
+        [['install', 'mpv', 'handler'], 'help']
+    ];
+    const toastType = typeChecks.find(([keywords]) => keywords.some(k => lowerMsg.includes(k)))?.[1] || 'info';
+    const [icon, borderColor] = iconMap[toastType];
+    if (borderColor) toast.style.borderLeft = `4px solid ${borderColor}`;
+
+    toast.innerHTML = `
+        <div class="anlink-toast-icon">${icon}</div>
+        <div class="anlink-toast-content">${message}</div>
+        <button class="anlink-toast-close" aria-label="Close">×</button>
+    `;
+    
+    document.body.appendChild(toast);
+
+    // Close button handler
+    const closeBtn = toast.querySelector('.anlink-toast-close');
+    const removeToast = () => {
+        toast.classList.add('slide-out');
+        setTimeout(() => {
+            if (document.body.contains(toast)) document.body.removeChild(toast);
+            toasts = toasts.filter(t => t !== toast);
+            // Reposition remaining toasts
+            toasts.forEach((t, index) => {
+                t.style.top = `${20 + index * toastHeight}px`;
+            });
+        }, 300);
+    };
+    
+    closeBtn.addEventListener('click', removeToast);
 
     // Add the new toast to the list
-    toasts.push(x);
+    toasts.push(toast);
 
-    // Remove the toast after it slides out
-    setTimeout(() => {
-        x.style.right = "-1000px";
-    }, 3000);
-
-    setTimeout(() => {
-        x.style.display = "none";
-        if (document.body.contains(x)) document.body.removeChild(x);
-        toasts = toasts.filter(toast => toast !== x);
-        // Move remaining toasts up
-        toasts.forEach((toast, index) => {
-            toast.style.top = `${index * toastHeight}px`;
-        });
-    }, 4000);
+    // Auto-remove after delay (or dont remove if duration is 0)
+    if (duration > 0) {
+        setTimeout(() => removeToast(), duration);
+    }
 
     // Limit the number of toasts to maxToasts
     if (toasts.length > maxToasts) {
         const oldestToast = toasts.shift();
-        document.body.removeChild(oldestToast);
-        toasts.forEach((toast, index) => {
-            toast.style.top = `${index * toastHeight}px`;
+        oldestToast.classList.add('slide-out');
+        setTimeout(() => {
+            if (document.body.contains(oldestToast)) {
+                document.body.removeChild(oldestToast);
+            }
+        }, 300);
+        
+        // Reposition remaining toasts
+        toasts.forEach((t, index) => {
+            t.style.top = `${20 + index * toastHeight}px`;
         });
     }
 }
