@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.21.1
+// @version     6.21.2
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -648,7 +648,7 @@ const Websites = [
                     const links = await (filteredServers.length ? filteredServers : servers).reduce(async (linkAcc, [server, { id, type }]) => {try {
                         const data = await fetch(`/ajax/v2/episode/sources?id=${id}`).then(r => r.json());
                         const src = await Extractors.use(data.link, location.href);
-                        return {...await linkAcc, [`${server}-${type}`]: { stream: src.file, type: 'm3u8', tracks: src.tracks, referer: location.href }};
+                        return {...await linkAcc, [`${server}-${type}`]: { stream: src.file, type: 'm3u8', tracks: src.tracks, referer: src.referer || location.href }};
                     } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${server}-${type}: (${e.status}): ${e.message || e}`); return linkAcc; }}, Promise.resolve({}));
                     return new Episode(epNum, ($('.film-name > a').first().text()), links, thumbnail, epTitle);
                 }))}
@@ -833,10 +833,10 @@ const Extractors = {
         const nonce = match1?.[0] || (match2 ? match2[1] + match2[2] + match2[3] : null);
         if (!nonce) throw new Error('Failed to extract nonce from response');
         const sId = embed.split('/e-1/')[1]?.split('?')[0];
-        const host = (new URL(embed)).host;
-        const url = `https://${host}/embed-2/v3/e-1/getSources?id=${sId}&_k=${nonce}`;
-        const data = await GM_fetch(url, { headers: { 'Accept': '*/*', 'X-Requested-With': 'XMLHttpRequest', 'Referer': `https://${host}/` } }).then(r => r.json());
-        if (!data.encrypted || data.sources[0].file.includes('.m3u8')) return { file: data.sources[0].file, type: data.sources[0].type, tracks: data.tracks || [] };
+        const origin = (new URL(embed)).origin;
+        const url = `${origin}/embed-2/v3/e-1/getSources?id=${sId}&_k=${nonce}`;
+        const data = await GM_fetch(url, { headers: { 'Accept': '*/*', 'X-Requested-With': 'XMLHttpRequest', 'Referer': origin+'/' } }).then(r => r.json());
+        if (!data.encrypted || data.sources[0].file.includes('.m3u8')) return { file: data.sources[0].file, type: data.sources[0].type, tracks: data.tracks || [], referer: origin+'/' };
         const secret = await fetch('https://raw.githubusercontent.com/yogesh-hacker/MegacloudKeys/refs/heads/main/keys.json').then(r => r.json()).then(j => j['mega']);
         const decryptUrl = `https://megacloud-api-nine.vercel.app/?encrypted_data=${encodeURIComponent(data.sources[0].file)}&nonce=${encodeURIComponent(nonce)}&secret=${encodeURIComponent(secret)}`;
         const decrypted = await GM_fetch(decryptUrl).then(r => r.text());
