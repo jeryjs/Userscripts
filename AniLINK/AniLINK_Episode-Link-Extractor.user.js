@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.21.2
+// @version     6.21.3
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -825,7 +825,7 @@ const Extractors = {
         const retryAfter = res.headers.get('Retry-After');  // Rate limit Policy: 10 requests per minute
         if (retryAfter) {
             const hhmmss = new Date(new Date().getTime() + parseInt(retryAfter) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
-            showToast(`Rate limited by megacloud.blog, retrying in ${retryAfter} seconds (at ${hhmmss})...`, parseInt(retryAfter) * 1000);
+            showToast(`Rate limited by megacloud.blog, retrying in ${retryAfter} secs (at ${hhmmss})...`, parseInt(retryAfter) * 1000);
             return await new Promise(res => setTimeout(res, 500 + parseInt(retryAfter) * 1000)).then(() => Extractors['megacloud.blog'](embed, referer)); // recursive retry
         }
         const html = await res.text();
@@ -1119,6 +1119,7 @@ async function extractEpisodes() {
         <button type="button" class="anlink-play-all">Play with MPV</button>
     `;
     statusBarHeader.appendChild(headerButtons);
+    attachHeaderButtons();
 
     // start interval to update status text
     const statusInterval = setInterval(() => {
@@ -1382,13 +1383,13 @@ async function extractEpisodes() {
     }
 
     // Attach header button handlers
-    (function attachHeaderButtons() {
+    function attachHeaderButtons() {
         const exportBtn = linksContainer.querySelector('.anlink-export-all');
         const playBtn = linksContainer.querySelector('.anlink-play-all');
 
         exportBtn.addEventListener('click', () => onExportAll(exportBtn));
         playBtn.addEventListener('click', () => onPlayAll(playBtn));
-    })();
+    };
 
     // Helper to get all selected episodes across all qualities
     function getAllSelectedEpisodes() {
