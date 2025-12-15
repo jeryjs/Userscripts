@@ -13,7 +13,6 @@ comfy-table = "7.0"
 rust-ini = "0.21"
 dirs-next = "2.0"
 regex = "1.7"
-sevenz-rust = "0.4"
 futures-util = "0.3"
 ctrlc = { version = "3.2", features = ["termination"] }
 anyhow = "1.0"

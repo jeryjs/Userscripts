@@ -8,11 +8,11 @@ pub fn get_config_dir() -> Result<PathBuf> {
     let path = if cfg!(windows) {
         dirs_next::data_local_dir()
             .ok_or_else(|| anyhow!("Could not find local app data directory"))?
-            .join("m3u_downloader")
+            .join("anilink_downloader")
     } else {
         dirs_next::config_dir()
             .ok_or_else(|| anyhow!("Could not find config directory"))?
-            .join("m3u_downloader")
+            .join("anilink_downloader")
     };
     fs::create_dir_all(&path)?;
     Ok(path)
