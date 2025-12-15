@@ -23,3 +23,11 @@ parking_lot = "0.12"
 itertools = "0.10"
 path-clean = "1.0"
 sanitize-filename = "0.4"
+ratatui = "0.28"
+crossterm = "0.28"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winnt", "processthreadsapi", "tlhelp32", "handleapi"] }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", features = ["signal"] }
