@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.21.3
+// @version     6.21.4
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -525,13 +525,16 @@ const Websites = [
                 const baseEp = eps[epNum][0];
                 status.text = `Fetching Ep ${epNum}...`;
                 const links = {};
+                const selProv = [...document.querySelectorAll('select')][2].value.toLowerCase();
+                const useProvider = eps[epNum].some(e => selProv.includes(e.provider.toLowerCase())) ? selProv : 'ALL'; // Use the current selected provider or ALL if not available
                 await Promise.all(eps[epNum].map(async ({ id, provider, type }) => {
-                    if ([...document.querySelectorAll('select')][2].value.includes(provider.toLowerCase()) && [...document.querySelectorAll('select')][1].value.includes(type)) {
+                    if ((useProvider === 'ALL' || useProvider === provider.toLowerCase()) && [...document.querySelectorAll('select')][1].value.includes(type)) { // Filter by selected provider and type (sub/dub)
                         const source = this._getLocalSourceName(provider, type);
                         try {
                             const sresJson = await this._secureFetch(`${this.baseApiUrl}/sources`, { query: { episodeId: id, provider, category: type } });
                             const referer = provider == 'KICKASSANIME' ? 'https://kaa.to/' : provider == 'ZORO' ? 'https://megacloud.blog/' : location.href;
-                            links[this._getLocalSourceName(source)] = { stream: sresJson.streams[0].url, type: "m3u8", tracks: sresJson.tracks || [], referer };
+                            links[this._getLocalSourceName(source)] = { stream: sresJson.streams[0].url, type: "m3u8", tracks: sresJson.tracks || sresJson.subtitles || [], referer };
+                            useProvider == 'ALL' && (await lastPromise, lastPromise = Promise.resolve()); // If fetching all providers, make fetch sequential to avoid rate limit 
                         } catch (e) { showToast(`Failed to fetch ep-${epNum} from ${source}: ${e}`); }
                     }
                 }));
@@ -539,16 +542,17 @@ const Websites = [
             }
         },
         _secureFetch: async (url, options = {}) => {
-            const payload = { path: url.split('/api/').pop(), method: 'GET', query: options.query || {}, body: null, version: '0.1.0'};
+            const payload = { path: url.split('/api/').pop(), method: 'GET', query: options.query || {}, body: null, version: '0.1.0' };
             const encode = o => btoa(encodeURIComponent(JSON.stringify(o)).replace(/%([0-9A-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
             const decode = async s => JSON.parse(new TextDecoder().decode(await new Response(new Blob([Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()));
-            const res = await fetch(`${location.origin}/api/secure/pipe?e=${encode(payload)}`, {headers: { 'x-protocol-version': payload.version }});
+            let res = await fetch(`${location.origin}/api/secure/pipe?e=${encode(payload)}`, { headers: { 'x-protocol-version': payload.version } });
+            if (res.status == 500) { await new Promise(r => { showToast(`Error ${res.status}: Rate Limited! Waiting 60s before continuing...`, 60000); setTimeout(r, 60000) }); res = await fetch(`${location.origin}/api/secure/pipe?e=${encode(payload)}`, { headers: { 'x-protocol-version': payload.version } }); }
             if (res.headers.get('x-obfuscated') === '1') return await decode(await res.text());
             return await res.json();
         },
         _getLocalSourceName: function (source, type) {
             source = source.toLowerCase();
-            const sourceNames = { 'animepahe': 'kiwi', 'animekai': 'arc', 'animez': 'jet', 'zoro': 'zoro', 'kickassanime': 'kaa' };
+            const sourceNames = { 'animepahe': 'kiwi', 'animekai': 'arc', 'animez': 'jet', 'zoro': 'zoro', 'kickassanime': 'kaa', 'megaplay': 'bee', 'bunnies': 'bun' };
             return (sourceNames[source] || source) + (type !== undefined ? `-${type.toLowerCase()}` : '');
         },
     },
