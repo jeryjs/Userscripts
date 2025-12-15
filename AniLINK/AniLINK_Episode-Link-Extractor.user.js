@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.21.4
+// @version     6.21.5
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -772,12 +772,13 @@ const Websites = [
         _chunkSize: 12,
         addStartButton: function (id) {
             setInterval(() => {
-                if ($('#' + id).get(0)) return;
-                const button = Object.assign(document.createElement('button'), { id, className: "btn btn-primary", textContent: "Extract Episode Links" });
-                const target = document.querySelector('.episode-section');
-                if (target) target.appendChild(button);
-                else document.querySelector('.eplist-nav')?.appendChild(button);
-                button.addEventListener('click', extractEpisodes);
+                if ($('#' + id).get(0)) return; try {
+                    const button = Object.assign(document.createElement('button'), { id, className: "btn btn-primary", textContent: "Extract Episode Links" });
+                    const target = document.querySelector('.episode-section .head-bot');
+                    if (target) target.after(button);
+                    else document.querySelector('.eplist-nav')?.appendChild(button);
+                    button.addEventListener('click', extractEpisodes);
+                } catch (e) { /* ignore errors */ }
             }, 500);
         },
         extractEpisodes: async function* (status) {
@@ -788,19 +789,19 @@ const Websites = [
                 yield* yieldEpisodesFromPromises(epElms.slice(i, i + this._chunkSize).map(async ep => {
                     const epNum = ep.getAttribute('num');
                     status.text = `Extracting Episodes ${(epNum-Math.min(this._chunkSize, epNum)+1)} - ${epNum}...`;
-                    const servers = await fetch(`/ajax/links/list?token=${ep.getAttribute('token')}&_=${await this._decode(ep.getAttribute('token'))}`).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html'))
+                    const servers = await fetch(`/ajax/links/list?token=${ep.getAttribute('token')}&_=${await this._encdec(ep.getAttribute('token'))}`).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html'))
                         .then(doc => $(doc).find('.server').map((i, e) => ({ lid: e.dataset.lid, name: `${this._typeSuffix(e.closest('div').dataset.id)} - ${e.textContent}` })).get())
                         .catch(e => showToast(`Failed to fetch servers for Ep ${epNum}`));
                     const links = {};
                     await Promise.all(servers.map(async s => {
-                        links[s.name] = await fetch(`/ajax/links/view?id=${s.lid}&_=${await this._decode(s.lid)}`).then(r => r.json().then(d => d.result))
-                            .then(val => this._decode(val, 'd').then(JSON.parse)).then(async d => await Extractors.use(d.url))
+                        links[s.name] = await fetch(`/ajax/links/view?id=${s.lid}&_=${await this._encdec(s.lid)}`).then(r => r.json().then(d => d.result))
+                            .then(val => this._encdec(val, 'd').then(async d => await Extractors.use(d.url)))
                             .catch(e => showToast(`Failed to fetch Ep ${epNum} from ${s.name}: ${e.message || e}`))
                     }));
                     return new Episode(epNum, $('h1').text(), links, $('.poster-wrap-bg').attr('style').match(/https.*\.[a-z]+/g)[0], ep.querySelector('span').textContent);
                 }))
         },
-        _decode: async (s, t = 'e') => await GM_fetch(`https://c-kai-8090.amarullz.com/?f=${t}&d=${s}`).then(r => r.text()),
+        _encdec: async (s, t = 'e') => await GM_fetch(`https://enc-dec.app/api/${t=='e' ? 'enc' : 'dec'}-kai?text=` + s).then(r=>r.json()).then(d=>d.result),
         _typeSuffix: type => ({ sub: "Hard Sub", softsub: "Soft Sub", dub: "Dub & S-Sub" }[type] || type)
     }
 ];
@@ -808,9 +809,15 @@ const Websites = [
 const USER_AGENT_HEADER = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0";
 const Extractors = {
     use: function (url, ...args) {
-        const extractor = this[(new URL(url)).host];
-        if (!extractor) throw new Error(`No extractor found for ${url}`);
-        return extractor(url, ...args);
+        const host = (new URL(url)).host;
+        for (const key in this) {
+            if (typeof this[key] !== 'function') continue;
+            // Match exact host or test regex pattern
+            if (key === host) return this[key](url, ...args);
+            const regexMatch = key.match(/^\/(.+)\/([gimuy]*)$/);
+            if (regexMatch) if (new RegExp(regexMatch[1], regexMatch[2]).test(host)) return this[key](url, ...args);
+        }
+        throw new Error(`No extractor found for ${url}`);
     },
     'kwik.cx': async function (kwikUrl, referer = location.href) {
         const response = await fetch(kwikUrl, { headers: { referer } });
@@ -877,7 +884,7 @@ const Extractors = {
         const source = sources.reduce((best, curr) => (s => parseInt(s.label) || 0)(curr) > (s => parseInt(s.label) || 0)(best) ? curr : best, sources[0]);
         return { file: source.file, type: source.file.includes('.m3u8') ? 'm3u8' : 'mp4', tracks: [] };
     },
-    'megaup.live': async function(url, referer='https://megaup.live/') {
+    '/^megaup(\\d+)?\\.?(live|online|cc)$/': async function(url, referer='https://megaup.cc/') {
         // workaround: use GM_xmlhttpRequest to avoid passing cookies (coudnt do that with GM_fetch)
         const encToken = await new Promise((r, j) => GM_xmlhttpRequest({ method: 'GET', url: url.replace('/e/', '/media/'), headers: { 'User-Agent': USER_AGENT_HEADER }, anonymous: true, onload: res => { try { r(JSON.parse(res.responseText).result); } catch (e) { j(e); } }, onerror: j }));
         const src = (await GM_fetch('https://enc-dec.app/api/dec-mega', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({text: encToken, agent: USER_AGENT_HEADER}) }).then(r => r.json())).result; 
