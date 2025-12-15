@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.21.5
+// @version     6.21.6
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -62,6 +62,11 @@ if (GM_info.script.version > GM_getValue('script_version', '0')) {
     GM_setValue('script_version', GM_info.script.version);
 }
 
+// CONSTANTS
+const EP_RANGE_THRESHOLD = GM_getValue('ep_range_threshold', 12); // Number of episodes above which the ep range selector will be shown
+const MPV_PROTOCOL = GM_getValue('MPV_PROTOCOL', 'mpv-handler'); // you can set this to mpv-handler-debug if u want it to show the console~
+const SRC_IN_FN = GM_getValue('include_source_in_filename', true); // Whether the exported playlist filename should include the source name that you chose as well
+
 /**
  * Represents an anime episode with metadata and streaming links.
  */
@@ -82,7 +87,7 @@ class Episode {
         this.filename = `${this.animeTitle} - ${this.number.padStart(3, '0')}${this.epTitle ? ` - ${this.epTitle}` : ''}${Object.values(this.links)[0]?.type || ''}`;   // The formatted name of the episode, combining anime name, number and title and extension.
         this.title = this.epTitle ?? this.animeTitle;
     }
-    
+
     // Processes the links to ensure they are in right format and are absolute URLs.
     _processLinks(links) {
         for (const linkObj of Object.values(links)) {
@@ -194,7 +199,7 @@ const Websites = [
                 yield* yieldEpisodesFromPromises(l.slice(i, i + 12).map(async a => {
                     const pg = await fetchPage(a.href);
                     const epNum = a.href.match(/-episode-(\d+)-/)[1];
-                    status.text = `Extracting Episodes ${(epNum-Math.min(1, epNum)+1)} - ${epNum}...`;
+                    status.text = `Extracting Episodes ${(epNum - Math.min(1, epNum) + 1)} - ${epNum}...`;
                     const links = {};
                     for (const [sel, name, attr, ref] of [['.fa-cloud-download-alt', u => 'GoFile', 'href', 0], ['iframe', u => u.includes('megaplay') ? 'MegaPlay' : 'VKSpeed', 'src', 1]]) {
                         try {
@@ -284,7 +289,7 @@ const Websites = [
         extractEpisodes: async function* (status) {
             const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
             const epLinks = await applyEpisodeRangeFilter(allEpLinks);
-            
+
             // Resolve the ep numbering offset (sometimes, a 2nd cour can have ep.num=13 while its s2e1)
             const firstEp = () => document.querySelector(this.epLinks).textContent.match(/.*\s(\d+)/)[1];
             let firstEpNum = firstEp();
@@ -300,7 +305,7 @@ const Websites = [
                     const [, animeTitle, epNum] = page.querySelector(this.epTitle).outerText.split(/Watch (.+) - (\d+(?:\.\d+)?) Online$/);
                     const epNumber = (epNum - firstEpNum + 1).toString();
                     const thumbnail = page.querySelector(this.thumbnail).src;
-                    status.text = `Extracting episodes ${epNumber-Math.min(epNumber, this._chunkSize)+1} - ${epNumber}...`;
+                    status.text = `Extracting episodes ${epNumber - Math.min(epNumber, this._chunkSize) + 1} - ${epNumber}...`;
                     const links = Object.fromEntries(await Promise.all([...page.querySelectorAll(this.linkElems)].map(async elm => [elm.textContent, { stream: await Extractors.use(elm.getAttribute('data-src')), type: 'm3u8' }])));
                     return new Episode(epNumber, animeTitle, links, thumbnail);
                 }));
@@ -602,8 +607,8 @@ const Websites = [
         name: 'AniXL',
         url: ['anixl.to/'],
         animeTitle: () => document.querySelector('a.link[href^="/title/"]').textContent,
-        epLinks: () => [...document.querySelectorAll('div[q\\:key^="F0_"] a')].map(e=>e.href),
-        addStartButton: () => document.querySelector('div.join')?.prepend( Object.assign(document.createElement('button'), {id: "AniLINK_startBtn", className: "btn btn-xs", textContent: "Generate Download Links"}) ),
+        epLinks: () => [...document.querySelectorAll('div[q\\:key^="F0_"] a')].map(e => e.href),
+        addStartButton: () => document.querySelector('div.join')?.prepend(Object.assign(document.createElement('button'), { id: "AniLINK_startBtn", className: "btn btn-xs", textContent: "Generate Download Links" })),
         extractEpisodes: async function* (status) {
             const epLinks = await applyEpisodeRangeFilter(this.epLinks());
             const throttleLimit = 12; // Limit concurrent requests
@@ -645,17 +650,20 @@ const Websites = [
             for (let i = 0, epList = await applyEpisodeRangeFilter($('.ss-list > a').get()); i < epList.length; i += this._chunkSize) {
                 yield* yieldEpisodesFromPromises(epList.slice(i, i + this._chunkSize).map(async e => {
                     const [epId, epNum, epTitle] = [$(e).data('id'), $(e).data('number'), $(e).find('.ep-name').text()]; let thumbnail = '';
-                    status.text = `Extracting Episode ${epNum-Math.min(this._chunkSize, epNum)+1}...`;
+                    status.text = `Extracting Episode ${epNum - Math.min(this._chunkSize, epNum) + 1}...`;
                     const servers = await $((await $.get(`/ajax/v2/episode/servers?episodeId=${epId}`, r => $(r).responseJSON)).html).find('.server-item').map((_, i) => [[$(i).text().trim(), { id: $(i).data('id'), type: $(i).data('type') }]]).get();
                     // Prefer HD-2 if available. (HD-1 and HD-3 might have CORS issues)
                     const filteredServers = servers.filter(([s]) => !['HD-1', 'HD-3'].includes(s));
-                    const links = await (filteredServers.length ? filteredServers : servers).reduce(async (linkAcc, [server, { id, type }]) => {try {
-                        const data = await fetch(`/ajax/v2/episode/sources?id=${id}`).then(r => r.json());
-                        const src = await Extractors.use(data.link, location.href);
-                        return {...await linkAcc, [`${server}-${type}`]: { stream: src.file, type: 'm3u8', tracks: src.tracks, referer: src.referer || location.href }};
-                    } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${server}-${type}: (${e.status}): ${e.message || e}`); return linkAcc; }}, Promise.resolve({}));
+                    const links = await (filteredServers.length ? filteredServers : servers).reduce(async (linkAcc, [server, { id, type }]) => {
+                        try {
+                            const data = await fetch(`/ajax/v2/episode/sources?id=${id}`).then(r => r.json());
+                            const src = await Extractors.use(data.link, location.href);
+                            return { ...await linkAcc, [`${server}-${type}`]: { stream: src.file, type: 'm3u8', tracks: src.tracks, referer: src.referer || location.href } };
+                        } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${server}-${type}: (${e.status}): ${e.message || e}`); return linkAcc; }
+                    }, Promise.resolve({}));
                     return new Episode(epNum, ($('.film-name > a').first().text()), links, thumbnail, epTitle);
-                }))}
+                }))
+            }
         }
     },
     {
@@ -664,10 +672,10 @@ const Websites = [
         _chunkSize: 6, // Number of episodes to extract in parallel
         _decryptUrl: async (encryptedUrl) => (new TextDecoder()).decode(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: (encryptedBytes => encryptedBytes.slice(0, 16))(Uint8Array.from(atob(encryptedUrl), c => c.charCodeAt(0))) }, await crypto.subtle.importKey('raw', (new TextEncoder()).encode('superaninowq8hgl1'.padEnd(32, '\0').slice(0, 32)), { name: 'AES-CBC' }, false, ['decrypt']), (encryptedBytes => encryptedBytes.slice(16))(Uint8Array.from(atob(encryptedUrl), c => c.charCodeAt(0))))),
         extractEpisodes: async function* (status) {
-            for (let i = 0, l = await applyEpisodeRangeFilter([...document.querySelectorAll('a[data-episode]')]); i < l.length; i+=this._chunkSize)
+            for (let i = 0, l = await applyEpisodeRangeFilter([...document.querySelectorAll('a[data-episode]')]); i < l.length; i += this._chunkSize)
                 yield* yieldEpisodesFromPromises(l.slice(i, i + this._chunkSize).map(async a => {
                     const epNum = a.innerText;
-                    status.text = `Extracting Episodes ${(epNum-Math.min(this._chunkSize, epNum)+1)} - ${epNum}...`;
+                    status.text = `Extracting Episodes ${(epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
                     const data = await fetchPage(a.href).then(p => JSON.parse(p.querySelector("#media-sources-data").dataset.mediaSources)).then(d => d.filter(l => !!l.url));
                     const links = Object.fromEntries(await Promise.all(data.map(async m => [
                         `${m.providerdisplayname}-${m.language}-${m.quality}`,
@@ -690,7 +698,7 @@ const Websites = [
                 yield* yieldEpisodesFromPromises(l.slice(i, i + 1).map(async div => {
                     const pg = $(await fetchPage($(div).find('.anm_det_pop').get(0).href));
                     const epNum = pg.find('.info > a').text().split(' ').pop();
-                    status.text = `Extracting Episodes ${(epNum-Math.min(1, epNum)+1)} - ${epNum}...`;
+                    status.text = `Extracting Episodes ${(epNum - Math.min(1, epNum) + 1)} - ${epNum}...`;
                     const links = Object.fromEntries(await Promise.all(pg.find('#videos a').get().map(async a => [a.dataset.version, { stream: (await fetch((await fetchPage('/embed/' + a.dataset.id)).querySelector('[property="og:video"]')?.content, { method: 'HEAD' }).catch(e => showToast(`Error fetching ep ${epNum} - ${a.dataset.version}: ${e}`)))?.url, type: 'mp4', referer: location.origin }])).then(r => r.filter(([_, v]) => v.stream)));
                     return new Episode(epNum, pg.find('.titleep a').text().trim(), links, $('a > img').get(0).src, $(div).find('.anititle').text());
                 }));
@@ -700,9 +708,9 @@ const Websites = [
         name: "AnimeOnsen",
         url: ['animeonsen.xyz/'],
         extractEpisodes: async function* (status) {
-            for (let i = 0, epLinks = await applyEpisodeRangeFilter([..._$('.ao-player-metadata-episode').options].map(o=>o.value.split('-')[1])); i < epLinks.length; i += 12) {
+            for (let i = 0, epLinks = await applyEpisodeRangeFilter([..._$('.ao-player-metadata-episode').options].map(o => o.value.split('-')[1])); i < epLinks.length; i += 12) {
                 yield* yieldEpisodesFromPromises(epLinks.slice(i, i + 12).map(async epNum => {
-                    status.text = `Extracting Episodes ${(epNum-Math.min(12, epNum)+1)} - ${epNum}...`;
+                    status.text = `Extracting Episodes ${(epNum - Math.min(12, epNum) + 1)} - ${epNum}...`;
                     const token = atob(decodeURIComponent(document.cookie.match(new RegExp('(^|;\\s*)' + 'ao.session' + '=([^;]*)'))[2])).split("").map(c => String.fromCharCode(c.charCodeAt(0) + 1)).join("");
                     const data = await fetch(`https://api.animeonsen.xyz/v4/content/${document.querySelector('[name="ao-content-id"]').content}/video/${epNum}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
                     const links = { "AnimeOnsen": { stream: data.uri.stream, type: ".mpd", tracks: Object.entries(data.uri.subtitles).map(([label, file]) => ({ file, label, kind: 'caption' })), referer: location.origin } };
@@ -718,13 +726,13 @@ const Websites = [
             for (let i = 0, epLinks = await applyEpisodeRangeFilter([..._$$('a.ep-item')]); i < epLinks.length; i += 12)
                 yield* yieldEpisodesFromPromises(epLinks.slice(i, i + 12).map(async epLink => {
                     const epNum = epLink.dataset.number;
-                    status.text = `Extracting Episodes ${(epNum-Math.min(12, epNum)+1)} - ${epNum}...`;
+                    status.text = `Extracting Episodes ${(epNum - Math.min(12, epNum) + 1)} - ${epNum}...`;
                     return await fetch(`/ajax/episode/servers?episodeId=${epLink.dataset.id}`).then(async r => (await r.json()).html).then(t => (new DOMParser()).parseFromString(t, 'text/html'))
-                        .then(h => [...h.querySelectorAll('[data-server-id]')].map(e => ({id: e.dataset.id, type: e.dataset.type, name: e.textContent.trim()})))
+                        .then(h => [...h.querySelectorAll('[data-server-id]')].map(e => ({ id: e.dataset.id, type: e.dataset.type, name: e.textContent.trim() })))
                         .then(async servers => {
                             const links = Object.fromEntries(await Promise.all(servers.map(async s => fetch(`/ajax/episode/sources?id=${s.id}`).then(r => r.json())
                                 .then(d => GM_fetch(d.link.replace('/e-1/', '/e-1/getSources?id=').replace('?z=', '')).then(r => r.json())
-                                .then(src => src.encrypted ? undefined : [`${s.name}-${s.type}`, { stream: src.sources[0].file, tracks: src.tracks, type: 'm3u8', referer: src.server == 4 ? 'https://megacloud.blog/' : undefined }])))));
+                                    .then(src => src.encrypted ? undefined : [`${s.name}-${s.type}`, { stream: src.sources[0].file, tracks: src.tracks, type: 'm3u8', referer: src.server == 4 ? 'https://megacloud.blog/' : undefined }])))));
                             return new Episode(epNum, _$('h2.film-name > a').textContent, links, _$('.film-poster > img').src, epLink.querySelector('.ep-name').textContent)
                         });
                 }));
@@ -741,7 +749,7 @@ const Websites = [
                 // Prepend the extract button
                 const target = document.querySelector('.Video .items-center.gap-2 + div');
                 if (target && !document.getElementById(id)) {
-                    const btn = Object.assign(document.createElement('button'), {id, className: (target.lastChild?.className || '') + " font-light w-fit !shrink-0 text-[.6rem] sm:text-xs justify-center items-center whitespace-nowrap overflow-hidden text-ellipsis flex", innerHTML: `<svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="3 3 18 18" style="margin-right:6px;"><path fill="currentColor" d="M5 21q-.825 0-1.413-.588T3 19V5q0-.825.588-1.413T5 3h14q.825 0 1.413.588T21 5v14q0 .825-.588 1.413T19 21H5Zm0-2h14V5H5v14Zm3-4.5h2.5v-6H8v6Zm5.25 0h2.5v-6h-2.5v6Zm5.25 0h2.5v-6h-2.5v6Z"/></svg>Extract Episode Links`});
+                    const btn = Object.assign(document.createElement('button'), { id, className: (target.lastChild?.className || '') + " font-light w-fit !shrink-0 text-[.6rem] sm:text-xs justify-center items-center whitespace-nowrap overflow-hidden text-ellipsis flex", innerHTML: `<svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="3 3 18 18" style="margin-right:6px;"><path fill="currentColor" d="M5 21q-.825 0-1.413-.588T3 19V5q0-.825.588-1.413T5 3h14q.825 0 1.413.588T21 5v14q0 .825-.588 1.413T19 21H5Zm0-2h14V5H5v14Zm3-4.5h2.5v-6H8v6Zm5.25 0h2.5v-6h-2.5v6Zm5.25 0h2.5v-6h-2.5v6Z"/></svg>Extract Episode Links` });
                     btn.addEventListener('click', extractEpisodes);
                     target.prepend(btn);
                 }
@@ -752,11 +760,11 @@ const Websites = [
             for (let i = 0, epElms = await applyEpisodeRangeFilter([..._$$('.Episode button:not(:nth-child(1))')]); i < epElms.length; i += 3)
                 yield* yieldEpisodesFromPromises(epElms.slice(i, i + 3).map(async epElm => {
                     const epNum = epElm.querySelector('.font-medium').textContent.split(' ').pop();
-                    status.text = `Extracting Episodes ${(epNum-Math.min(3, epNum)+1)} - ${epNum}...`;
+                    status.text = `Extracting Episodes ${(epNum - Math.min(3, epNum) + 1)} - ${epNum}...`;
                     const servers = await fetch(`https://backend.animetsu.cc/api/anime/servers?id=${id}&num=${epNum}`).then(r => r.json());
                     const links = Object.fromEntries((await Promise.allSettled(servers.flatMap(srv => {
                         if (!_$('button[disabled]').textContent.includes(srv.id)) return []; // process only selected server
-                        return ['sub', ...(srv.hasDub ? ['dub'] : [])].map(async subType => 
+                        return ['sub', ...(srv.hasDub ? ['dub'] : [])].map(async subType =>
                             fetch(`https://backend.animetsu.cc/api/anime/tiddies?server=${srv.id}&id=${id}&num=${epNum}&subType=${subType}`).then(r => r.json())
                                 .then(data => data.sources.map(src => [`${srv.id}-${subType}-${src.quality}`, { stream: src.url, type: 'm3u8', tracks: data.subtitles?.map(s => ({ file: s.url, label: s.lang, kind: 'caption' })) || [] }]))
                                 .catch(e => { showToast(`Failed to fetch Ep ${epNum} from ${srv.id}-${subType}: ${e.message || e}`); return []; })
@@ -785,10 +793,10 @@ const Websites = [
             status.text = 'Fetching episode list...';
             // const epItems = await applyEpisodeRangeFilter($('a[num]').get().map(e=> ({id: e.getAttribute('token'), num: e.getAttribute('num'), type: e.getAttribute('langs'), name: e.querySelector('span').textContent})));
             const epElms = await applyEpisodeRangeFilter($('a[num]').get());
-            for (let i = 0; i < epElms.length; i += this._chunkSize) 
+            for (let i = 0; i < epElms.length; i += this._chunkSize)
                 yield* yieldEpisodesFromPromises(epElms.slice(i, i + this._chunkSize).map(async ep => {
                     const epNum = ep.getAttribute('num');
-                    status.text = `Extracting Episodes ${(epNum-Math.min(this._chunkSize, epNum)+1)} - ${epNum}...`;
+                    status.text = `Extracting Episodes ${(epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
                     const servers = await fetch(`/ajax/links/list?token=${ep.getAttribute('token')}&_=${await this._encdec(ep.getAttribute('token'))}`).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html'))
                         .then(doc => $(doc).find('.server').map((i, e) => ({ lid: e.dataset.lid, name: `${this._typeSuffix(e.closest('div').dataset.id)} - ${e.textContent}` })).get())
                         .catch(e => showToast(`Failed to fetch servers for Ep ${epNum}`));
@@ -801,7 +809,7 @@ const Websites = [
                     return new Episode(epNum, $('h1').text(), links, $('.poster-wrap-bg').attr('style').match(/https.*\.[a-z]+/g)[0], ep.querySelector('span').textContent);
                 }))
         },
-        _encdec: async (s, t = 'e') => await GM_fetch(`https://enc-dec.app/api/${t=='e' ? 'enc' : 'dec'}-kai?text=` + s).then(r=>r.json()).then(d=>d.result),
+        _encdec: async (s, t = 'e') => await GM_fetch(`https://enc-dec.app/api/${t == 'e' ? 'enc' : 'dec'}-kai?text=` + s).then(r => r.json()).then(d => d.result),
         _typeSuffix: type => ({ sub: "Hard Sub", softsub: "Soft Sub", dub: "Dub & S-Sub" }[type] || type)
     }
 ];
@@ -823,12 +831,12 @@ const Extractors = {
         const response = await fetch(kwikUrl, { headers: { referer } });
         const data = await response.text();
         return eval(/(eval)(\(f.*?)(\n<\/script>)/s.exec(data)[2].replace("eval", "")).match(/https.*?m3u8/)[0];
-    },  
+    },
     'megaplay.buzz': async function (embed, referer) {
         referer = referer || 'https://megaplay.buzz/';
-        const id = await fetch(embed, { headers: { Referer: referer } }).then(r=>r.text()).then(t => t.match(/<title>File ([0-9]+)/)[1]);
+        const id = await fetch(embed, { headers: { Referer: referer } }).then(r => r.text()).then(t => t.match(/<title>File ([0-9]+)/)[1]);
         const src = await GM_fetch('https://megaplay.buzz/stream/getSources?id=' + id, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(e => e.json())
-        return { file: src.sources?.file, type: 'm3u8', tracks: src.tracks || []}
+        return { file: src.sources?.file, type: 'm3u8', tracks: src.tracks || [] }
     },
     'megacloud.blog': async function (embed, referer) {
         // adapted from https://github.com/yuzono/aniyomi-extensions/blob/master/lib/megacloud-extractor/src/main/java/eu/kanade/tachiyomi/lib/megacloudextractor/MegaCloudExtractor.kt
@@ -846,8 +854,8 @@ const Extractors = {
         const sId = embed.split('/e-1/')[1]?.split('?')[0];
         const origin = (new URL(embed)).origin;
         const url = `${origin}/embed-2/v3/e-1/getSources?id=${sId}&_k=${nonce}`;
-        const data = await GM_fetch(url, { headers: { 'Accept': '*/*', 'X-Requested-With': 'XMLHttpRequest', 'Referer': origin+'/' } }).then(r => r.json());
-        if (!data.encrypted || data.sources[0].file.includes('.m3u8')) return { file: data.sources[0].file, type: data.sources[0].type, tracks: data.tracks || [], referer: origin+'/' };
+        const data = await GM_fetch(url, { headers: { 'Accept': '*/*', 'X-Requested-With': 'XMLHttpRequest', 'Referer': origin + '/' } }).then(r => r.json());
+        if (!data.encrypted || data.sources[0].file.includes('.m3u8')) return { file: data.sources[0].file, type: data.sources[0].type, tracks: data.tracks || [], referer: origin + '/' };
         const secret = await fetch('https://raw.githubusercontent.com/yogesh-hacker/MegacloudKeys/refs/heads/main/keys.json').then(r => r.json()).then(j => j['mega']);
         const decryptUrl = `https://megacloud-api-nine.vercel.app/?encrypted_data=${encodeURIComponent(data.sources[0].file)}&nonce=${encodeURIComponent(nonce)}&secret=${encodeURIComponent(secret)}`;
         const decrypted = await GM_fetch(decryptUrl).then(r => r.text());
@@ -874,7 +882,7 @@ const Extractors = {
         if (!file) throw new Error('No video file found');
         return { file: file.link, type: file.name?.endsWith('.m3u8') ? 'm3u8' : 'mp4', tracks: [] };
     },
-    'vkspeed.com': async function(url) {
+    'vkspeed.com': async function (url) {
         const html = await GM_fetch(url).then(r => r.text());
         const [, e, r, c, d] = html.match(/eval\(function\(p,a,c,k,e,d\)\{while\(c--\)if\(k\[c\]\)p=p\.replace\(new RegExp\('\\\\b'\+c\.toString\(a\)\+'\\\\b','g'\),k\[c\]\);return p\}\('(.+?)',(\d+),(\d+),'(.+?)'\.split\('\|'\)\)\)/) || [];
         if (!e) throw new Error('No packed script found');
@@ -884,11 +892,11 @@ const Extractors = {
         const source = sources.reduce((best, curr) => (s => parseInt(s.label) || 0)(curr) > (s => parseInt(s.label) || 0)(best) ? curr : best, sources[0]);
         return { file: source.file, type: source.file.includes('.m3u8') ? 'm3u8' : 'mp4', tracks: [] };
     },
-    '/^megaup(\\d+)?\\.?(live|online|cc)$/': async function(url, referer='https://megaup.cc/') {
+    '/^megaup(\\d+)?\\.?(live|online|cc)$/': async function (url, referer = 'https://megaup.cc/') {
         // workaround: use GM_xmlhttpRequest to avoid passing cookies (coudnt do that with GM_fetch)
         const encToken = await new Promise((r, j) => GM_xmlhttpRequest({ method: 'GET', url: url.replace('/e/', '/media/'), headers: { 'User-Agent': USER_AGENT_HEADER }, anonymous: true, onload: res => { try { r(JSON.parse(res.responseText).result); } catch (e) { j(e); } }, onerror: j }));
-        const src = (await GM_fetch('https://enc-dec.app/api/dec-mega', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({text: encToken, agent: USER_AGENT_HEADER}) }).then(r => r.json())).result; 
-        return { stream: src.sources[0].file, type: 'm3u8', tracks: src.tracks?.map(t => ({ file: t.file, label: t.label, kind: t.kind, default: !!t.default })), referer: 'https://megaup.cc/' }; 
+        const src = (await GM_fetch('https://enc-dec.app/api/dec-mega', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: encToken, agent: USER_AGENT_HEADER }) }).then(r => r.json())).result;
+        return { stream: src.sources[0].file, type: 'm3u8', tracks: src.tracks?.map(t => ({ file: t.file, label: t.label, kind: t.kind, default: !!t.default })), referer: 'https://megaup.cc/' };
     }
 }
 /**
@@ -1090,8 +1098,8 @@ async function extractEpisodes() {
     overlayDiv.id = "AniLINK_Overlay";
     document.body.appendChild(overlayDiv);
     overlayDiv.onclick = e => !linksContainer.contains(e.target) &&
-        (document.querySelector('.anlink-status-bar')?.textContent.startsWith("Cancelled") 
-            ? overlayDiv.remove() 
+        (document.querySelector('.anlink-status-bar')?.textContent.startsWith("Cancelled")
+            ? overlayDiv.remove()
             : overlayDiv.style.display = "none");
 
     // Create a container for links
@@ -1196,7 +1204,7 @@ async function extractEpisodes() {
             // Update UI in real-time - RENDER UI HERE BASED ON qualityLinkLists
             renderQualityLinkLists(qualityLinkLists, qualitiesContainer);
         }
-        
+
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
         statusIconElement.querySelector('i').classList.remove('extracting');
         if (qualityLinkLists && Object.keys(qualityLinkLists).length > 0) {
@@ -1245,16 +1253,16 @@ async function extractEpisodes() {
                     e.stopPropagation();
                     toggleSelectAll(qualitySection);
                 });
-                
+
                 const icon = document.createElement('i');
                 icon.className = 'material-icons';
                 icon.textContent = 'chevron_right';
-                
+
                 const name = document.createElement('span');
                 name.className = 'anlink-quality-name';
                 name.textContent = quality;
                 name.addEventListener('click', toggleQualitySection);
-                
+
                 qualitySpan.appendChild(count);
                 qualitySpan.appendChild(icon);
                 qualitySpan.appendChild(name);
@@ -1270,7 +1278,7 @@ async function extractEpisodes() {
                 container.appendChild(qualitySection);
 
                 // Shift+Click to select all episodes in this quality
-                headerDiv.addEventListener('mousedown', e => e.shiftKey && _$$('.anlink-episode-checkbox').forEach(cb => cb.checked = !cb.checked));
+                headerDiv.addEventListener('mousedown', e => e.shiftKey && toggleSelectAll(qualitySection));
             } else {
                 // Update header count
                 const countElem = qualitySection.querySelector('.anlink-quality-count');
@@ -1315,7 +1323,7 @@ async function extractEpisodes() {
                 });
                 epnumSpan.addEventListener('click', e => {
                     e.preventDefault();
-                    location.replace('mpv-handler://play/' + safeBtoa(link) + `/?v_title=${safeBtoa(name)}&cookies=${location.hostname}.txt` + (ep.links[quality].tracks?.some(t => t.kind === 'caption') ? `&subfile=${safeBtoa(ep.links[quality].tracks.filter(t => /^caption/.test(t.kind)).map(t => t.file).join(';'))}` : ''));
+                    location.replace(`${MPV_PROTOCOL}://play/` + safeBtoa(link) + `/?v_title=${safeBtoa(name)}&cookies=${location.hostname}.txt` + (ep.links[quality].tracks?.some(t => t.kind === 'caption') ? `&subfile=${safeBtoa(ep.links[quality].tracks.filter(t => /^caption/.test(t.kind)).map(t => t.file).join(';'))}` : ''));
                     showToast('Sent to MPV. If nothing happened, install v0.4.0+ of <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a>.');
                 });
                 episodeLinkElement.addEventListener('click', () => {
@@ -1344,7 +1352,7 @@ async function extractEpisodes() {
                             });
                         }
                         const epList = subsList.closest('.anlink-episode-list');
-                        epList.style.maxHeight = +epList.style.maxHeight.replace('px','') + subsList.scrollHeight + 'px'; // Adjust max-height to fit new content
+                        epList.style.maxHeight = +epList.style.maxHeight.replace('px', '') + subsList.scrollHeight + 'px'; // Adjust max-height to fit new content
                     });
                 }
 
@@ -1383,6 +1391,7 @@ async function extractEpisodes() {
         const checkboxes = Array.from(qualitySection.querySelectorAll('.anlink-episode-checkbox'));
         const allChecked = checkboxes.every(cb => cb.checked);
         checkboxes.forEach(cb => cb.checked = !allChecked);
+        checkboxes[0].dispatchEvent(new Event('change', { bubbles: true }));   // trigger change event to update counts
         // also select all the text
         if (!allChecked) {
             const range = document.createRange();
@@ -1414,50 +1423,33 @@ async function extractEpisodes() {
         return selected;
     }
 
-    // Helper to prepare m3u8 playlist string
-    function preparePlaylist(episodes, quality) {
-        let content = '#EXTM3U\n';
-        const referer = Object.values(episodes[0]?.links)[0]?.referer;
-        if (referer) content += `#EXTVLCOPT:http-referrer=${referer}\n`;
-        
-        episodes.forEach(ep => {
-            const link = ep.links[quality];
-            if (!link) return;
-            
-            if (link.tracks?.length) {
-                link.tracks.forEach(t => {
+    // Helper to build m3u8 content from selected episodes
+    function buildPlaylist(selected) {
+        let out = '#EXTM3U\n';
+        for (const [quality, items] of Object.entries(selected)) {
+            const epNums = items.map(i => i.querySelector('[data-epnum]').dataset.epnum);
+            const episodes = (window._anilink_episodes || []).filter(ep => ep.links[quality] && epNums.includes(ep.number));
+            const referer = episodes[0]?.links[quality]?.referer;
+            if (referer && !out.includes(referer)) out += `#EXTVLCOPT:http-referrer=${referer}\n`;
+            episodes.forEach(ep => {
+                const link = ep.links[quality];
+                if (link?.tracks?.length) link.tracks.forEach(t => {
                     const type = t.kind?.startsWith('audio') ? 'AUDIO' : /^(caption|subtitle)s?/.test(t.kind) ? 'SUBTITLES' : null;
-                    if (type) content += `#EXT-X-MEDIA:TYPE=${type},GROUP-ID="${type.toLowerCase()}${ep.number}",NAME="${t.label || type}",DEFAULT=${t.default ? 'YES' : 'NO'},URI="${t.file}"\n`;
+                    if (type) out += `#EXT-X-MEDIA:TYPE=${type},GROUP-ID="${type.toLowerCase()}${ep.number}",NAME="${t.label || type}",DEFAULT=${t.default ? 'YES' : 'NO'},URI="${t.file}"\n`;
                 });
-            }
-            // content += `#EXT-X-STREAM-INF:BANDWIDTH=0,RESOLUTION=0x0,CODECS="mp4a.40.2,avc1.42E01E"${link.tracks?.length ? `,AUDIO="audio${ep.number}",SUBTITLES="subtitles${ep.number}"` : ''}\n`;  // commented out cuz ffmpeg (used by mpv) doesnt have https:// on its whitelist for EXT-X-MEDIA lines
-            content += `#EXTINF:-1,${ep.filename.replaceAll('/', '|')}\n${link.stream}\n`;
-        });
-        return content;
+                out += `#EXTINF:-1,${ep.filename.replaceAll('/', '|')}${SRC_IN_FN ? ` [${quality}]` : ''}\n${link.stream}\n`;
+            });
+        }
+        return out;
     }
 
     async function onExportAll(btn) {
         const selected = getAllSelectedEpisodes();
         if (!Object.keys(selected).length) return showToast('No episodes selected');
-        
-        let allContent = '#EXTM3U\n';
+        const playlistData = buildPlaylist(selected);
         const qualities = Object.keys(selected).join(', ');
-        for (const [quality, items] of Object.entries(selected)) {
-            const epNums = items.map(i => i.querySelector('[data-epnum]').dataset.epnum);
-            const episodes = (window._anilink_episodes || []).filter(ep => ep.links[quality] && epNums.includes(ep.number));
-            const referer = episodes[0]?.links[quality]?.referer;
-            if (referer && !allContent.includes(referer)) allContent += `#EXTVLCOPT:http-referrer=${referer}\n`;
-            episodes.forEach(ep => {
-                const link = ep.links[quality];
-                if (link?.tracks?.length) link.tracks.forEach(t => {
-                    const type = t.kind?.startsWith('audio') ? 'AUDIO' : /^(caption|subtitle)s?/.test(t.kind) ? 'SUBTITLES' : null;
-                    if (type) allContent += `#EXT-X-MEDIA:TYPE=${type},GROUP-ID="${type.toLowerCase()}${ep.number}",NAME="${t.label || type}",DEFAULT=${t.default ? 'YES' : 'NO'},URI="${t.file}"\n`;
-                });
-                allContent += `#EXTINF:-1,${ep.filename.replaceAll('/', '|')}${GM_getValue('include_source_in_filename', true) ? ` [${quality}]` : ''}\n${link.stream}\n`;
-            });
-        }
-        const fileName = (window._anilink_episodes?.[0]?.animeTitle || 'Anime') + (Object.keys(selected).length > 1 ? ` [${qualities}]` : `${GM_getValue('include_source_in_filename', true) ? ` [${qualities}]` : ''}`) + '.m3u8';
-        Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([allContent], { type: 'application/vnd.apple.mpegurl' })), download: fileName }).click();
+        const fileName = (window._anilink_episodes?.[0]?.animeTitle || 'Anime') + `${SRC_IN_FN ? ` [${qualities}]` : ''}` + '.m3u8';
+        Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([playlistData], { type: 'application/vnd.apple.mpegurl' })), download: fileName }).click();
         btn.textContent = 'Exported';
         setTimeout(() => btn.textContent = 'Export', 1000);
     }
@@ -1465,29 +1457,11 @@ async function extractEpisodes() {
     async function onPlayAll(btn) {
         const selected = getAllSelectedEpisodes();
         if (!Object.keys(selected).length) return showToast('No episodes selected');
-        
         btn.textContent = 'Processing...';
-        let allContent = '#EXTM3U\n';
-        for (const [quality, items] of Object.entries(selected)) {
-            const epNums = items.map(i => i.querySelector('[data-epnum]').dataset.epnum);
-            const episodes = (window._anilink_episodes || []).filter(ep => ep.links[quality] && epNums.includes(ep.number));
-            const referer = episodes[0]?.links[quality]?.referer;
-            if (referer && !allContent.includes(referer)) allContent += `#EXTVLCOPT:http-referrer=${referer}\n`;
-            episodes.forEach(ep => {
-                const link = ep.links[quality];
-                if (link?.tracks?.length) link.tracks.forEach(t => {
-                    const type = t.kind?.startsWith('audio') ? 'AUDIO' : /^(caption|subtitle)s?/.test(t.kind) ? 'SUBTITLES' : null;
-                    if (type) allContent += `#EXT-X-MEDIA:TYPE=${type},GROUP-ID="${type.toLowerCase()}${ep.number}",NAME="${t.label || type}",DEFAULT=${t.default ? 'YES' : 'NO'},URI="${t.file}"\n`;
-                });
-                allContent += `#EXTINF:-1,${ep.filename.replaceAll('/', '|')}${GM_getValue('include_source_in_filename', true) ? ` [${quality}]` : ''}\n${link.stream}\n`;
-            });
-        }
-        
-        // Use mpv-handler:// protocol to pass the paste.rs link to mpv (requires mpv-handler installed)
-        const url = await GM_fetch('https://paste.rs/', { method: 'POST', body: allContent }).then(r => r.text()).then(t => t + '.m3u8');
+        const playlistData = buildPlaylist(selected);
+        const url = await GM_fetch('https://paste.rs/', { method: 'POST', body: playlistData }).then(r => r.text()).then(t => t + '.m3u8');
         console.log(`Playlist URL:`, url);
-        location.replace('mpv-handler://play/' + safeBtoa(url) + '/?v_title=' + safeBtoa((window._anilink_episodes?.[0]?.animeTitle || 'Anime')));
-        
+        location.replace(`${MPV_PROTOCOL}://play/` + safeBtoa(url) + '/?v_title=' + safeBtoa((window._anilink_episodes?.[0]?.animeTitle || 'Anime')));
         btn.textContent = 'Sent to MPV';
         setTimeout(() => { btn.textContent = 'Play with MPV'; showToast('If nothing happened, install v0.4.0+ of <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a>.'); }, 1000);
     }
@@ -1674,8 +1648,7 @@ async function showEpisodeRangeSelector(total) {
  ***************************************************************/
 async function applyEpisodeRangeFilter(allEpLinks) {
     const status = document.querySelector('.anlink-status-bar');
-    const epRangeThreshold = GM_getValue('ep_range_threshold', 12);
-    if (allEpLinks.length <= epRangeThreshold) return allEpLinks;
+    if (allEpLinks.length <= EP_RANGE_THRESHOLD) return allEpLinks;
 
     status.text = `Found ${allEpLinks.length} episodes. Waiting for selection...`;
     const selection = await showEpisodeRangeSelector(allEpLinks.length);
@@ -1732,7 +1705,7 @@ function showToast(message, duration = 5000) {
     const toast = document.createElement("div");
     toast.className = "anlink-toast";
     toast.style.top = `${20 + toasts.length * toastHeight}px`;
-    
+
     // Infer toast type and icon from message content
     const lowerMsg = message.toString().toLowerCase();
     const iconMap = { error: ['❌', '#ef5350'], success: ['✅', '#66bb6a'], warning: ['⚠️', '#ffa726'], loading: ['⏳', '#42a5f5'], help: ['💡', '#ab47bc'], info: ['ℹ️', null] };
@@ -1752,7 +1725,7 @@ function showToast(message, duration = 5000) {
         <div class="anlink-toast-content">${message}</div>
         <button class="anlink-toast-close" aria-label="Close">×</button>
     `;
-    
+
     document.body.appendChild(toast);
 
     // Close button handler
@@ -1768,7 +1741,7 @@ function showToast(message, duration = 5000) {
             });
         }, 300);
     };
-    
+
     closeBtn.addEventListener('click', removeToast);
 
     // Add the new toast to the list
@@ -1788,7 +1761,7 @@ function showToast(message, duration = 5000) {
                 document.body.removeChild(oldestToast);
             }
         }, 300);
-        
+
         // Reposition remaining toasts
         toasts.forEach((t, index) => {
             t.style.top = `${20 + index * toastHeight}px`;
