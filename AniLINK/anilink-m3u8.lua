@@ -116,7 +116,37 @@ local function add_subtitles_parallel()
             completed = completed + 1
             if completed == total then
                 -- All subtitles loaded, now auto-select
-                mp.commandv('set', 'sub', 'auto')
+                -- Robust auto-selection of English or default subtitle by name (must contain "en" or "english")
+                local tracks = mp.get_property_native("track-list") or {}
+                local eng_sub_id = nil
+                local default_sub_id = nil
+                for _, track in ipairs(tracks) do
+                    if track.type == "sub" then
+                        local name = (track.title or track.lang or ""):lower()
+                        if name:find("eng") or name:find("en") then
+                            eng_sub_id = track.id
+                            break
+                        elseif track.default then
+                            default_sub_id = track.id
+                        end
+                    end
+                end
+                if eng_sub_id then
+                    mp.set_property_number("sid", eng_sub_id)
+                    mp.msg.info("Auto-selected English subtitle (id=" .. eng_sub_id .. ")")
+                elseif default_sub_id then
+                    mp.set_property_number("sid", default_sub_id)
+                    mp.msg.info("Auto-selected default subtitle (id=" .. default_sub_id .. ")")
+                else
+                    -- Fallback: select first available subtitle
+                    for _, track in ipairs(tracks) do
+                        if track.type == "sub" then
+                            mp.set_property_number("sid", track.id)
+                            mp.msg.info("Auto-selected first available subtitle (id=" .. track.id .. ")")
+                            break
+                        end
+                    end
+                end
                 mp.msg.info("Successfully loaded", total, "subtitles")
             end
         end)
