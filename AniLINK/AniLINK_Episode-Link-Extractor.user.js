@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.21.6
+// @version     6.21.7
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -892,7 +892,7 @@ const Extractors = {
         const source = sources.reduce((best, curr) => (s => parseInt(s.label) || 0)(curr) > (s => parseInt(s.label) || 0)(best) ? curr : best, sources[0]);
         return { file: source.file, type: source.file.includes('.m3u8') ? 'm3u8' : 'mp4', tracks: [] };
     },
-    '/^megaup(\\d+)?\\.?(live|online|cc)$/': async function (url, referer = 'https://megaup.cc/') {
+    '/^(4spromax|megaup)(\\d+)?\\.?(live|online|cc|site)$/': async function (url, referer = 'https://megaup.cc/') {
         // workaround: use GM_xmlhttpRequest to avoid passing cookies (coudnt do that with GM_fetch)
         const encToken = await new Promise((r, j) => GM_xmlhttpRequest({ method: 'GET', url: url.replace('/e/', '/media/'), headers: { 'User-Agent': USER_AGENT_HEADER }, anonymous: true, onload: res => { try { r(JSON.parse(res.responseText).result); } catch (e) { j(e); } }, onerror: j }));
         const src = (await GM_fetch('https://enc-dec.app/api/dec-mega', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: encToken, agent: USER_AGENT_HEADER }) }).then(r => r.json())).result;
