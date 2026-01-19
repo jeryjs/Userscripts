@@ -1,15 +1,18 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      5.3.6
+// @version      5.4
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
-// @match        https://www.bing.com/*
+// @match        https://www.bing.com/search*
 // @match        https://rewards.bing.com/*
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        window.close
 // @license      MIT
+// @downloadURL https://update.greasyfork.org/scripts/498482/AutoGrind%3A%20Intelligent%20Bing%20Rewards%20Auto-Grinder.user.js
+// @updateURL https://update.greasyfork.org/scripts/498482/AutoGrind%3A%20Intelligent%20Bing%20Rewards%20Auto-Grinder.meta.js
 // ==/UserScript==
 
 /*=============================================*\
@@ -23,7 +26,6 @@ var UNDER_COOLDOWN = GM_getValue("under-cooldown", false);	// Workaround for coo
 var OPEN_RANDOM_LINKS = GM_getValue("open-random-links", true);	// Simulate real human searcg by opening links
 var COLLECT_DAILY_ACTIVITY = GM_getValue("collect-daily-activity", false);	// Automatically collect daily activity points from bingo rewards dashboard page
 var AUTO_CLOSE_TABS = GM_getValue("auto-close-tabs", true);	// Automatically close any tabs/windows opened by the script
-var OPEN_POINTS_BREAKDOWN = GM_getValue("open-points-breakdown", false);	// Open points breakdown page in a new tab
 
 var TIMEOUT = (Math.floor(Math.random() * (TIMEOUT_RANGE[1] - TIMEOUT_RANGE[0]) * 1000) + TIMEOUT_RANGE[0] * 1000);	// Randomize the timeout with given range
 
@@ -81,13 +83,6 @@ const configurations = [
 		type: "checkbox",
 		value: AUTO_CLOSE_TABS,
 		description: "Automatically close any tabs/windows opened by the script. This applies to the search page and any rewards page that were opened as well.<br>Default: True",
-	},
-	{
-		id: "open-points-breakdown",
-		name: "Open Points Breakdown",
-		type: "checkbox",
-		value: OPEN_POINTS_BREAKDOWN,
-		description: "Open the points breakdown page in a new tab on completing searches. This is useful to check how many points you have earned so far.<br>Default: False",
 	}
 ];
 
@@ -229,14 +224,6 @@ settingsIcon.addEventListener("click", () => {
 	settingsOverlay.style.display = "flex";
 });
 
-// Close settings dialog when clicking outside the popup
-settingsOverlay.addEventListener("mousedown", function (event) {
-	// Only close if clicking outside the settingsContent
-	if (event.target === settingsOverlay) {
-		settingsOverlay.style.display = "none";
-	}
-});
-
 // Add logic to enable/disable the cooldown-timeout input
 document.getElementById("under-cooldown").addEventListener("change", (event) => {
     const cooldownInput = document.getElementById("cooldown-timeout");
@@ -308,14 +295,14 @@ function startSearch() {
 	const nextSearchTerm = searches.pop();
 	
 	GM_setValue("searches", searches);
-	addTabToClose(generateSearchUrl(searches[0]));
-	window.open(generateSearchUrl(nextSearchTerm), "_self");
+	addTabToClose(`https://www.bing.com/search?go=Search&q=${encodeURI(searches[0])}&qs=ds&form=QBRE`);
+	window.open(`https://www.bing.com/search?go=Search&q=${nextSearchTerm}&qs=ds&form=QBRE`, "_self");
 }
 
 /**
  * Wait for elements to appear on the page and execute a callback function when they are found.
  * This function repeatedly checks for the presence of the specified selectors on the page.
- * Once any of the selectors are found, the callback function is called with the selector as a parameter.
+ * Once any of the selectors is found, the callback function is called with the selector as a parameter.
  * @param {Array} selectors - The selectors to wait for.
  * @param {Function} callback - The callback function to execute when the selectors are found.
  */
@@ -346,16 +333,6 @@ function addTabToClose(tab, timeout=5000) {
 		{"url": tab, "timeout": timeout}
 	);
 	GM_setValue("tabsToClose", tabsToClose);
-}
-
-/**
- * Get the Bing search URL for a given search term.
- * This function constructs the Bing search URL with the specified search term and returns it.
- * @param {string} searchTerm - The search term to include in the URL.
- * @returns {string} - The Bing search URL for the given search term.
- */
-function generateSearchUrl(searchTerm) {
-	return `https://www.bing.com/search?FORM=U523DF&PC=U523&q=${encodeURI(searchTerm)}&FORM=ANNTA1&qs=ds`;
 }
 
 
@@ -392,7 +369,7 @@ if (isSearchPage) {
 		 * for a few secs (on mobile, it waits fixed time and on desktop it waits until points element is updated),
 		 * and then proceeds to the next search in the current tab.
 		 */
-		else if (searches.length > 0 && window.location.href.includes("&FORM=ANNTA1&qs=ds")) {
+		else if (searches.length > 0 && window.location.href.includes("&qs=ds&form=QBRE")) {
 			updateIcon(`${searches.length} left`);
 			let targetNode = document.querySelector(pointsElem);
 			const observerTimeout = 4000;
@@ -459,11 +436,7 @@ if (isSearchPage) {
 				}
 
 				setTimeout(() => {
-					// if this is the final search, then open the points breakdown page in a new tab if OPEN_POINTS_BREAKDOWN is enabled
-					if (searches.length==1 && OPEN_POINTS_BREAKDOWN) window.open("https://rewards.bing.com/pointsbreakdown", "_blank");
-					
-					// window.open(`https://www.bing.com/search?go=Search&q=${encodeURI(searches.pop())}&qs=ds&form=QBRE`, "_self");
-					window.open(generateSearchUrl(searches.pop()), "_self");
+					window.open(`https://www.bing.com/search?go=Search&q=${encodeURI(searches.pop())}&qs=ds&form=QBRE`, "_self");
 					// document.querySelector("textarea.b_searchbox").value = searches.pop();
 					// document.querySelector("input.b_searchboxSubmit").click();
 					GM_setValue("searches", searches);
@@ -513,11 +486,12 @@ if (isRewardPage) {
  * by checking for the title of the window (Close this window).
  */
 if (AUTO_CLOSE_TABS) {
-    const tabToClose = tabsToClose.find(tab => window.location.href == tab.url);
+    const tabToClose = tabsToClose.find(tab => window.location.href.includes(tab.url));
 	if (tabToClose) {
 		tabsToClose = tabsToClose.filter(tab => tab.url != tabToClose.url);
 		GM_setValue("tabsToClose", tabsToClose);
         setTimeout(() => {
+            window.open('', '_self', '');
 			window.close()
 
 			// IF the tab still hasnt closed, take the user to close-this-window page
