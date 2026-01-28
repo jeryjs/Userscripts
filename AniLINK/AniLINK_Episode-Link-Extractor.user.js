@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.21.7
+// @version     6.21.8
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -306,7 +306,7 @@ const Websites = [
                     const epNumber = (epNum - firstEpNum + 1).toString();
                     const thumbnail = page.querySelector(this.thumbnail).src;
                     status.text = `Extracting episodes ${epNumber - Math.min(epNumber, this._chunkSize) + 1} - ${epNumber}...`;
-                    const links = Object.fromEntries(await Promise.all([...page.querySelectorAll(this.linkElems)].map(async elm => [elm.textContent, { stream: await Extractors.use(elm.getAttribute('data-src')), type: 'm3u8' }])));
+                    const links = Object.fromEntries(await Promise.all([...page.querySelectorAll(this.linkElems)].map(async elm => [elm.textContent, { stream: await Extractors.use(elm.getAttribute('data-src')), type: 'm3u8', referer: 'https://kwik.cx/' }])));
                     return new Episode(epNumber, animeTitle, links, thumbnail);
                 }));
         },
@@ -532,12 +532,13 @@ const Websites = [
                 const links = {};
                 const selProv = [...document.querySelectorAll('select')][2].value.toLowerCase();
                 const useProvider = eps[epNum].some(e => selProv.includes(e.provider.toLowerCase())) ? selProv : 'ALL'; // Use the current selected provider or ALL if not available
+                let lastPromise = Promise.resolve();
                 await Promise.all(eps[epNum].map(async ({ id, provider, type }) => {
                     if ((useProvider === 'ALL' || useProvider === provider.toLowerCase()) && [...document.querySelectorAll('select')][1].value.includes(type)) { // Filter by selected provider and type (sub/dub)
                         const source = this._getLocalSourceName(provider, type);
                         try {
                             const sresJson = await this._secureFetch(`${this.baseApiUrl}/sources`, { query: { episodeId: id, provider, category: type } });
-                            const referer = provider == 'KICKASSANIME' ? 'https://kaa.to/' : provider == 'ZORO' ? 'https://megacloud.blog/' : location.href;
+                            const referer = provider == 'KICKASSANIME' ? 'https://kaa.to/' : provider == 'ZORO' ? 'https://megacloud.blog/' : provider == 'ANIMEPAHE' ? 'https://kwik.cx/' : location.href;
                             links[this._getLocalSourceName(source)] = { stream: sresJson.streams[0].url, type: "m3u8", tracks: sresJson.tracks || sresJson.subtitles || [], referer };
                             useProvider == 'ALL' && (await lastPromise, lastPromise = Promise.resolve()); // If fetching all providers, make fetch sequential to avoid rate limit 
                         } catch (e) { showToast(`Failed to fetch ep-${epNum} from ${source}: ${e}`); }
