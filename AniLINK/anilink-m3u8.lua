@@ -36,6 +36,8 @@ local function parse_m3u8(path)
         if line:match('^#EXTVLCOPT:http%-referrer=(.+)') then
             current_referrer = line:match('=(.+)')
             current_origin = current_referrer:match('^(https?://[^/]+)') or current_referrer
+            mp.set_property('http-header-fields', 'Referer:' .. current_referrer .. ',Origin:' .. current_origin)
+            mp.msg.info("Set headers - Referrer:" .. current_referrer .. ", Origin:" .. current_origin)
         elseif line:match('^#EXT%-X%-MEDIA:') then
             local media_type = line:match('TYPE=(%w+)')
             local group_id = line:match('GROUP%-ID="([^"]+)"')
@@ -165,6 +167,14 @@ local function handle_m3u8()
         if parsed then
             episodes = parsed
             mp.msg.info("Parsed playlist with", #episodes, "episodes")
+            
+            -- For network M3U8 files, explicitly load the first episode after headers are set
+            -- This prevents 403 errors from headers not being set in time
+            if path:match('^https?://') and #episodes > 0 then
+                local first_episode = episodes[1]
+                mp.commandv('loadfile', first_episode.url, 'replace')
+                mp.msg.info("Loading first episode:", first_episode.title)
+            end
         end
     end
 end
