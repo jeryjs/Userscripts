@@ -1324,13 +1324,14 @@ async function extractEpisodes() {
                 });
                 epnumSpan.addEventListener('click', e => {
                     e.preventDefault();
-                    location.replace(`${MPV_PROTOCOL}://play/` + safeBtoa(link) + `/?v_title=${safeBtoa(name)}&cookies=${location.hostname}.txt` + (ep.links[quality].tracks?.some(t => t.kind === 'caption') ? `&subfile=${safeBtoa(ep.links[quality].tracks.filter(t => /^caption/.test(t.kind)).map(t => t.file).join(';'))}` : ''));
+                    location.replace(`${MPV_PROTOCOL}://play/` + safeBtoa(link) + `/?v_title=${safeBtoa(name)}&cookies=${location.hostname}.txt&referer=${safeBtoa(ep.links[quality].referer || location.href)}` + (ep.links[quality].tracks?.some(t => t.kind === 'caption') ? `&subfile=${safeBtoa(ep.links[quality].tracks.filter(t => /^caption/.test(t.kind)).map(t => t.file).join(';'))}` : ''));
                     showToast('Sent to MPV. If nothing happened, install v0.4.0+ of <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a>.');
                 });
                 episodeLinkElement.addEventListener('click', () => {
                     fetch(episodeLinkElement.href)
                         .then(r => r.blob())
-                        .then(b => Object.assign(document.createElement('a'), { href: URL.createObjectURL(b), download: decodeURIComponent(episodeLinkElement.download) }).click());    // workaround to force download with correct filename (some browsers ignore download attr for cross-origin links)
+                        .then(b => Object.assign(document.createElement('a'), { href: URL.createObjectURL(b), download: decodeURIComponent(episodeLinkElement.download) }).click())    // workaround to force download with correct filename (some browsers ignore download attr for cross-origin links)
+                        .catch(err => window.open(episodeLinkElement.href, '_blank') && showToast(`Could not download file directly, opened in new tab instead. Error: ${err}`));
                 });
 
                 // Subtitle toggle functionality
