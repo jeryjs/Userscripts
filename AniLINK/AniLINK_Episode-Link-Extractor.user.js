@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.22.0
+// @version     6.22.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -804,21 +804,18 @@ const Websites = [
         },
         extractEpisodes: async function* (status) {
             status.text = 'Fetching episode list...';
-            // const epItems = await applyEpisodeRangeFilter($('a[num]').get().map(e=> ({id: e.getAttribute('token'), num: e.getAttribute('num'), type: e.getAttribute('langs'), name: e.querySelector('span').textContent})));
-            const epElms = await applyEpisodeRangeFilter($('a[num]').get());
+            const epElms = await applyEpisodeRangeFilter($('a[num]').get()); if (!epElms?.length) return;
+            const srcCfg = await (async () => {
+                const servers = await fetch(`/ajax/links/list?token=${epElms[0].getAttribute('token')}&_=${await this._encdec(epElms[0].getAttribute('token'))}`).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => $(doc).find('.server').map((i, e) => `${this._typeSuffix(e.closest('div').dataset.id)} - ${e.textContent}`).get());
+                return await showSourceSelector(servers, 'animekai', { mode: 'single' });
+            })();
             for (let i = 0; i < epElms.length; i += this._chunkSize)
                 yield* yieldEpisodesFromPromises(epElms.slice(i, i + this._chunkSize).map(async ep => {
-                    const epNum = ep.getAttribute('num');
-                    status.text = `Extracting Episodes ${(epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
-                    const servers = await fetch(`/ajax/links/list?token=${ep.getAttribute('token')}&_=${await this._encdec(ep.getAttribute('token'))}`).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html'))
-                        .then(doc => $(doc).find('.server').map((i, e) => ({ lid: e.dataset.lid, name: `${this._typeSuffix(e.closest('div').dataset.id)} - ${e.textContent}` })).get())
-                        .catch(e => showToast(`Failed to fetch servers for Ep ${epNum}`));
-                    const links = {};
-                    await Promise.all(servers.map(async s => {
-                        links[s.name] = await fetch(`/ajax/links/view?id=${s.lid}&_=${await this._encdec(s.lid)}`).then(r => r.json().then(d => d.result))
-                            .then(val => this._encdec(val, 'd').then(async d => await Extractors.use(d.url)))
-                            .catch(e => showToast(`Failed to fetch Ep ${epNum} from ${s.name}: ${e.message || e}`))
-                    }));
+                    const epNum = ep.getAttribute('num'); status.text = `Extracting Episodes ${(epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
+                    const servers = await fetch(`/ajax/links/list?token=${ep.getAttribute('token')}&_=${await this._encdec(ep.getAttribute('token'))}`).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => $(doc).find('.server').map((i, e) => ({ lid: e.dataset.lid, name: `${this._typeSuffix(e.closest('div').dataset.id)} - ${e.textContent}` })).get()).catch(e => showToast(`Failed to fetch servers for Ep ${epNum}`));
+                    const links = {}, fetchSource = async s => { try { links[s.name] = await fetch(`/ajax/links/view?id=${s.lid}&_=${await this._encdec(s.lid)}`).then(r => r.json().then(d => d.result)).then(val => this._encdec(val, 'd').then(async d => await Extractors.use(d.url))); } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${s.name}: ${e.message || e}`); } };
+                    if (srcCfg?.mode === 'single') { for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) { await fetchSource(s); if (Object.keys(links).length) break; } } } 
+                    else for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) await fetchSource(s); }
                     return new Episode(epNum, $('h1').text(), links, $('.poster-wrap-bg').attr('style').match(/https.*\.[a-z]+/g)[0], ep.querySelector('span').textContent);
                 }))
         },
