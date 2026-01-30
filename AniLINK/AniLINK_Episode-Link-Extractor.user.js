@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.23.0
+// @version     6.24.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -839,8 +839,7 @@ const Websites = [
         extractEpisodes: async function* (status) {
             status.text = 'Fetching episode list...';
             const contentId = _$('div.rating[data-id]')?.dataset.id; if (!contentId) return;
-            const encId = await this._enc(contentId);
-            const epElms = await fetch(`/ajax/episodes/list?id=${contentId}&_=${encId}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => [...doc.querySelectorAll('ul.episodes[data-season] li a')]);
+            const epElms = [...document.querySelectorAll('ul.episodes:not([style*="display: none"]) li a')];
             const filteredEps = await applyEpisodeRangeFilter(epElms); if (!filteredEps?.length) return;
             const srcCfg = await (async () => {
                 const servers = await fetch(`/ajax/links/list?eid=${filteredEps[0].getAttribute('eid')}&_=${await this._enc(filteredEps[0].getAttribute('eid'))}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => [...doc.querySelectorAll('li.server span')].map(s => s.textContent.trim()));
@@ -1098,6 +1097,7 @@ async function extractEpisodes() {
         @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
 
         #AniLINK_Overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.8); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+        #AniLINK_RerunBtn { position: fixed; top: 10px; right: 10px; background: transparent; border: 0; font-size: 36px; color: red; } #AniLINK_RerunBtn:hover { cursor: pointer; color: darkred; background-color: rgba(255, 255, 255, 0.1); }
         #AniLINK_LinksContainer { width: 80%; max-height: 85%; background-color: #222; color: #eee; padding: 20px; border-radius: 8px; overflow-y: auto; display: flex; flex-direction: column;}
         .anlink-status-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; } /* Header for status bar and stop button */
         .anlink-status-bar { color: #eee; flex-grow: 1; margin-right: 10px; display: block; } /* Status bar takes space */
@@ -1151,6 +1151,17 @@ async function extractEpisodes() {
         (document.querySelector('.anlink-status-bar')?.textContent.startsWith("Cancelled")
             ? overlayDiv.remove()
             : overlayDiv.style.display = "none");
+
+    // Rerun button
+    const rerunBtn = document.createElement('button');
+    rerunBtn.id = 'AniLINK_RerunBtn';
+    rerunBtn.title = 'Reset and Rerun Extraction';
+    rerunBtn.innerHTML = '<i class="material-icons" style="color:inherit;">delete</i>';
+    rerunBtn.addEventListener('click', () => {
+        overlayDiv.remove();
+        extractEpisodes();
+    });
+    overlayDiv.appendChild(rerunBtn);
 
     // Create a container for links
     const linksContainer = document.createElement('div');
