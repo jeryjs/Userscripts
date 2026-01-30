@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.22.1
+// @version     6.23.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -46,6 +46,7 @@
 // @match       https://animekai.ac/watch/*
 // @match       https://animekai.cc/watch/*
 // @match       https://anikai.to/watch/*
+// @match       https://yflix.to/watch/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
 // @grant       GM.xmlHttpRequest
@@ -821,6 +822,43 @@ const Websites = [
         },
         _encdec: async (s, t = 'e') => await GM_fetch(`https://enc-dec.app/api/${t == 'e' ? 'enc' : 'dec'}-kai?text=` + s).then(r => r.json()).then(d => d.result),
         _typeSuffix: type => ({ sub: "Hard Sub", softsub: "Soft Sub", dub: "Dub & S-Sub" }[type] || type)
+    },
+    {
+        name: "YFlix",
+        url: ["yflix.to/"],
+        _chunkSize: 12,
+        addStartButton: function (id) {
+            setInterval(() => {
+                if ($('#' + id).get(0)) return; try {
+                    const button = Object.assign(document.createElement('li'), { id, className: "btn btn-primary", textContent: "Extract Stream Links", style: "height: fit-content; margin-left: 10px;" });
+                    document.querySelector('#filmServer > ul')?.appendChild(button);
+                    button.addEventListener('click', extractEpisodes);
+                } catch (e) { /* ignore */ }
+            }, 500);
+        },
+        extractEpisodes: async function* (status) {
+            status.text = 'Fetching episode list...';
+            const contentId = _$('div.rating[data-id]')?.dataset.id; if (!contentId) return;
+            const encId = await this._enc(contentId);
+            const epElms = await fetch(`/ajax/episodes/list?id=${contentId}&_=${encId}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => [...doc.querySelectorAll('ul.episodes[data-season] li a')]);
+            const filteredEps = await applyEpisodeRangeFilter(epElms); if (!filteredEps?.length) return;
+            const srcCfg = await (async () => {
+                const servers = await fetch(`/ajax/links/list?eid=${filteredEps[0].getAttribute('eid')}&_=${await this._enc(filteredEps[0].getAttribute('eid'))}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => [...doc.querySelectorAll('li.server span')].map(s => s.textContent.trim()));
+                return await showSourceSelector(servers, 'yflix', { mode: 'single' });
+            })();
+            for (let i = 0; i < filteredEps.length; i += this._chunkSize)
+                yield* yieldEpisodesFromPromises(filteredEps.slice(i, i + this._chunkSize).map(async ep => {
+                    const epNum = ep.getAttribute('num') || ep.querySelector('.num')?.textContent || '1'; 
+                    status.text = `Extracting Episodes ${(epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
+                    const servers = await fetch(`/ajax/links/list?eid=${ep.getAttribute('eid')}&_=${await this._enc(ep.getAttribute('eid'))}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => [...doc.querySelectorAll('li.server')].map(s => ({ lid: s.dataset.lid, name: s.querySelector('span')?.textContent.trim() }))).catch(() => []);
+                    const links = {}, fetchSource = async s => { try { const encUrl = await fetch(`/ajax/links/view?id=${s.lid}&_=${await this._enc(s.lid)}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.json().then(d => d.result)); const iframe = await this._dec(encUrl); links[s.name] = await Extractors.use(iframe, (new URL(iframe)).origin+'/'); } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${s.name}: ${e.message || e}`); } };
+                    if (srcCfg?.mode === 'single') { for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) { await fetchSource(s); if (Object.keys(links).length) break; } } }
+                    else for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) await fetchSource(s); }
+                    return new Episode(epNum, _$('h1.title')?.textContent || '', links, _$('.poster img')?.src || '', ep.querySelector('span:not(.num)')?.textContent || '');
+                }))
+        },
+        _enc: async s => await GM_fetch(`https://enc-dec.app/api/enc-movies-flix?text=${s}`).then(r => r.json()).then(d => d.result),
+        _dec: async s => await GM_fetch(`https://enc-dec.app/api/dec-movies-flix?text=${s}`).then(r => r.json()).then(d => d.result.url),
     }
 ];
 
@@ -902,11 +940,13 @@ const Extractors = {
         const source = sources.reduce((best, curr) => (s => parseInt(s.label) || 0)(curr) > (s => parseInt(s.label) || 0)(best) ? curr : best, sources[0]);
         return { file: source.file, type: source.file.includes('.m3u8') ? 'm3u8' : 'mp4', tracks: [] };
     },
-    '/^(4spromax|megaup)(\\d+)?\\.?(live|online|cc|site)$/': async function (url, referer = 'https://megaup.cc/') {
+    '/^(4spromax|megaup|rapidairmax|rapidshare)(\\d+)?\\.?(live|online|cc|site)$/': async function (url, referer = 'https://megaup.cc/') {
         // workaround: use GM_xmlhttpRequest to avoid passing cookies (coudnt do that with GM_fetch)
+        const u = new URL(url), subListUrl = u.searchParams.get('sub.list');
         const encToken = await new Promise((r, j) => GM_xmlhttpRequest({ method: 'GET', url: url.replace('/e/', '/media/'), headers: { 'User-Agent': USER_AGENT_HEADER }, anonymous: true, onload: res => { try { r(JSON.parse(res.responseText).result); } catch (e) { j(e); } }, onerror: j }));
-        const src = (await GM_fetch('https://enc-dec.app/api/dec-mega', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: encToken, agent: USER_AGENT_HEADER }) }).then(r => r.json())).result;
-        return { stream: src.sources[0].file, type: 'm3u8', tracks: src.tracks?.map(t => ({ file: t.file, label: t.label, kind: t.kind, default: !!t.default })), referer: 'https://megaup.cc/' };
+        const src = (await GM_fetch(`https://enc-dec.app/api/dec-${url.includes('://rapid') ? 'rapid' : 'mega'}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: encToken, agent: USER_AGENT_HEADER }) }).then(r => r.json())).result;
+        const tracks = subListUrl ? await fetch(subListUrl, { headers: { 'Accept': '*/*', 'Referer': `${u.origin}/` } }).then(r => r.json()).then(list => list.filter(t => t.kind === 'captions' && t.file && t.label).map(t => ({ file: t.file, label: t.label, kind: t.kind }))).catch(() => []) : (src.tracks || []).filter(t => t.kind === 'captions' && t.file && t.label).map(t => ({ file: t.file, label: t.label, kind: t.kind, default: !!t.default }));
+        return { stream: src.sources[0].file, type: 'm3u8', tracks, referer };
     }
 }
 /**
