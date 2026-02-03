@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.24.0
+// @version     6.25.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -47,6 +47,7 @@
 // @match       https://animekai.cc/watch/*
 // @match       https://anikai.to/watch/*
 // @match       https://yflix.to/watch/*
+// @match       https://anime.uniquestream.net/*/*/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
 // @grant       GM.xmlHttpRequest
@@ -858,6 +859,21 @@ const Websites = [
         },
         _enc: async s => await GM_fetch(`https://enc-dec.app/api/enc-movies-flix?text=${s}`).then(r => r.json()).then(d => d.result),
         _dec: async s => await GM_fetch(`https://enc-dec.app/api/dec-movies-flix?text=${s}`).then(r => r.json()).then(d => d.result.url),
+    },
+    {
+        name: 'UniqueStream',
+        url: ['anime.uniquestream.net/series', 'anime.uniquestream.net/watch'],
+        extractEpisodes: async function* (status) {
+            if (location.href.includes('/watch/')) { _$('.episode-series-link').click(); await new Promise(resolve => setTimeout(resolve, 2000)); window.scrollBy(0, 1000); await new Promise(resolve => setTimeout(resolve, 2000)); }; // Navigate to episode list if on watch page
+            for (const epElm of await applyEpisodeRangeFilter([..._$$('a[href*="/watch/"]')].slice(1)))
+                yield* yieldEpisodesFromPromises([epElm].map(async epElm => { try {
+                    const [, epNum, epTitle] = epElm.querySelector('.episode-title').textContent.match(/(?:S\d+.+)?E-?(\d+|\w+) - (.+)/);
+                    status.text = `Extracting Episodes ${epNum}...`;
+                    const d = await fetch(`https://anime.uniquestream.net/api/v1/episode/${epElm.href.split('/')[4]}/media/dash/ja-JP`).then(r => r.json());
+                    const links = Object.fromEntries([d.dash, d.hls, ...(d.versions?.dash || []), ...(d.versions?.hls || [])].filter(Boolean).map(s => [`${s.playlist.includes('.mpd') ? 'dash' : 'hls'}-${s.locale}`, { stream: s.playlist, type: s.playlist.includes('.mpd') ? 'mpd' : 'm3u8', tracks: (s.hard_subs || []).map(h => ({ file: h.playlist, label: h.locale, kind: 'caption' })) }]));
+                    return !Object.keys(links).length ? null : new Episode(epNum, _$('.series-title').textContent, links, epElm.querySelector('img')?.src || '', epTitle);
+                } catch (e) { showToast(`error ${e.status}: ${e.message}`); return null; } }));
+        }
     }
 ];
 
