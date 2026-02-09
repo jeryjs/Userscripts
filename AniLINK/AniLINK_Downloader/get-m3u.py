@@ -355,6 +355,37 @@ def main():
         if not links:
             console.print("[red]No links found in M3U file.[/red]")
             return
+
+        # Episode Selection
+        table = Table(title="Available Episodes")
+        table.add_column("No.", justify="right")
+        table.add_column("Episode Name")
+        if len(links) > 15:
+            for i in range(7):
+                table.add_row(str(i + 1), links[i]['name'])
+            table.add_row("...", "...")
+            for i in range(max(7, len(links) - 7), len(links)):
+                table.add_row(str(i + 1), links[i]['name'])
+        else:
+            for i, link in enumerate(links):
+                table.add_row(str(i + 1), link['name'])
+        console.print(table)
+        
+        selection = Prompt.ask(
+            "Select episodes to download (e.g., 1,3,5-10 or 'all')", 
+            default="all"
+        )
+        if selection.lower() != 'all':
+            try:
+                selected_indices = parse_number_ranges(selection)
+                links = [links[i-1] for i in selected_indices if 0 < i <= len(links)]
+            except Exception as e:
+                console.print(f"[red]Invalid selection: {e}[/red]")
+                return
+        
+        if not links:
+            console.print("[red]No episodes selected.[/red]")
+            return
     
         folder = get_download_folder(default_folder)
     
