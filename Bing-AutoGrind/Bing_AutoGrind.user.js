@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      5.3.7
+// @version      5.3.8
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -356,7 +356,7 @@ function addTabToClose(tab, timeout=5000) {
  * @returns {string} - The Bing search URL for the given search term.
  */
 function generateSearchUrl(searchTerm) {
-	return `https://www.bing.com/search?FORM=U523DF&PC=U523&q=${encodeURI(searchTerm)}&FORM=ANNTA1&qs=ds`;
+	return `https://www.bing.com/search?pglt=419&FORM=U523MF&PC=U523&q=${encodeURI(searchTerm)}&FORM=ANNTA1&qs=ds`;
 }
 
 
@@ -498,7 +498,7 @@ if (isSearchPage) {
 if (isRewardPage) {
 	if (COLLECT_DAILY_ACTIVITY) {
 		// Wait for the page to load the point cards first
-		window.onload = () => document.querySelectorAll("a.ds-card-sec:has(span.mee-icon-AddMedium)").forEach((card) => {
+		window.onload = () => document.querySelectorAll("a.ds-card-sec:has(span.mee-icon-AddMedium), #moreactivities a[data-rac]:not(:has(div.bg-statusSuccessBg3))").forEach((card) => {
 			addTabToClose(card.href);
 			card.click();
 		});
