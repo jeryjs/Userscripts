@@ -1,4 +1,4 @@
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 
 # pip install rich configparser py7zr requests
 
@@ -57,12 +57,22 @@ def sanitize_filename(name):
     # Remove invalid Windows filename characters: \ / : * ? " < > |
     return re.sub(r'[\\/:*?"<>|]', "_", name)
 
+def truncate_middle(text, max_length=max(50, int(console.width * 0.5))):
+    """Truncate text in the middle with ellipsis if it exceeds max_length."""
+    if len(text) <= max_length:
+        return text
+    # Keep 70% from start, 30% from end (minus 3 for "...")
+    start_len = int(max_length * 0.7)
+    end_len = max_length - start_len - 3
+    return text[:start_len] + "..." + text[-end_len:]
+
 def load_settings():
     settings = {
         'parallel_downloads': 4,
         'retries': 3,
         'speed_limit': None,
-        'timeout': 30
+        'timeout': 30,
+        'stream_idx': 0
     }
     if os.path.exists(config_file):
         config.read(config_file)
@@ -71,6 +81,7 @@ def load_settings():
             settings['retries'] = config.getint('Settings', 'retries', fallback=3)
             settings['speed_limit'] = config.get('Settings', 'speed_limit', fallback=None)
             settings['timeout'] = config.getint('Settings', 'timeout', fallback=30)
+            settings['stream_idx'] = config.getint('Settings', 'stream_idx', fallback=0)
     return settings
 
 def save_settings(settings):
@@ -78,7 +89,8 @@ def save_settings(settings):
         'parallel_downloads': str(settings['parallel_downloads']),
         'retries': str(settings['retries']),
         'speed_limit': settings['speed_limit'] or '',
-        'timeout': str(settings['timeout'])
+        'timeout': str(settings['timeout']),
+        'stream_idx': str(settings['stream_idx'])
     }
     with open(config_file, 'w') as configfile:
         config.write(configfile)
@@ -91,8 +103,9 @@ def customize_settings(settings):
         table.add_column("Value")
         table.add_row("1", "Parallel Downloads", str(settings['parallel_downloads']))
         table.add_row("2", "Retries", str(settings['retries']))
-        table.add_row("3", "Speed Limit (e.g., 500k, 2M)", settings['speed_limit'] or "None")
+        table.add_row("3", "Speed Limit (e.g., 0, 500k, 2M)", settings['speed_limit'] or "None")
         table.add_row("4", "Timeout (seconds)", str(settings['timeout']))
+        table.add_row("5", "Stream (e.g., 0, 1, 2)", str(settings['stream_idx']))
         console.print(table)
         choices = Prompt.ask("Enter the numbers of the settings you want to change (e.g., 1,3)", default="")
         if not choices:
@@ -109,6 +122,8 @@ def customize_settings(settings):
                     settings['speed_limit'] = None
             elif choice == '4':
                 settings['timeout'] = int(Prompt.ask("Enter the download timeout in seconds", default=str(settings['timeout'])))
+            elif choice == '5':
+                settings['stream_idx'] = int(Prompt.ask("Enter stream index (Usually, 0=highest quality, 1=medium, 2=lowest)", default=str(settings['stream_idx'])))
         confirm = Confirm.ask("Do you want to change more settings?", default=False)
         if not confirm:
             break
@@ -242,8 +257,9 @@ def download_stream(link_info, folder, progress_group, settings, all_links=None,
     global active_downloads
     retries = settings['retries']
     name = link_info['name']
+    name_display = truncate_middle(name)
     output_file = get_output_file(link_info, folder, all_links, idx)
-    task = progress_group.add_task(f"[cyan]{name}[/cyan]", total=100, start=False, filename=output_file)
+    task = progress_group.add_task(f"[cyan]{name_display}[/cyan]", total=100, start=False, filename=output_file)
     active_downloads.append((task, link_info))
     
     for attempt in range(1, retries + 1):
@@ -262,6 +278,12 @@ def download_stream(link_info, folder, progress_group, settings, all_links=None,
             for sub in subtitles:
                 ffmpeg_command.extend(['-i', sub['url']])
             
+            # Map only compatible streams (video, audio, subtitles - exclude data/ID3 streams)
+            stream_idx = settings.get('stream_idx', 0)
+            ffmpeg_command.extend(['-map', f'0:v:{stream_idx}', '-map', f'0:a:{stream_idx}'])  # Map specific quality
+            for i in range(len(subtitles)):
+                ffmpeg_command.extend(['-map', str(i + 1)])  # Map each subtitle input
+            
             # Copy all streams
             ffmpeg_command.extend(['-c', 'copy'])
             
@@ -276,13 +298,12 @@ def download_stream(link_info, folder, progress_group, settings, all_links=None,
                     ffmpeg_command.extend([f'-disposition:s:{i}', 'default'])
             
             # Add title metadata
-            ffmpeg_command.extend(['-metadata', f'title={name}'])
+            ffmpeg_command.extend(['-metadata', f'title={name.removesuffix(".m3u8")}'])
             
-            if settings['speed_limit']:
+            if settings['speed_limit'] and settings['speed_limit'] != "0":
                 ffmpeg_command.extend(['-maxrate', settings['speed_limit']])
             
             ffmpeg_command.append(output_file)
-            
             process = subprocess.Popen(ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
             link_info['process'] = process
             progress_group.start_task(task)
@@ -303,12 +324,12 @@ def download_stream(link_info, folder, progress_group, settings, all_links=None,
                     remaining = (duration - current_time) / speed if speed > 0 else 0
                     size_mb = os.path.getsize(output_file) / (1024 * 1024) if os.path.exists(output_file) else 0
                     progress_group.update(task, completed=min(progress, 100),
-                        description=f"[cyan]{name} - {size_mb:.1f}MB @ {speed:.2f}x ({int(current_time)}/{int(duration)}s) [~{int(remaining)}s][/cyan]")
+                        description=f"[cyan]{name_display} - {size_mb:.1f}MB @ {speed:.2f}x ({int(current_time)}/{int(duration)}s) [~{int(remaining)}s][/cyan]")
             
             process.wait(timeout=settings['timeout'])
             if process.returncode == 0:
                 size = f"{os.path.getsize(output_file) / (1024*1024):.1f}MB"
-                progress_group.update(task, completed=100, description=f"[green]{name} ✓ ({size})[/green]")
+                progress_group.update(task, completed=100, description=f"[green]{name_display} ✓ ({size})[/green]")
                 break
             else:
                 raise Exception(f"ffmpeg exited with code {process.returncode}")
@@ -317,9 +338,9 @@ def download_stream(link_info, folder, progress_group, settings, all_links=None,
             break
         except Exception as e:
             if attempt == retries:
-                progress_group.update(task, description=f"[red]{name} ✗ ({e})[/red]")
+                progress_group.update(task, description=f"[red]{name_display} ✗ ({e})[/red]")
             else:
-                console.print(f"[yellow]{name}: Retry {attempt}/{retries}[/yellow]")
+                console.print(f"[yellow]{name_display}: Retry {attempt}/{retries}[/yellow]")
     
     active_downloads.remove((task, link_info))
     
@@ -436,5 +457,8 @@ if __name__ == "__main__":
         if not process_another:
             break
         else:
-            console.clear()
-            console.clear_live()
+            try:
+                console.clear()
+                console.clear_live()
+            except:
+                pass
