@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.25.0
+// @version     6.25.7
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -41,11 +41,11 @@
 // @match       https://www.animegg.org/*
 // @match       https://www.animeonsen.xyz/watch/*
 // @match       https://kaido.to/watch/*
-// @match       https://animetsu.cc/watch/*
-// @match       https://animekai.to/watch/*
-// @match       https://animekai.ac/watch/*
-// @match       https://animekai.cc/watch/*
-// @match       https://anikai.to/watch/*
+// @match       https://animetsu.cc/*
+// @match       https://animekai.to/*
+// @match       https://animekai.ac/*
+// @match       https://animekai.cc/*
+// @match       https://anikai.to/*
 // @match       https://yflix.to/watch/*
 // @match       https://anime.uniquestream.net/*/*/*
 // @grant       GM_registerMenuCommand
@@ -1402,7 +1402,7 @@ async function extractEpisodes() {
                 });
                 epnumSpan.addEventListener('click', e => {
                     e.preventDefault();
-                    location.replace(`${MPV_PROTOCOL}://play/` + safeBtoa(link) + `/?v_title=${safeBtoa(name)}&cookies=${location.hostname}.txt&referer=${safeBtoa(ep.links[quality].referer || location.href)}` + (ep.links[quality].tracks?.some(t => t.kind === 'caption') ? `&subfile=${safeBtoa(ep.links[quality].tracks.filter(t => /^caption/.test(t.kind)).map(t => t.file).join(';'))}` : ''));
+                    location.replace(`${MPV_PROTOCOL}://play/` + safeBtoa(link) + `/?v_title=${safeBtoa(name)}&cookies=${location.hostname}.txt&referrer=${safeBtoa(ep.links[quality].referer || location.href)}` + (ep.links[quality].tracks?.some(t => t.kind === 'caption') ? `&subfile=${safeBtoa(ep.links[quality].tracks.filter(t => /^caption/.test(t.kind)).map(t => t.file).join(';'))}` : ''));
                     showToast('Sent to MPV. If nothing happened, install v0.4.0+ of <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a>.');
                 });
                 episodeLinkElement.addEventListener('click', () => {
