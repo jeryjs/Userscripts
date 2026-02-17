@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.25.7
+// @version     6.26.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
 // @author      Jery
@@ -42,6 +42,7 @@
 // @match       https://www.animeonsen.xyz/watch/*
 // @match       https://kaido.to/watch/*
 // @match       https://animetsu.cc/*
+// @match       https://animetsu.live/*
 // @match       https://animekai.to/*
 // @match       https://animekai.ac/*
 // @match       https://animekai.cc/*
@@ -56,6 +57,7 @@
 // @grant       GM_getValue
 // @grant       GM_setValue
 // @grant       GM_download
+// @grant       GM_setClipboard
 // @downloadURL https://update.greasyfork.org/scripts/492029/AniLINK%20-%20Episode%20Link%20Extractor.user.js
 // @updateURL https://update.greasyfork.org/scripts/492029/AniLINK%20-%20Episode%20Link%20Extractor.meta.js
 // ==/UserScript==
@@ -95,7 +97,7 @@ class Episode {
     _processLinks(links) {
         for (const linkObj of Object.values(links)) {
             linkObj.stream &&= new URL(linkObj.stream, location.origin).href;   // Ensure stream URLs are absolute
-            linkObj.referer ??= location.href; // Set referer to current page if not present
+            linkObj.referer ??= location.origin + '/' ; // Set referer to current domain if not present
             linkObj.type = (linkObj.type.startsWith('.') || (linkObj.type === 'embed')) ? linkObj.type : `.${linkObj.type}`; // Ensure type starts with a dot, but not for 'embed'
             linkObj.tracks?.forEach?.(track => track.kind = /^(caption|subtitle)s?/.test(track.kind) ? 'caption' : track.kind); // normalize all 'kind' values's subtitle(s) or caption(s) to 'caption'
             linkObj.tracks?.forEach?.(track => track.file &&= new URL(track.file, location.origin).href);   // Ensure track file URLs are absolute
@@ -755,38 +757,37 @@ const Websites = [
     },
     {
         name: "Gojo",
-        url: ["animetsu.cc"],
+        url: ["animetsu.cc", "animetsu.tv", "animetsu.live"],
+        _chunkSize: 12,
+        _baseApi: 'https://b.animetsu.live/api/anime',
         addStartButton: function (id) {
             // Use same logic as Miruro, but target gojo layout
             let last_known_location = location.href;
             setInterval(() => {
                 if (last_known_location !== location.href) { last_known_location = location.href; document.getElementById('AniLINK_Overlay')?.remove() };
-                // Prepend the extract button
-                const target = document.querySelector('.Video .items-center.gap-2 + div');
-                if (target && !document.getElementById(id)) {
-                    const btn = Object.assign(document.createElement('button'), { id, className: (target.lastChild?.className || '') + " font-light w-fit !shrink-0 text-[.6rem] sm:text-xs justify-center items-center whitespace-nowrap overflow-hidden text-ellipsis flex", innerHTML: `<svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="3 3 18 18" style="margin-right:6px;"><path fill="currentColor" d="M5 21q-.825 0-1.413-.588T3 19V5q0-.825.588-1.413T5 3h14q.825 0 1.413.588T21 5v14q0 .825-.588 1.413T19 21H5Zm0-2h14V5H5v14Zm3-4.5h2.5v-6H8v6Zm5.25 0h2.5v-6h-2.5v6Zm5.25 0h2.5v-6h-2.5v6Z"/></svg>Extract Episode Links` });
-                    btn.addEventListener('click', extractEpisodes);
-                    target.prepend(btn);
-                }
+                const target = document.querySelector('div.ring-1, div.justify-between > span')
+                if (target && !document.getElementById(id)) target.after(Object.assign(document.createElement('button'), { id, className: "flex-center justify-center gap-1.5 flex-nowrap whitespace-nowrap ring ring-green-400/20 bg-green-400/10 text-xs h-8 px-3 radius-xl -mt-5 nowrap overflow-hidden text-ellipsis flex", innerHTML: `<svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="3 3 18 18" style="margin-right:6px;"><path fill="currentColor" d="M5 21q-.825 0-1.413-.588T3 19V5q0-.825.588-1.413T5 3h14q.825 0 1.413.588T21 5v14q0 .825-.588 1.413T19 21H5Zm0-2h14V5H5v14Zm3-4.5h2.5v-6H8v6Zm5.25 0h2.5v-6h-2.5v6Zm5.25 0h2.5v-6h-2.5v6Z"/></svg>Extract Episode Links`, onclick: extractEpisodes }));
             }, 500);
         },
         extractEpisodes: async function* (status) {
-            const id = location.pathname.split('/').pop();
-            for (let i = 0, epElms = await applyEpisodeRangeFilter([..._$$('.Episode button:not(:nth-child(1))')]); i < epElms.length; i += 3)
-                yield* yieldEpisodesFromPromises(epElms.slice(i, i + 3).map(async epElm => {
-                    const epNum = epElm.querySelector('.font-medium').textContent.split(' ').pop();
-                    status.text = `Extracting Episodes ${(epNum - Math.min(3, epNum) + 1)} - ${epNum}...`;
-                    const servers = await fetch(`https://backend.animetsu.cc/api/anime/servers?id=${id}&num=${epNum}`).then(r => r.json());
-                    const links = Object.fromEntries((await Promise.allSettled(servers.flatMap(srv => {
-                        if (!_$('button[disabled]').textContent.includes(srv.id)) return []; // process only selected server
-                        return ['sub', ...(srv.hasDub ? ['dub'] : [])].map(async subType =>
-                            fetch(`https://backend.animetsu.cc/api/anime/tiddies?server=${srv.id}&id=${id}&num=${epNum}&subType=${subType}`).then(r => r.json())
-                                .then(data => data.sources.map(src => [`${srv.id}-${subType}-${src.quality}`, { stream: src.url, type: 'm3u8', tracks: data.subtitles?.map(s => ({ file: s.url, label: s.lang, kind: 'caption' })) || [] }]))
-                                .catch(e => { showToast(`Failed to fetch Ep ${epNum} from ${srv.id}-${subType}: ${e.message || e}`); return []; })
-                        );
-                    }))).flatMap(r => r.status === 'fulfilled' ? r.value : []));
-                    return new Episode(epNum, _$('.cover + div span').textContent, links, epElm.querySelector('img')?.src || '', epElm.querySelector('.text-sm').textContent);
-                }));
+            status.text = 'Fetching episode list...';
+            const animeId = location.href.split('/').pop(), eps = await applyEpisodeRangeFilter(await fetch(`${this._baseApi}/eps/${animeId}`).then(r => r.json()));
+            const srcCfg = await (async () => {
+                const servers = (await fetch(`${this._baseApi}/servers/${animeId}/${eps[0].ep_num}`).then(r => r.json())).flatMap(s => [`${s.id}-sub`, `${s.id}-dub`]);
+                return await showSourceSelector(servers, 'animetsu', { sources: servers.filter(s => s.startsWith('pahe-') || s.startsWith('default-')), mode: 'single' });
+            })();
+            for (let i = 0; i < eps.length; i += this._chunkSize)
+                yield* yieldEpisodesFromPromises(eps.slice(i, i + this._chunkSize).map(async ep => {
+                    const epNum = ep.ep_num; status.text = `Extracting Episodes ${Math.max(1, epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
+                    const links = {}; 
+                    for (const serverFull of srcCfg?.sources || ['pahe-sub']) { try {
+                        const [server, type] = serverFull.split('-'), data = await fetch(`${this._baseApi}/oppai/${animeId}/${epNum}?server=${server}&source_type=${type}`).then(r => r.json());
+                        const tracks = (data.subs || []).map(s => ({ file: s.url, label: s.lang, kind: 'caption' }));
+                        for (const src of data.sources || []) links[`${data.server || server}-${type}-${src.quality}`] = { stream: src.url.startsWith('/') ? `https://ani.metsu.site/proxy${src.url}` : src.url, type: 'm3u8', tracks };
+                        if (srcCfg?.mode === 'single' && Object.keys(links).length) break;
+                    } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${serverFull}: ${e.message || e}`); } }
+                    return new Episode(epNum, _$('a[href^="/anime"] > div.w-full, .text-xl')?.textContent || '', links, ep.img ? `${location.origin}${ep.img}` : '', ep.name || undefined);
+                }))
         }
     },
     {
@@ -1501,6 +1502,14 @@ async function extractEpisodes() {
                 .map(cb => cb.closest('.anlink-episode-item'));
             if (items.length) selected[quality] = items;
         });
+        // If none selected, select all by default
+        if (!Object.keys(selected).length) {
+            document.querySelectorAll('.anlink-quality-section').forEach(section => {
+                const quality = section.dataset.quality;
+                const items = Array.from(section.querySelectorAll('.anlink-episode-item'));
+                selected[quality] = items;
+            });
+        }
         return selected;
     }
 
@@ -1539,10 +1548,9 @@ async function extractEpisodes() {
         const selected = getAllSelectedEpisodes();
         if (!Object.keys(selected).length) return showToast('No episodes selected');
         btn.textContent = 'Processing...';
-        const playlistData = buildPlaylist(selected);
-        const url = await GM_fetch('https://paste.rs/', { method: 'POST', body: playlistData }).then(r => r.text()).then(t => t + '.m3u8');
-        console.log(`Playlist URL:`, url);
-        location.replace(`${MPV_PROTOCOL}://play/` + safeBtoa(url) + '/?v_title=' + safeBtoa((window._anilink_episodes?.[0]?.animeTitle || 'Anime')));
+        const url = await GM_fetch('https://xi.pe/', { method: 'POST', body: buildPlaylist(selected) }).then(r => r.text()).then(t => t.trim() + "?raw");
+        GM_setClipboard(url, "text", () => console.log(`Playlist URL: `, url));
+        location.replace(`${MPV_PROTOCOL}://play/` + safeBtoa(url) + '/?v_title=' + safeBtoa((window._anilink_episodes?.[0]?.animeTitle || 'Anime')) + `&cookies=${location.hostname}.txt&referrer=${safeBtoa((Object.values(window._anilink_episodes?.[0].links)[0]?.referer || location.origin))}`);
         btn.textContent = 'Sent to MPV';
         setTimeout(() => { btn.textContent = 'Play with MPV'; showToast('If nothing happened, install v0.4.0+ of <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a>.'); }, 1000);
     }
@@ -1775,7 +1783,7 @@ async function showSourceSelector(sourcesGetter, siteKey, defaults = {}) {
                 GM_setValue(storageKey, JSON.stringify(config));
                 resolve(config);
             },
-            onCancel: () => resolve(saved || { sources: availableSources, mode: 'single' })
+            onCancel: () => reject(new Error('Source selection cancelled by user.'))
         });
 
         GM_addStyle(`

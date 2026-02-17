@@ -162,7 +162,7 @@ local function handle_m3u8()
     if not path then return end
 
     -- Only parse local m3u8 files or paste.rs URLs (paste.rs is the workaround used by AniLINK for playing entire playlists)
-    if path:match('%.m3u8$') and (not path:match('^https?://') or path:match('paste%.rs/')) then
+    if path:match('%.m3u8$') and (not path:match('^https?://') or path:match('paste%.rs/')) or path:match('xi%.pe/') then
         local parsed = parse_m3u8(path)
         if parsed then
             episodes = parsed
