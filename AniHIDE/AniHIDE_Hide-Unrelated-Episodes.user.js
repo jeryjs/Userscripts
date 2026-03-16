@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.4.0
+// @version     2.4.1
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -24,7 +24,8 @@
 // @match       https://www.miruro.tv/*
 // @match       https://miruro.to/*
 // @match       https://miruro.online/*
-// @match       https://animekai.to/*
+// @match       https://animekai.*/*
+// @match       https://anikai.*/*
 // @match       https://animetsu.cc/*
 // @match       https://kaido.to/*
 // @match       https://kuudere.to/*
@@ -128,7 +129,7 @@ const animeSites = [
     {
         name: 'miruro',
         url: ['miruro'],
-        item: 'a[color][title][href^="/watch"]',
+        item: 'a.animSlideUp',
         title: 'h5[title^="Title: "]',
         thumbnail: 'img[alt^="Play "]',
         observe: 'section[aria-labelledby*="continueWatching"] + div',
@@ -136,7 +137,7 @@ const animeSites = [
     },
     {
         name: 'animekai',
-        url: ['animekai.to'],
+        url: ['animekai', 'anikai'],
         item: '.aitem',
         title: '.title',
         thumbnail: 'img',
