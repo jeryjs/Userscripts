@@ -125,7 +125,7 @@ local function add_subtitles_parallel()
                 for _, track in ipairs(tracks) do
                     if track.type == "sub" then
                         local name = (track.lang or track.title or ""):lower()
-                        if name:find("english") or name:find("eng") or name:find("en") then
+                        if name == "english" or name == "eng" then
                             eng_sub_id = track.id
                             break
                         elseif track.default then
