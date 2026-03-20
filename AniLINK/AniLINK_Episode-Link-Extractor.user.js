@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.26.0
+// @version     6.27.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
-// @icon        https://www.google.com/s2/favicons?domain=animepahe.ru
+// @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
 // @license     MIT
 // @match       https://anitaku.*/*
@@ -49,6 +49,8 @@
 // @match       https://anikai.to/*
 // @match       https://yflix.to/watch/*
 // @match       https://anime.uniquestream.net/*/*/*
+// @match       https://www.fmovies.gd/*/*
+// @match       https://*fmovies.*/*/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
 // @grant       GM.xmlHttpRequest
@@ -502,7 +504,7 @@ const Websites = [
                     document.getElementById('AniLINK_Overlay')?.remove();
                 }
                 // Append the extract button
-                const target = document.querySelector('.App + div > div > div + div > div > div > div > div + div > div + div');
+                const target = document.querySelector('div[class^="_tagRow"] > div+div');
                 if (target && !document.getElementById(id)) {
                     // clearInterval(intervalId);
                     const btn = document.createElement('button');
@@ -521,10 +523,10 @@ const Websites = [
         extractEpisodes: async function* (status) {
             status.text = 'Fetching episode list...';
             const animeTitle = (document.querySelector('p.title-romaji') || document.querySelector(this.animeTitle)).textContent;
-            const malId = document.querySelector(`a[href*="/myanimelist.net/anime/"]`)?.href.split('/').pop();
-            if (!malId) return showToast('MAL ID not found.');
+            const anilistId = document.querySelector(`a[href*="/anilist.co/anime/"]`)?.href.split('/').pop();
+            if (!anilistId) return showToast('anilistId not found.');
 
-            const res = await this._secureFetch(`${this.baseApiUrl}/episodes`, { query: { malId } });
+            const res = await this._secureFetch(`${this.baseApiUrl}/episodes`, { query: { anilistId } });
             const eps = Object.entries(res.providers).reduce((a, [provider, { episodes }]) => (
                 Object.entries(episodes).forEach(([type, list]) => list.forEach(ep => (a[ep.number] ??= []).push({ ...ep, provider, type }))), a
             ), {});
@@ -538,7 +540,7 @@ const Websites = [
                     const source = this._getLocalSourceName(provider, type);
                     try {
                         const sresJson = await this._secureFetch(`${this.baseApiUrl}/sources`, { query: { episodeId: id, provider, category: type } });
-                        const referer = provider == 'KICKASSANIME' ? 'https://kaa.to/' : provider == 'ZORO' ? 'https://megacloud.blog/' : provider == 'ANIMEPAHE' ? 'https://kwik.cx/' : location.href;
+                        const referer = "https://" + (provider == 'kaa' ? 'kaa.to' : provider == 'zoro' ? 'megacloud.blog' : provider == 'kiwi' ? 'kwik.cx' : provider == 'arc' ? 'anikai.to' : location.origin) + "/";
                         links[source] = { stream: sresJson.streams[0].url, type: "m3u8", tracks: sresJson.tracks || sresJson.subtitles || [], referer };
                     } catch (e) { showToast(`Failed to fetch ep-${epNum} from ${source}: ${e}`); }
                 };
@@ -874,6 +876,42 @@ const Websites = [
                     const links = Object.fromEntries([d.dash, d.hls, ...(d.versions?.dash || []), ...(d.versions?.hls || [])].filter(Boolean).map(s => [`${s.playlist.includes('.mpd') ? 'dash' : 'hls'}-${s.locale}`, { stream: s.playlist, type: s.playlist.includes('.mpd') ? 'mpd' : 'm3u8', tracks: (s.hard_subs || []).map(h => ({ file: h.playlist, label: h.locale, kind: 'caption' })) }]));
                     return !Object.keys(links).length ? null : new Episode(epNum, _$('.series-title').textContent, links, epElm.querySelector('img')?.src || '', epTitle);
                 } catch (e) { showToast(`error ${e.status}: ${e.message}`); return null; } }));
+        }
+    },
+    {
+        name: 'FMovies',
+        url: ['fmovies'],
+        _chunkSize: 12,
+        extractEpisodes: async function* (status) {
+            const epElms = await applyEpisodeRangeFilter([..._$$('a[href^="/watch/"]')].slice(location.pathname.startsWith('/tv/')));
+            for (let i = 0; i < epElms.length; i += this._chunkSize) {
+                yield* yieldEpisodesFromPromises((epElms.slice(i, i + this._chunkSize)).map(async epElm => {
+                    const ifr = Object.assign(document.createElement('iframe'), { src: epElm.href, style: 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;' });
+                    try {
+                        const epNum = epElm.querySelector('.w-8')?.textContent?.trim() || '0';
+                        status.text = `Extracting Ep ${epNum - epNum + 1} - ${epNum}...`;
+                        document.body.appendChild(ifr);
+                        let links = {}, attempts = 0;
+                        await new Promise((r, t) => {
+                            const check = () => {
+                                try {
+                                    if (ifr.contentWindow?.availableServers?.length) {
+                                        links = Object.fromEntries(ifr.contentWindow.availableServers.flatMap(s => s.source?.sources?.map(src => [`${s.name}-${src.quality || 'auto'}`, { stream: src.file || src.url, type: 'm3u8', tracks: (s.source.subtitles || []).map(t => ({ file: t.url, label: t.lang, kind: 'caption' })) }]) || []));
+                                        if (Object.keys(links).length) { clearInterval(checkInt); r(); return; }
+                                    }
+                                } catch (e) { }
+                                attempts++; if (attempts >= 40) { clearInterval(checkInt); t('timeout'); }
+                            };
+                            const checkInt = setInterval(check, 500);
+                            setTimeout(() => { clearInterval(checkInt); if (!Object.keys(links).length) t('timeout'); }, 20000);
+                        });
+                        if (!Object.keys(links).length) throw new Error('no sources');
+                        return new Episode(epNum, (_$('h1')?.textContent?.trim() || ''), links, epElm.querySelector('img')?.src, (epElm.querySelector('h4')?.textContent?.trim()));
+                    }
+                    catch (e) { return showToast(`: ${e}`); }
+                    finally { ifr.remove(); }
+                }));
+            }
         }
     }
 ];
