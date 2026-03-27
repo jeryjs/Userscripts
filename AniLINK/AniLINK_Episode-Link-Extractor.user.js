@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.27.0
+// @version     6.27.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -821,7 +821,7 @@ const Websites = [
                     const links = {}, fetchSource = async s => { try { links[s.name] = await fetch(`/ajax/links/view?id=${s.lid}&_=${await this._encdec(s.lid)}`).then(r => r.json().then(d => d.result)).then(val => this._encdec(val, 'd').then(async d => await Extractors.use(d.url))); } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${s.name}: ${e.message || e}`); } };
                     if (srcCfg?.mode === 'single') { for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) { await fetchSource(s); if (Object.keys(links).length) break; } } } 
                     else for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) await fetchSource(s); }
-                    return new Episode(epNum, $('h1').text(), links, $('.poster-wrap-bg').attr('style').match(/https.*\.[a-z]+/g)[0], ep.querySelector('span').textContent);
+                    return new Episode(epNum, $('h1').text(), links, $('.poster-wrap-bg').attr('style').match(/https?.*\.[a-z]+/g)[0], ep.querySelector('span').textContent);
                 }))
         },
         _encdec: async (s, t = 'e') => await GM_fetch(`https://enc-dec.app/api/${t == 'e' ? 'enc' : 'dec'}-kai?text=` + s).then(r => r.json()).then(d => d.result),
@@ -994,7 +994,7 @@ const Extractors = {
         const source = sources.reduce((best, curr) => (s => parseInt(s.label) || 0)(curr) > (s => parseInt(s.label) || 0)(best) ? curr : best, sources[0]);
         return { file: source.file, type: source.file.includes('.m3u8') ? 'm3u8' : 'mp4', tracks: [] };
     },
-    '/^(4spromax|megaup|rapidairmax|rapidshare)(\\d+)?\\.?(live|online|cc|site)$/': async function (url, referer = 'https://megaup.cc/') {
+    '/^(4spromax|megaup|rapidairmax|rapidshare)(\\d+)?\\.?(live|online|cc|site|nl|work)$/': async function (url, referer = 'https://megaup.cc/') {
         // workaround: use GM_xmlhttpRequest to avoid passing cookies (coudnt do that with GM_fetch)
         const u = new URL(url), subListUrl = u.searchParams.get('sub.list');
         const encToken = await new Promise((r, j) => GM_xmlhttpRequest({ method: 'GET', url: url.replace('/e/', '/media/'), headers: { 'User-Agent': USER_AGENT_HEADER }, anonymous: true, onload: res => { try { r(JSON.parse(res.responseText).result); } catch (e) { j(e); } }, onerror: j }));
