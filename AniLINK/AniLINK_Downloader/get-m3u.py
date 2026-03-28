@@ -1,4 +1,4 @@
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 # pip install rich configparser py7zr requests
 
@@ -367,7 +367,7 @@ def download_stream(link_info, folder, progress_group, settings, all_links=None,
                 progress_group.update(task, description=f"[red]{name_display} ✗ (Cancelled)[/red]")
                 break
 
-            ffmpeg_command = ['ffmpeg', '-y', '-nostdin', '-progress', 'pipe:1', '-allowed_extensions', 'ALL']
+            ffmpeg_command = ['ffmpeg', '-y', '-nostdin', '-progress', 'pipe:1', '-extension_picky', 'false']
             
             # Add referer header if present
             if link_info.get('referer'):
