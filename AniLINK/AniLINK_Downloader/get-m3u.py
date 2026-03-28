@@ -1,23 +1,63 @@
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 
-# pip install rich configparser py7zr requests
+# pip install rich py7zr requests -- nvm... these are now auto-installed if missing, so no need to worry about that! Just run the script and it will handle dependencies for you.
 
 import argparse
-from datetime import datetime
+import importlib.util
+import os
+import signal
+import subprocess
+import sys
+import threading
 import time
+
+
+def ensure_dependencies():
+    missing = [pkg for pkg in ("rich", "requests", "py7zr") if importlib.util.find_spec(pkg) is None]
+    if not missing:
+        return
+
+    stop = threading.Event()
+
+    def spinner():
+        frames = "|/-\\"
+        i = 0
+        while not stop.is_set():
+            sys.stdout.write(f"\rPreparing dependencies... {frames[i % len(frames)]}")
+            sys.stdout.flush()
+            time.sleep(0.12)
+            i += 1
+        sys.stdout.write("\rPreparing dependencies... done\n")
+        sys.stdout.flush()
+
+    thread = threading.Thread(target=spinner, daemon=True)
+    thread.start()
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", *missing],
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(f"Failed to install dependencies: {' '.join(missing)}") from exc
+    finally:
+        stop.set()
+        thread.join()
+
+
+ensure_dependencies()
+
+from datetime import datetime
+from configparser import ConfigParser
+from urllib.parse import urljoin
+
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn
-from configparser import ConfigParser
-import os
-import subprocess
-import threading
+
+import py7zr  # type: ignore[import-not-found]
 import requests
-import py7zr
-import signal
 import re
-from urllib.parse import urljoin
 
 console = Console()
 config = ConfigParser()
