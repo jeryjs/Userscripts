@@ -2,6 +2,8 @@ __version__ = "1.5.0"
 
 # pip install rich configparser py7zr requests
 
+import argparse
+from datetime import datetime
 import time
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
@@ -31,6 +33,8 @@ config_file = os.path.join(config_dir, 'settings.ini')
 active_downloads = []
 active_downloads_lock = threading.Lock()
 cancel_event = threading.Event()
+DEBUG_MODE = False
+DEBUG_DIR = None
 
 def parse_duration(line):
     time_str = line.split('Duration: ')[1].split(',')[0]
@@ -116,6 +120,21 @@ def terminate_process(process):
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait(timeout=5)
+
+def set_debug_mode(enabled):
+    global DEBUG_MODE, DEBUG_DIR
+    DEBUG_MODE = enabled
+    if enabled:
+        DEBUG_DIR = os.path.join(os.getcwd(), 'debug')
+        os.makedirs(DEBUG_DIR, exist_ok=True)
+
+def build_debug_log_path(name, attempt):
+    if not DEBUG_MODE or not DEBUG_DIR:
+        return None
+    timestamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+    safe_name = sanitize_filename(os.path.splitext(name)[0]) or 'download'
+    safe_name = safe_name[:80]
+    return os.path.join(DEBUG_DIR, f'{timestamp}_{safe_name}_attempt{attempt}.log')
 
 def load_settings():
     settings = {
@@ -341,6 +360,8 @@ def download_stream(link_info, folder, progress_group, settings, all_links=None,
     for attempt in range(1, retries + 1):
         process = None
         ffmpeg_log = []
+        debug_log = None
+        debug_log_path = None
         try:
             if cancel_event.is_set():
                 progress_group.update(task, description=f"[red]{name_display} ✗ (Cancelled)[/red]")
@@ -385,9 +406,34 @@ def download_stream(link_info, folder, progress_group, settings, all_links=None,
                 ffmpeg_command.extend(['-maxrate', settings['speed_limit']])
             
             ffmpeg_command.append(output_file)
+
+            if DEBUG_MODE:
+                debug_log_path = build_debug_log_path(name, attempt)
+                if debug_log_path:
+                    debug_log = open(debug_log_path, 'w', encoding='utf-8')
+                    debug_log.write(f'Name: {name}\n')
+                    debug_log.write(f'Attempt: {attempt}/{retries}\n')
+                    debug_log.write(f'Output: {output_file}\n')
+                    debug_log.write(f'Resolved Source URL: {source_url}\n')
+                    debug_log.write(f'Referer: {link_info.get("referer") or "None"}\n')
+                    debug_log.write(f'Stream Index: {settings.get("stream_idx", 0)}\n')
+                    debug_log.write(f'Parallel Downloads: {settings.get("parallel_downloads", 4)}\n')
+                    debug_log.write(f'Retries: {retries}\n')
+                    debug_log.write(f'Timeout: {settings.get("timeout", 30)}\n')
+                    debug_log.write(f'Speed Limit: {settings.get("speed_limit") or "None"}\n')
+                    debug_log.write('Subtitles:\n')
+                    if subtitles:
+                        for sub in subtitles:
+                            debug_log.write(f'  - {sub.get("name", "Subtitle")} | {sub.get("url", "")}\n')
+                    else:
+                        debug_log.write('  (none)\n')
+                    debug_log.write(f'Command: {subprocess.list2cmdline(ffmpeg_command)}\n\n')
+
             # print(f"Running ffmpeg command: {' '.join(ffmpeg_command)}")  # Debug: print the ffmpeg command
             process = subprocess.Popen(ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, bufsize=1)
             link_info['process'] = process
+            if debug_log:
+                debug_log.write(f'PID: {process.pid}\n\n')
             progress_group.start_task(task)
             duration = None
             start_time = time.time()
@@ -404,6 +450,8 @@ def download_stream(link_info, folder, progress_group, settings, all_links=None,
                 ffmpeg_log.append(line)
                 if len(ffmpeg_log) > 200:
                     ffmpeg_log.pop(0)
+                if debug_log:
+                    debug_log.write(line)
                 if 'Duration' in line:
                     duration = parse_duration(line) or duration
                 elif 'time=' in line and duration:
@@ -422,10 +470,16 @@ def download_stream(link_info, folder, progress_group, settings, all_links=None,
             process.wait(timeout=settings['timeout'])
             if process.returncode == 0:
                 size = f"{os.path.getsize(output_file) / (1024*1024):.1f}MB"
+                if debug_log:
+                    debug_log.write(f"\nReturn code: 0\n")
                 progress_group.update(task, completed=100, description=f"[green]{name_display} ✓ ({size})[/green]")
                 break
             else:
                 tail = ''.join(ffmpeg_log[-12:]).strip()
+                if debug_log:
+                    debug_log.write(f"\nReturn code: {process.returncode}\n")
+                    if tail:
+                        debug_log.write(f"\nLast output:\n{tail}\n")
                 if tail:
                     raise Exception(f"ffmpeg exited with code {process.returncode}: {tail}")
                 raise Exception(f"ffmpeg exited with code {process.returncode}")
@@ -434,16 +488,25 @@ def download_stream(link_info, folder, progress_group, settings, all_links=None,
             signal_handler(signal.SIGINT, None)
             break
         except subprocess.TimeoutExpired:
+            if debug_log:
+                debug_log.write("\nTimeout expired while waiting for ffmpeg.\n")
             terminate_process(process)
             if attempt == retries:
                 progress_group.update(task, description=f"[red]{name_display} ✗ (Timed out)[/red]")
             else:
                 console.print(f"[yellow]{name_display}: Retry {attempt}/{retries} after timeout[/yellow]")
         except Exception as e:
+            if debug_log:
+                debug_log.write(f"\nError: {e}\n")
             if attempt == retries:
                 progress_group.update(task, description=f"[red]{name_display} ✗ ({e})[/red]")
             else:
                 console.print(f"[yellow]{name_display}: Retry {attempt}/{retries}[/yellow]")
+        finally:
+            if debug_log:
+                debug_log.close()
+                if DEBUG_MODE and debug_log_path:
+                    console.print(f"[dim]Debug log written to {debug_log_path}[/dim]")
     
     link_info.pop('process', None)
     with active_downloads_lock:
@@ -547,6 +610,10 @@ def main():
         console.print(f"\n[red]An unexpected error occurred: {e}[/red]\n")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="M3U Batch Downloader for AniLINK")
+    parser.add_argument("--debug", action="store_true", help="Write per-attempt ffmpeg logs to ./debug")
+    args = parser.parse_args()
+    set_debug_mode(args.debug)
     signal.signal(signal.SIGINT, signal_handler)
     
     while True:
