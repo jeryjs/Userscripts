@@ -15,6 +15,7 @@ import requests
 import py7zr
 import signal
 import re
+from urllib.parse import urljoin
 
 console = Console()
 config = ConfigParser()
@@ -28,6 +29,8 @@ os.makedirs(config_dir, exist_ok=True)
 config_file = os.path.join(config_dir, 'settings.ini')
 
 active_downloads = []
+active_downloads_lock = threading.Lock()
+cancel_event = threading.Event()
 
 def parse_duration(line):
     time_str = line.split('Duration: ')[1].split(',')[0]
@@ -65,6 +68,54 @@ def truncate_middle(text, max_length=max(50, int(console.width * 0.5))):
     start_len = int(max_length * 0.7)
     end_len = max_length - start_len - 3
     return text[:start_len] + "..." + text[-end_len:]
+
+def read_playlist_text(url, referer=None, timeout=30):
+    headers = {}
+    if referer:
+        headers['Referer'] = referer
+    response = requests.get(url, headers=headers, timeout=timeout)
+    response.raise_for_status()
+    return response.text
+
+def resolve_hls_variant_url(url, stream_idx=0, referer=None, timeout=30):
+    playlist_text = read_playlist_text(url, referer=referer, timeout=timeout)
+    if '#EXT-X-STREAM-INF' not in playlist_text:
+        return url
+
+    variants = []
+    lines = [line.strip() for line in playlist_text.splitlines()]
+    for i, line in enumerate(lines):
+        if not line.startswith('#EXT-X-STREAM-INF:'):
+            continue
+        if i + 1 >= len(lines):
+            continue
+
+        next_line = lines[i + 1].strip()
+        if not next_line or next_line.startswith('#'):
+            continue
+
+        bandwidth_match = re.search(r'BANDWIDTH=(\d+)', line)
+        variants.append({
+            'url': urljoin(url, next_line),
+            'bandwidth': int(bandwidth_match.group(1)) if bandwidth_match else -1,
+        })
+
+    if not variants:
+        return url
+
+    variants.sort(key=lambda item: item['bandwidth'], reverse=True)
+    index = max(0, min(stream_idx, len(variants) - 1))
+    return variants[index]['url']
+
+def terminate_process(process):
+    if not process or process.poll() is not None:
+        return
+    try:
+        process.terminate()
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
 
 def load_settings():
     settings = {
@@ -105,7 +156,7 @@ def customize_settings(settings):
         table.add_row("2", "Retries", str(settings['retries']))
         table.add_row("3", "Speed Limit (e.g., 0, 500k, 2M)", settings['speed_limit'] or "None")
         table.add_row("4", "Timeout (seconds)", str(settings['timeout']))
-        table.add_row("5", "Stream (e.g., 0, 1, 2)", str(settings['stream_idx']))
+        table.add_row("5", "Quality / Program (e.g., 0, 1, 2)", str(settings['stream_idx']))
         console.print(table)
         choices = Prompt.ask("Enter the numbers of the settings you want to change (e.g., 1,3)", default="")
         if not choices:
@@ -132,8 +183,8 @@ def customize_settings(settings):
 
 def check_ffmpeg():
     try:
-        subprocess.run(['ffmpeg', '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except FileNotFoundError:
+        subprocess.run(['ffmpeg', '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError):
         choice = Confirm.ask("[red]ffmpeg not found.[/red] Download minimal version?", default=True)
         if choice:
             download_ffmpeg()
@@ -147,15 +198,24 @@ def download_ffmpeg():
     ffmpeg_dir = os.path.join('.ffmpeg')
     os.makedirs(ffmpeg_dir, exist_ok=True)
     ffmpeg_archive = os.path.join(ffmpeg_dir, 'ffmpeg.7z')
-    with requests.get(ffmpeg_url, stream=True) as r:
+    with requests.get(ffmpeg_url, stream=True, timeout=30) as r:
+        r.raise_for_status()
         with open(ffmpeg_archive, 'wb') as f:
             for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
+                if chunk:
+                    f.write(chunk)
     with py7zr.SevenZipFile(ffmpeg_archive, mode='r') as archive:
         archive.extractall(ffmpeg_dir)
-    ffmpeg_bin = os.path.join(ffmpeg_dir, 'ffmpeg-git-essentials', 'bin')
+    ffmpeg_bin = None
+    for root, _, files in os.walk(ffmpeg_dir):
+        if 'ffmpeg.exe' in files:
+            ffmpeg_bin = root
+            break
+    if not ffmpeg_bin:
+        raise FileNotFoundError("ffmpeg.exe was not found after extraction")
     os.environ["PATH"] = ffmpeg_bin + os.pathsep + os.environ["PATH"]
-    console.print("ffmpeg installed.")
+    subprocess.run(['ffmpeg', '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    console.print(f"ffmpeg installed from {ffmpeg_bin}.")
 
 def parse_m3u(file_path):
     links = []
@@ -260,27 +320,48 @@ def download_stream(link_info, folder, progress_group, settings, all_links=None,
     name_display = truncate_middle(name)
     output_file = get_output_file(link_info, folder, all_links, idx)
     task = progress_group.add_task(f"[cyan]{name_display}[/cyan]", total=100, start=False, filename=output_file)
-    active_downloads.append((task, link_info))
+    with active_downloads_lock:
+        active_downloads.append((task, link_info))
+
+    source_url = link_info['url']
+    try:
+        source_url = resolve_hls_variant_url(
+            source_url,
+            stream_idx=settings.get('stream_idx', 0),
+            referer=link_info.get('referer'),
+            timeout=settings.get('timeout', 30),
+        )
+    except Exception as e:
+        progress_group.update(task, description=f"[red]{name_display} ✗ (playlist resolve failed: {e})[/red]")
+        with active_downloads_lock:
+            if (task, link_info) in active_downloads:
+                active_downloads.remove((task, link_info))
+        return
     
     for attempt in range(1, retries + 1):
+        process = None
+        ffmpeg_log = []
         try:
-            ffmpeg_command = ['ffmpeg', '-y', '-progress', 'pipe:1']
+            if cancel_event.is_set():
+                progress_group.update(task, description=f"[red]{name_display} ✗ (Cancelled)[/red]")
+                break
+
+            ffmpeg_command = ['ffmpeg', '-y', '-nostdin', '-progress', 'pipe:1', '-allowed_extensions', 'ALL']
             
             # Add referer header if present
             if link_info.get('referer'):
                 ffmpeg_command.extend(['-headers', f"Referer: {link_info['referer']}\r\n"])
             
             # Add video input
-            ffmpeg_command.extend(['-i', link_info['url']])
+            ffmpeg_command.extend(['-i', source_url])
             
             # Add subtitle inputs
             subtitles = link_info.get('subtitles', [])
             for sub in subtitles:
                 ffmpeg_command.extend(['-i', sub['url']])
             
-            # Map only compatible streams (video, audio, subtitles - exclude data/ID3 streams)
-            stream_idx = settings.get('stream_idx', 0)
-            ffmpeg_command.extend(['-map', f'0:v:{stream_idx}', '-map', f'0:a:{stream_idx}'])  # Map specific quality
+            # Map the primary video/audio streams from the selected variant playlist.
+            ffmpeg_command.extend(['-map', '0:v:0?', '-map', '0:a:0?'])
             for i in range(len(subtitles)):
                 ffmpeg_command.extend(['-map', str(i + 1)])  # Map each subtitle input
             
@@ -304,16 +385,25 @@ def download_stream(link_info, folder, progress_group, settings, all_links=None,
                 ffmpeg_command.extend(['-maxrate', settings['speed_limit']])
             
             ffmpeg_command.append(output_file)
-            process = subprocess.Popen(ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+            # print(f"Running ffmpeg command: {' '.join(ffmpeg_command)}")  # Debug: print the ffmpeg command
+            process = subprocess.Popen(ffmpeg_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, bufsize=1)
             link_info['process'] = process
             progress_group.start_task(task)
             duration = None
             start_time = time.time()
             
             while True:
+                if cancel_event.is_set():
+                    terminate_process(process)
+                    progress_group.update(task, description=f"[red]{name_display} ✗ (Cancelled)[/red]")
+                    break
+
                 line = process.stdout.readline() # type: ignore
                 if not line:
                     break
+                ffmpeg_log.append(line)
+                if len(ffmpeg_log) > 200:
+                    ffmpeg_log.pop(0)
                 if 'Duration' in line:
                     duration = parse_duration(line) or duration
                 elif 'time=' in line and duration:
@@ -326,46 +416,55 @@ def download_stream(link_info, folder, progress_group, settings, all_links=None,
                     progress_group.update(task, completed=min(progress, 100),
                         description=f"[cyan]{name_display} - {size_mb:.1f}MB @ {speed:.2f}x ({int(current_time)}/{int(duration)}s) [~{int(remaining)}s][/cyan]")
             
+            if cancel_event.is_set():
+                break
+
             process.wait(timeout=settings['timeout'])
             if process.returncode == 0:
                 size = f"{os.path.getsize(output_file) / (1024*1024):.1f}MB"
                 progress_group.update(task, completed=100, description=f"[green]{name_display} ✓ ({size})[/green]")
                 break
             else:
+                tail = ''.join(ffmpeg_log[-12:]).strip()
+                if tail:
+                    raise Exception(f"ffmpeg exited with code {process.returncode}: {tail}")
                 raise Exception(f"ffmpeg exited with code {process.returncode}")
         except KeyboardInterrupt:
+            cancel_event.set()
             signal_handler(signal.SIGINT, None)
             break
+        except subprocess.TimeoutExpired:
+            terminate_process(process)
+            if attempt == retries:
+                progress_group.update(task, description=f"[red]{name_display} ✗ (Timed out)[/red]")
+            else:
+                console.print(f"[yellow]{name_display}: Retry {attempt}/{retries} after timeout[/yellow]")
         except Exception as e:
             if attempt == retries:
                 progress_group.update(task, description=f"[red]{name_display} ✗ ({e})[/red]")
             else:
                 console.print(f"[yellow]{name_display}: Retry {attempt}/{retries}[/yellow]")
     
-    active_downloads.remove((task, link_info))
+    link_info.pop('process', None)
+    with active_downloads_lock:
+        if (task, link_info) in active_downloads:
+            active_downloads.remove((task, link_info))
     
 def signal_handler(sig, frame):
-    global active_downloads
-    console.print("\n[bold yellow]Ctrl+C detected. Current downloads:[/bold yellow]")
-    table = Table()
-    table.add_column("No.", justify="right")
-    table.add_column("File Name")
-    for idx, (task, link_info) in enumerate(active_downloads):
-        table.add_row(str(idx + 1), link_info['name'])
-    console.print(table)
-    choices = Prompt.ask("Enter the numbers of downloads to cancel (e.g., 1-3,5)", default="")
-    cancel_indices = parse_number_ranges(choices)
-    for idx, (task, link_info) in enumerate(active_downloads):
-        if (idx + 1) in cancel_indices:
-            progress_group.update(task, description=f"[red]{link_info['name']} ✗ (Cancelled)[/red]")
-            # Terminate the process if it's still running
-            if link_info.get('process'):
-                link_info['process'].terminate()
-    console.print("[bold red]Cancelling selected downloads...[/bold red]")
+    cancel_event.set()
+    with active_downloads_lock:
+        downloads = list(active_downloads)
+    console.print("\n[bold yellow]Ctrl+C detected. Cancelling active downloads...[/bold yellow]")
+    for _, link_info in downloads:
+        terminate_process(link_info.get('process'))
 
 def main():
     global progress_group
     try:
+        cancel_event.clear()
+        with active_downloads_lock:
+            active_downloads.clear()
+
         console.print("[bold blue]M3U Batch Downloader for AniLINK[/bold blue]")
         check_ffmpeg()
     
