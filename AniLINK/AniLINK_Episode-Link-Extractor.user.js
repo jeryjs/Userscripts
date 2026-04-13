@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.27.1
+// @version     6.27.2
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -11,9 +11,8 @@
 // @match       https://gogoanime.*/*
 // @match       https://gogoanime3.cc/*
 // @match       https://gogoanime3.*/*
-// @match       https://animepahe.*/play/*
-// @match       https://animepahe.*/anime/*
-// @match       https://animepahe.si/play/*
+// @match       https://animepahe.pw/anime/*
+// @match       https://animepahe.pw/play/*
 // @match       https://yugenanime.*/anime/*/*/watch/
 // @match       https://yugenanime.tv/anime/*/*/watch/
 // @match       https://yugenanime.sx/anime/*/*/watch/
@@ -50,7 +49,9 @@
 // @match       https://yflix.to/watch/*
 // @match       https://anime.uniquestream.net/*/*/*
 // @match       https://www.fmovies.gd/*/*
-// @match       https://*fmovies.*/*/*
+// @match       https://*fmovies.*/*
+// @match       https://www.fmovies.gd/*
+// @match       https://luciferdonghua.in/*/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
 // @grant       GM.xmlHttpRequest
@@ -99,6 +100,7 @@ class Episode {
     _processLinks(links) {
         for (const linkObj of Object.values(links)) {
             linkObj.stream &&= new URL(linkObj.stream, location.origin).href;   // Ensure stream URLs are absolute
+            if (linkObj.file) linkObj.stream = linkObj.file; delete linkObj.file; // Move file to stream for consistency, then delete file property
             linkObj.referer ??= location.origin + '/' ; // Set referer to current domain if not present
             linkObj.type = (linkObj.type.startsWith('.') || (linkObj.type === 'embed')) ? linkObj.type : `.${linkObj.type}`; // Ensure type starts with a dot, but not for 'embed'
             linkObj.tracks?.forEach?.(track => track.kind = /^(caption|subtitle)s?/.test(track.kind) ? 'caption' : track.kind); // normalize all 'kind' values's subtitle(s) or caption(s) to 'caption'
@@ -280,7 +282,7 @@ const Websites = [
     },
     {
         name: 'AnimePahe',
-        url: ['animepahe.si', 'animepahe'],
+        url: ['animepahe.pw', 'animepahe'],
         epLinks: (location.pathname.startsWith('/anime/')) ? 'a.play' : '.dropup.episode-menu a.dropdown-item',
         epTitle: '.theatre-info > h1',
         linkElems: '#resolutionMenu > button',
@@ -913,6 +915,32 @@ const Websites = [
                 }));
             }
         }
+    },
+    {
+        name: 'Lucifer Donghua',
+        url: ['luciferdonghua.in/'],
+        _cs: 12,
+        extractEpisodes: async function* (status) {
+            const e = await applyEpisodeRangeFilter([..._$$('.episodelist li > a')]); if (!e?.length) return;
+            const s = await showSourceSelector(['Download-MP4','Rumble','Vid Hide'],'luciferdonghua');
+            for (let i = 0; i < e.length; i += this._cs) {
+                yield* yieldEpisodesFromPromises(e.slice(i, i + this._cs).map(async el => {
+                    const n = el.querySelector('span').textContent.match(/Eps (\d+)/)[1]; status.text = `Extracting Ep ${n-Math.min(this._cs, n) + 1} - ${n}...`;
+                    const p = await fetchPage(el.href);
+                    const o = [..._$('.mirror', p)?.options || []].map(x => ({ name: x.textContent.trim(), url: x.value })).slice(1), L = {};
+                    const dl = _$('a[aria-label="Download"]', p)?.href;
+                    for (const key of s.sources) {
+                        if (key == 'Download-MP4' && dl) try { L[key] = await Extractors.use(dl); } catch (e) { showToast(e); }
+                        else {
+                            const k = o.find(x => new RegExp(key, 'i').test(x.name));
+                            if (k) try { const q = await fetchPage(k.url); L[key] = await Extractors.use(_$('.player-embed > iframe', q)?.src); } catch (err) { showToast(err); }
+                        }
+                        if (s.mode === 'single' && Object.keys(L).length) break;
+                    }
+                    return new Episode(n, _$('.det a').textContent, L, _$('img', el)?.src);
+                }));
+            }
+        }
     }
 ];
 
@@ -1001,6 +1029,21 @@ const Extractors = {
         const src = (await GM_fetch(`https://enc-dec.app/api/dec-${url.includes('://rapid') ? 'rapid' : 'mega'}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: encToken, agent: USER_AGENT_HEADER }) }).then(r => r.json())).result;
         const tracks = subListUrl ? await fetch(subListUrl, { headers: { 'Accept': '*/*', 'Referer': `${u.origin}/` } }).then(r => r.json()).then(list => list.filter(t => t.kind === 'captions' && t.file && t.label).map(t => ({ file: t.file, label: t.label, kind: t.kind }))).catch(() => []) : (src.tracks || []).filter(t => t.kind === 'captions' && t.file && t.label).map(t => ({ file: t.file, label: t.label, kind: t.kind, default: !!t.default }));
         return { stream: src.sources[0].file, type: 'm3u8', tracks, referer };
+    },
+    'yurn.online': async function (url) {
+        const [_, id, path] = (await GM_fetch(url).then(r => r.text())).match(/file_id', '(\d+)',.*\|([\d]{10}\|[a-z]{13}\|[\w]{22})\|/s);
+        return { file: `https://yurn.online/stream/${path.split('|').reverse().join('/')}/${id}/master.m3u8`, type: 'm3u8', tracks: [] };
+    },
+    'misterdonghua.in': async function (url) {
+        const decrypt = async (hexData, key='kiemtienmua911ca', iv='1234567890oiuytr') => {
+            const enc = new TextEncoder();
+            return (new TextDecoder()).decode((await crypto.subtle.decrypt({ name: 'AES-CBC', iv: enc.encode(iv) }, (await crypto.subtle.importKey('raw', enc.encode(key), 'AES-CBC', false, ['decrypt'])), new Uint8Array(hexData.match(/.{1,2}/g).map(b => parseInt(b, 16))))));
+        };
+        const data = await GM_fetch(`https://misterdonghua.in/api/v1/download?id=${url.match(/#(\w+)&/)[1]}`).then(r => r.text()).then(t=>decrypt(t)).then(JSON.parse);
+        return { file: data.mp4, type: 'mp4', tracks: Object.entries(data.subtitle).map(e=> ({file: e[1], label: e[0], kind: 'captions' })) || [] };
+    },
+    'rumble.com': async function (url) {
+        return { file: `https://rumble.com/hls-vod/${url.match(/.*\/embed\/(.*)\//)[1]}/playlist.m3u8?u=0&b=0`, type: 'm3u8', tracks: [], referer: 'https://rumble.com/' };
     }
 }
 /**
@@ -1047,9 +1090,12 @@ async function fetchWithRetry(url, options = {}, retries = 3, sleep = 1000) {
  */
 async function* yieldEpisodesFromPromises(episodePromises) {
     for (const episodePromise of episodePromises) {
-        const episode = await episodePromise;
-        if (episode) {
-            yield episode;
+        try {
+            const episode = await episodePromise;
+            if (episode) yield episode;
+        } catch (e) {
+            showToast(e);
+            yield null; // Yield null for failed episodes to maintain order, or choose to skip by not yielding anything
         }
     }
 }
@@ -2005,5 +2051,5 @@ function showMPVHandlerHelp() {
 }
 
 // Simple query selector shortcuts
-const _$ = s => document.querySelector(s);
-const _$$ = s => document.querySelectorAll(s);
+const _$ = (s, p=document) => (p || document).querySelector(s);
+const _$$ = (s, p=document) => (p || document).querySelectorAll(s);
