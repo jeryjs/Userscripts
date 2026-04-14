@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.4.1
+// @version     2.4.2
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -15,8 +15,6 @@
 // @match       https://gogoanime.tv/*
 // @match       https://gogoanime3.*/*
 // @match       https://gogoanime3.co/*
-// @match       https://animepahe.*/
-// @match       https://animepahe.si/
 // @match       https://animesuge.to/*
 // @match       https://animesuge.*/*
 // @match       https://*animesuge.cc/*

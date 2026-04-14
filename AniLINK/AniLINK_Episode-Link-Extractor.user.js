@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.27.2
+// @version     6.27.3
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -11,8 +11,6 @@
 // @match       https://gogoanime.*/*
 // @match       https://gogoanime3.cc/*
 // @match       https://gogoanime3.*/*
-// @match       https://animepahe.pw/anime/*
-// @match       https://animepahe.pw/play/*
 // @match       https://yugenanime.*/anime/*/*/watch/
 // @match       https://yugenanime.tv/anime/*/*/watch/
 // @match       https://yugenanime.sx/anime/*/*/watch/
