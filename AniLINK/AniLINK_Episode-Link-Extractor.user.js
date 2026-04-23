@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.27.3
+// @version     6.27.4
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -41,9 +41,13 @@
 // @match       https://animetsu.cc/*
 // @match       https://animetsu.live/*
 // @match       https://animekai.to/*
-// @match       https://animekai.ac/*
-// @match       https://animekai.cc/*
+// @match       https://animekai.fi/*
+// @match       https://animekai.fo/*
+// @match       https://animekai.gs/*
+// @match       https://animekai.la/*
+// @match       https://animekai.*/*
 // @match       https://anikai.to/*
+// @match       https://*pahe.pw/*/*
 // @match       https://yflix.to/watch/*
 // @match       https://anime.uniquestream.net/*/*/*
 // @match       https://www.fmovies.gd/*/*
@@ -87,7 +91,7 @@ class Episode {
     constructor(number, animeTitle, links, thumbnail, epTitle) {
         this.number = String(number);   // The episode number
         this.animeTitle = animeTitle;     // The title of the anime.
-        this.epTitle = epTitle; // The title of the episode (this can be the specific ep title or blank).
+        this.epTitle = (epTitle==animeTitle || /^Episode \d+$/.test(epTitle)) ? undefined : epTitle; // The title of the episode (this can be the specific ep title or blank).
         this.links = this._processLinks(links);     // An object containing streaming links and tracks for each source: {"source1":{stream:"url", type:"m3u8|mp4", tracks:[{file:"url", kind:"caption|audio", label:"name"}]}}}
         this.thumbnail = thumbnail; // The URL of the episode's thumbnail image (if unavailable, then just any image is fine. Thumbnail property isnt really used in the script yet).
         this.filename = `${this.animeTitle} - ${this.number.padStart(3, '0')}${this.epTitle ? ` - ${this.epTitle}` : ''}${Object.values(this.links)[0]?.type || ''}`;   // The formatted name of the episode, combining anime name, number and title and extension.
@@ -109,7 +113,7 @@ class Episode {
 }
 
 /**
- * @typedef {Object} Websites[] 
+ * @typedef {Object} Websites[]
  * @property {string} name - The name of the website (required).
  * @property {string[]} url - An array of URL patterns that identify the website (required).
  * @property {string} thumbnail - A CSS selector to identify the episode thumbnail on the website (required).
@@ -652,26 +656,26 @@ const Websites = [
         extractEpisodes: async function* (status) {
             const epList = await applyEpisodeRangeFilter($('.ss-list > a').get());
             if (!epList || !epList.length) return; // User cancelled or no episodes
-            
+
             // Get source preferences (show modal using first episode's sources)
             const sourceConfig = await (async () => {
                 const servers = await $((await $.get(`/ajax/v2/episode/servers?episodeId=${$(epList[0]).data('id')}`, r => $(r).responseJSON)).html)
                     .find('.server-item').map((_, i) => `${$(i).text().trim()}-${$(i).data('type')}`).get();
                 return await showSourceSelector(servers, 'hianime', { sources: servers.filter(s => !s.match(/^HD-[13]-/)), mode: 'single' });   // Exclude HD-1/HD-3 from default sources (CORS issues)
             })();
-            
+
             for (let i = 0; i < epList.length; i += this._chunkSize) {
                 yield* yieldEpisodesFromPromises(epList.slice(i, i + this._chunkSize).map(async e => {
                     const [epId, epNum, epTitle] = [$(e).data('id'), $(e).data('number'), $(e).find('.ep-name').text()]; let thumbnail = '';
                     status.text = `Extracting Episode ${epNum - Math.min(this._chunkSize, epNum) + 1}...`;
                     const servers = await $((await $.get(`/ajax/v2/episode/servers?episodeId=${epId}`, r => $(r).responseJSON)).html).find('.server-item').map((_, i) => [[$(i).text().trim(), { id: $(i).data('id'), type: $(i).data('type') }]]).get();
                     const links = {}, fetchSource = async ([server, { id, type }]) => { const key = `${server}-${type}`; try { const data = await fetch(`/ajax/v2/episode/sources?id=${id}`).then(r => r.json()); const src = await Extractors.use(data.link, location.href); links[key] = { stream: src.file, type: 'm3u8', tracks: src.tracks, referer: src.referer || location.href }; } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${key}: ${e.message || e}`); } };
-                    if (sourceConfig?.mode === 'single') { 
-                        for (const key of sourceConfig.sources) { const s = servers.find(([srv, { type }]) => `${srv}-${type}` === key); 
-                        if (s) { await fetchSource(s); if (Object.keys(links).length) break; } } 
-                    } else await Promise.all(sourceConfig.sources.map(key => { 
-                        const s = servers.find(([srv, { type }]) => `${srv}-${type}` === key); 
-                        return s ? fetchSource(s) : Promise.resolve(); 
+                    if (sourceConfig?.mode === 'single') {
+                        for (const key of sourceConfig.sources) { const s = servers.find(([srv, { type }]) => `${srv}-${type}` === key);
+                        if (s) { await fetchSource(s); if (Object.keys(links).length) break; } }
+                    } else await Promise.all(sourceConfig.sources.map(key => {
+                        const s = servers.find(([srv, { type }]) => `${srv}-${type}` === key);
+                        return s ? fetchSource(s) : Promise.resolve();
                     }));
                     return new Episode(epNum, ($('.film-name > a').first().text()), links, thumbnail, epTitle);
                 }))
@@ -746,12 +750,12 @@ const Websites = [
                 yield* yieldEpisodesFromPromises(epLinks.slice(i, i + 12).map(async epLink => {
                     const epNum = epLink.dataset.number; status.text = `Extracting Episodes ${(epNum - Math.min(12, epNum) + 1)} - ${epNum}...`;
                     const servers = await fetch(`/ajax/episode/servers?episodeId=${epLink.dataset.id}`).then(async r => (await r.json()).html).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(h => [...h.querySelectorAll('[data-server-id]')].map(e => ({ id: e.dataset.id, type: e.dataset.type, name: e.textContent.trim() })));
-                    const links = {}, fetchSource = async s => { try { 
-                        const d = await fetch(`/ajax/episode/sources?id=${s.id}`).then(r => r.json()); 
-                        const src = await GM_fetch(d.link.replace('/e-1/', '/e-1/getSources?id=').replace('?z=', '')).then(r => r.json()); 
+                    const links = {}, fetchSource = async s => { try {
+                        const d = await fetch(`/ajax/episode/sources?id=${s.id}`).then(r => r.json());
+                        const src = await GM_fetch(d.link.replace('/e-1/', '/e-1/getSources?id=').replace('?z=', '')).then(r => r.json());
                         if (!src.encrypted) links[`${s.name}-${s.type}`] = { stream: src.sources[0].file, tracks: src.tracks, type: 'm3u8', referer: src.server == 4 ? 'https://megacloud.blog/' : undefined };
                     } catch (e) { showToast(`Failed to fetch ep ${epNum} from ${s.name}-${s.type}: ${e}`); } };
-                    if (srcCfg?.mode === 'single') { for (const key of srcCfg.sources) { const s = servers.find(srv => `${srv.name}-${srv.type}` === key); if (s) { await fetchSource(s); if (Object.keys(links).length) break; } } } 
+                    if (srcCfg?.mode === 'single') { for (const key of srcCfg.sources) { const s = servers.find(srv => `${srv.name}-${srv.type}` === key); if (s) { await fetchSource(s); if (Object.keys(links).length) break; } } }
                     else await Promise.all(srcCfg.sources.map(key => { const s = servers.find(srv => `${srv.name}-${srv.type}` === key); return s ? fetchSource(s) : Promise.resolve(); }));
                     return new Episode(epNum, _$('h2.film-name > a').textContent, links, _$('.film-poster > img').src, epLink.querySelector('.ep-name').textContent);
                 }));
@@ -781,7 +785,7 @@ const Websites = [
             for (let i = 0; i < eps.length; i += this._chunkSize)
                 yield* yieldEpisodesFromPromises(eps.slice(i, i + this._chunkSize).map(async ep => {
                     const epNum = ep.ep_num; status.text = `Extracting Episodes ${Math.max(1, epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
-                    const links = {}; 
+                    const links = {};
                     for (const serverFull of srcCfg?.sources || ['pahe-sub']) { try {
                         const [server, type] = serverFull.split('-'), data = await fetch(`${this._baseApi}/oppai/${animeId}/${epNum}?server=${server}&source_type=${type}`).then(r => r.json());
                         const tracks = (data.subs || []).map(s => ({ file: s.url, label: s.lang, kind: 'caption' }));
@@ -794,7 +798,7 @@ const Websites = [
     },
     {
         name: 'AnimeKai',
-        url: ['animekai.to/', 'animekai.ac/', 'animekai.cc/', 'anikai.to/'],
+        url: ['animekai.to/', 'animekai.fi/', 'animekai.fo/', 'animekai.', 'anikai.to/'],
         _chunkSize: 12,
         addStartButton: function (id) {
             setInterval(() => {
@@ -819,7 +823,7 @@ const Websites = [
                     const epNum = ep.getAttribute('num'); status.text = `Extracting Episodes ${(epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
                     const servers = await fetch(`/ajax/links/list?token=${ep.getAttribute('token')}&_=${await this._encdec(ep.getAttribute('token'))}`).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => $(doc).find('.server').map((i, e) => ({ lid: e.dataset.lid, name: `${this._typeSuffix(e.closest('div').dataset.id)} - ${e.textContent}` })).get()).catch(e => showToast(`Failed to fetch servers for Ep ${epNum}`));
                     const links = {}, fetchSource = async s => { try { links[s.name] = await fetch(`/ajax/links/view?id=${s.lid}&_=${await this._encdec(s.lid)}`).then(r => r.json().then(d => d.result)).then(val => this._encdec(val, 'd').then(async d => await Extractors.use(d.url))); } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${s.name}: ${e.message || e}`); } };
-                    if (srcCfg?.mode === 'single') { for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) { await fetchSource(s); if (Object.keys(links).length) break; } } } 
+                    if (srcCfg?.mode === 'single') { for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) { await fetchSource(s); if (Object.keys(links).length) break; } } }
                     else for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) await fetchSource(s); }
                     return new Episode(epNum, $('h1').text(), links, $('.poster-wrap-bg').attr('style').match(/https?.*\.[a-z]+/g)[0], ep.querySelector('span').textContent);
                 }))
@@ -851,7 +855,7 @@ const Websites = [
             })();
             for (let i = 0; i < filteredEps.length; i += this._chunkSize)
                 yield* yieldEpisodesFromPromises(filteredEps.slice(i, i + this._chunkSize).map(async ep => {
-                    const epNum = ep.getAttribute('num') || ep.querySelector('.num')?.textContent || '1'; 
+                    const epNum = ep.getAttribute('num') || ep.querySelector('.num')?.textContent || '1';
                     status.text = `Extracting Episodes ${(epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
                     const servers = await fetch(`/ajax/links/list?eid=${ep.getAttribute('eid')}&_=${await this._enc(ep.getAttribute('eid'))}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => [...doc.querySelectorAll('li.server')].map(s => ({ lid: s.dataset.lid, name: s.querySelector('span')?.textContent.trim() }))).catch(() => []);
                     const links = {}, fetchSource = async s => { try { const encUrl = await fetch(`/ajax/links/view?id=${s.lid}&_=${await this._enc(s.lid)}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.json().then(d => d.result)); const iframe = await this._dec(encUrl); links[s.name] = await Extractors.use(iframe, (new URL(iframe)).origin+'/'); } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${s.name}: ${e.message || e}`); } };
@@ -1064,7 +1068,7 @@ async function fetchPage(url, options = {}) {
 
 /**
  * Fetches a URL with retry logic for handling rate limits or temporary errors.
- * 
+ *
  * @returns {Promise<Response>} A promise that resolves to the response object.
  */
 async function fetchWithRetry(url, options = {}, retries = 3, sleep = 1000) {
@@ -1221,7 +1225,7 @@ async function extractEpisodes() {
         .anlink-episode-list { list-style: none; padding-left: 0; margin-top: 0; overflow: hidden; transition: max-height 0.5s ease-in-out; } /* Transition for max-height */
         .anlink-episode-item { margin-bottom: 5px; padding: 8px; border-bottom: 1px solid #333; display: flex; flex-direction: column; }
         .anlink-episode-item:last-child { border-bottom: none; }
-        .anlink-episode-main { display: flex; align-items: center; } 
+        .anlink-episode-main { display: flex; align-items: center; }
         .anlink-episode-main > label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* Single line & Ellipsis for long links */
         .anlink-episode-main > label > span { user-select: none; cursor: pointer; color: #26a69a; } /* Disable selecting the 'Ep: 1' prefix */
         .anlink-episode-main > label > span > img { vertical-align: middle; display: inline; }  /* Ensure the mpv icon is in the same line */
@@ -1691,7 +1695,7 @@ function createModal({ title, icon, subtitle, bodyHTML, width = '420px', onConfi
     document.body.appendChild(modal);
     const primaryBtn = modal.querySelector('.anlink-btn-primary');
     const cancelBtn = modal.querySelector('.anlink-btn-cancel');
-    
+
     const cleanup = () => modal.remove();
     const handleConfirm = () => { const result = onConfirm?.(modal); if (result !== false) cleanup(); };
     const handleCancel = () => { onCancel?.(modal); cleanup(); };
@@ -1820,7 +1824,7 @@ async function showSourceSelector(sourcesGetter, siteKey, defaults = {}) {
     return new Promise(resolve => {
         const defaultSources = defaults.sources || availableSources;
         const config = saved || { sources: defaultSources, mode: defaults.mode || 'single' };
-        
+
         const bodyHTML = `
             <small style="display:block;color:#ccc;font-size:11px;margin-bottom:12px;text-align:center;">Drag to reorder • Top = highest priority</small>
             <div class="anlink-source-mode">
@@ -1887,20 +1891,20 @@ async function showSourceSelector(sourcesGetter, siteKey, defaults = {}) {
         const list = modal.querySelector('.anlink-source-list');
         const modeInputs = modal.querySelectorAll('input[name="mode"]');
         let draggedItem = null;
-        
+
         list.addEventListener('dragstart', e => {
             const item = e.target.closest('.anlink-source-item');
             if (!item) return;
             draggedItem = item;
             item.classList.add('dragging');
         });
-        
+
         list.addEventListener('dragend', e => {
             const item = e.target.closest('.anlink-source-item');
             if (item) item.classList.remove('dragging');
             updatePriorities();
         });
-        
+
         list.addEventListener('dragover', e => {
             e.preventDefault();
             if (!draggedItem) return;
@@ -1916,7 +1920,7 @@ async function showSourceSelector(sourcesGetter, siteKey, defaults = {}) {
                 priority.textContent = checkbox.checked ? `#${i + 1}` : '';
             });
         };
-        
+
         modeInputs.forEach(input => input.addEventListener('change', e => { list.dataset.mode = e.target.value; updatePriorities(); }));
         list.addEventListener('change', e => { if (e.target.type === 'checkbox') updatePriorities(); });
         modal.querySelectorAll('.anlink-quick-btn').forEach(btn => btn.addEventListener('click', () => {
@@ -1963,7 +1967,7 @@ function showToast(message, duration = 5000) {
             .anlink-toast-close { flex-shrink: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.05); border: none; border-radius: 50%; color: #666; cursor: pointer; font-size: 16px; line-height: 1; transition: all 0.2s; padding: 0; }
             .anlink-toast-close:hover { background: rgba(0, 0, 0, 0.1); color: #1a1a1a; transform: scale(1.1); }
             /* Dark mode support */
-            @media (prefers-color-scheme: dark) { 
+            @media (prefers-color-scheme: dark) {
                 .anlink-toast { background: linear-gradient(135deg, #2d2d2d 0%, #1a1a1a 100%); border-color: rgba(255, 255, 255, 0.1); }
                 .anlink-toast-content { color: #e0e0e0; }
                 .anlink-toast-close { background: rgba(255, 255, 255, 0.1); color: #ccc; }
