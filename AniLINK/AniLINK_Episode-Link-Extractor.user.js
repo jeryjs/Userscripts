@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.27.4
+// @version     6.28.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -53,6 +53,10 @@
 // @match       https://www.fmovies.gd/*/*
 // @match       https://*fmovies.*/*
 // @match       https://www.fmovies.gd/*
+// @match       https://www.cineby.*/*/*
+// @match       https://www.cineby.sc/*/*
+// @match       https://www.bitcine.*/*/*
+// @match       https://www.bitcine.net/*/*
 // @match       https://luciferdonghua.in/*/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
@@ -883,40 +887,49 @@ const Websites = [
         }
     },
     {
-        name: 'FMovies',
-        url: ['fmovies'],
+        name: 'Cineby',
+        url: ['cineby.sc', 'cineby.', 'fmovies.gd', 'fmovies.to', 'fmovies.', 'bitcine.net', 'bitcine.'],
         _chunkSize: 12,
+        addStartButton: function (id) {
+            setInterval(() => {
+                if (_$('#' + id)) return; try {
+                    const target = _$$('.flex-wrap > button')[1];
+                    if (target) target.parentElement.appendChild(Object.assign(target.cloneNode(true), { id, innerHTML: '<img src="https://cdn-icons-png.flaticon.com/512/6935/6935657.png" width="16px" style="filter: invert(1);"><span class="truncate">AniLINK: Extract</span>', onclick: extractEpisodes }));
+                } catch (e) { /* ignore errors */ }
+            }, 500);
+        },
         extractEpisodes: async function* (status) {
-            const epElms = await applyEpisodeRangeFilter([..._$$('a[href^="/watch/"]')].slice(location.pathname.startsWith('/tv/')));
+            if (location.pathname.split('/').length > 3) {
+                // if on episode page, navigate to main TV page to fetch episode list
+                location.href = '/tv/' + location.pathname.split('/')[2]; 
+                alert('You can extract episodes only from the series\' main page.')
+                await new Promise(resolve => setTimeout(resolve, 3000)); // wait for navigation
+            }
+            const epElms = await applyEpisodeRangeFilter(location.pathname.includes('/tv/') ? [..._$$('#episodes-section > .flex-col > div')] : [_$('link[rel="canonical"]')]);
+            if (epElms.length > 12) this._chunkSize = 2; // if there are too many episodes, extract them one by one to avoid overwhelming the server and triggering anti-bot measures
+            showToast("Avoid selecting 'multi' mode... Causes too much load on the server.", 2000)  // Warn users against setting multi mode
+            const srcCfg = await showSourceSelector(Object.keys(this._sources), 'cineby', { mode: 'single' });
             for (let i = 0; i < epElms.length; i += this._chunkSize) {
-                yield* yieldEpisodesFromPromises((epElms.slice(i, i + this._chunkSize)).map(async epElm => {
-                    const ifr = Object.assign(document.createElement('iframe'), { src: epElm.href, style: 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;' });
+                yield* yieldEpisodesFromPromises(epElms.slice(i, i + this._chunkSize).map(async epElm => {
                     try {
-                        const epNum = epElm.querySelector('.w-8')?.textContent?.trim() || '0';
+                        let [_, mediaType, mediaId, season, epNum] = new URL(epElm.querySelector('a')?.href || epElm.href).pathname.split('/');
+                        season = season ?? '1', epNum = epNum ?? '1';   // if season or episode number is missing, default to 1 (for movies)
                         status.text = `Extracting Ep ${epNum - epNum + 1} - ${epNum}...`;
-                        document.body.appendChild(ifr);
-                        let links = {}, attempts = 0;
-                        await new Promise((r, t) => {
-                            const check = () => {
-                                try {
-                                    if (ifr.contentWindow?.availableServers?.length) {
-                                        links = Object.fromEntries(ifr.contentWindow.availableServers.flatMap(s => s.source?.sources?.map(src => [`${s.name}-${src.quality || 'auto'}`, { stream: src.file || src.url, type: 'm3u8', tracks: (s.source.subtitles || []).map(t => ({ file: t.url, label: t.lang, kind: 'caption' })) }]) || []));
-                                        if (Object.keys(links).length) { clearInterval(checkInt); r(); return; }
-                                    }
-                                } catch (e) { }
-                                attempts++; if (attempts >= 40) { clearInterval(checkInt); t('timeout'); }
-                            };
-                            const checkInt = setInterval(check, 500);
-                            setTimeout(() => { clearInterval(checkInt); if (!Object.keys(links).length) t('timeout'); }, 20000);
-                        });
+
+                        const links = {};
+                        for (const [srcName, srcKey] of (srcCfg?.sources?.length ? srcCfg.sources : Object.keys(this._sources)).map(k => [k, this._sources[k]]).filter(([, v]) => v)) try {
+                            const data = await Extractors.use(`https://api.videasy.net/${srcKey}/sources-with-title?mediaType=${mediaType}&episodeId=${epNum}&seasonId=${season}&tmdbId=${mediaId}`);
+                            for (const d of data || []) links[`${srcName} - ${d.quality.toLowerCase() || 'auto'}`] = { stream: d.file, type: d.type, tracks: d.tracks, referer: d.referer };
+                            if (srcCfg?.mode === 'single' && Object.keys(links).length) break;
+                        } catch (e) { showToast(`${srcName} ep ${epNum}: ${e}`); }
+                        
                         if (!Object.keys(links).length) throw new Error('no sources');
-                        return new Episode(epNum, (_$('h1')?.textContent?.trim() || ''), links, epElm.querySelector('img')?.src, (epElm.querySelector('h4')?.textContent?.trim()));
-                    }
-                    catch (e) { return showToast(`: ${e}`); }
-                    finally { ifr.remove(); }
+                        return new Episode(epNum, _$('title').textContent + (season > 1 ? ` S${season.padStart(2, '0')}` : ''), links, epElm.querySelector('img')?.src || _$('meta[itemprop="image"]').content, epElm.querySelector('h4')?.textContent);
+                    } catch (e) { return showToast(`: ${e}`); }
                 }));
             }
-        }
+        },
+        _sources: { Neon: 'mb-flix', Yoru: 'cdn', Cypher: 'downloader2', Sage: '1movies', Breach: 'm4uhd', Vyse: 'hdmovie', Killjoy: 'meine', Fade: 'hdmovie', Omen: 'lamovie', Raze: 'superflix' },
     },
     {
         name: 'Lucifer Donghua',
@@ -1024,7 +1037,7 @@ const Extractors = {
         const source = sources.reduce((best, curr) => (s => parseInt(s.label) || 0)(curr) > (s => parseInt(s.label) || 0)(best) ? curr : best, sources[0]);
         return { file: source.file, type: source.file.includes('.m3u8') ? 'm3u8' : 'mp4', tracks: [] };
     },
-    '/^(4spromax|megaup|rapidairmax|rapidshare)(\\d+)?\\.?(live|online|cc|site|nl|work)$/': async function (url, referer = 'https://megaup.cc/') {
+    '/^(4spromax|megaup|rapidairmax|rapidshare|rapidshareee)(\\d+)?\\.?(live|online|cc|site|nl|work)$/': async function (url, referer = 'https://megaup.cc/') {
         // workaround: use GM_xmlhttpRequest to avoid passing cookies (coudnt do that with GM_fetch)
         const u = new URL(url), subListUrl = u.searchParams.get('sub.list');
         const encToken = await new Promise((r, j) => GM_xmlhttpRequest({ method: 'GET', url: url.replace('/e/', '/media/'), headers: { 'User-Agent': USER_AGENT_HEADER }, anonymous: true, onload: res => { try { r(JSON.parse(res.responseText).result); } catch (e) { j(e); } }, onerror: j }));
@@ -1046,6 +1059,12 @@ const Extractors = {
     },
     'rumble.com': async function (url) {
         return { file: `https://rumble.com/hls-vod/${url.match(/.*\/embed\/(.*)\//)[1]}/playlist.m3u8?u=0&b=0`, type: 'm3u8', tracks: [], referer: 'https://rumble.com/' };
+    },
+    'api.videasy.net': async function (url, referer = location.origin+'/') {
+        const id = url.match(/\??&?tmdbId=(\d+)/)?.[1]; if (!id) throw new Error('TMDB ID not found in URL');
+        const encData = await fetch(url).then(r => r.text()).catch(e => { throw new Error(`Failed to fetch video data: ${e.message || e}`); });
+        const data = await GM_fetch(`https://enc-dec.app/api/dec-videasy`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: encData, id }) }).then(r => r.json()).then(d => d.result).catch(e => { throw new Error(`Failed to decrypt video data: ${e.message || e}`); });
+        return [...data.sources.map(s => ({ file: s.url, quality: s.quality, type: 'm3u8', tracks: data.subtitles?.map(s => ({ file: s.url, label: s.language, kind: 'captions' })) || [], referer }))];
     }
 }
 /**
@@ -1821,7 +1840,7 @@ async function showSourceSelector(sourcesGetter, siteKey, defaults = {}) {
     const availableSources = await (typeof sourcesGetter === 'function' ? sourcesGetter() : sourcesGetter);
     if (!availableSources?.length) throw new Error('No available sources found.');
 
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
         const defaultSources = defaults.sources || availableSources;
         const config = saved || { sources: defaultSources, mode: defaults.mode || 'single' };
 
