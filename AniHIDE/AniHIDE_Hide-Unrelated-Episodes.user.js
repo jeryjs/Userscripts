@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.4.3
+// @version     2.4.4
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -100,7 +100,7 @@ const animeSites = [
         url: ['animepahe.si', 'animepahe.ru', 'animepahe.com', 'animepahe'],
         item: '.episode-wrap > .episode',
         title: '.episode-title > a',
-        thumbnail: '.episode-snapshot > img',
+        thumbnail: '.episode-snapshot',
         observe: '.episode-list-wrapper',
         timeout: 100
     },
