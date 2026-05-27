@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.29.0
+// @version     6.30.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -26,7 +26,8 @@
 // @match       https://animeyy.com/*/*
 // @match       https://*.miruro.to/*
 // @match       https://*.miruro.tv/*
-// @match       https://*.miruro.online/*
+// @match       https://*.miruro.ru/*
+// @match       https://*.miruro.bz/*
 // @match       https://anizone.to/anime/*
 // @match       https://anixl.to/title/*
 // @match       https://sudatchi.com/watch/*/*
@@ -104,6 +105,7 @@ if (GM_info.script.version > GM_getValue('script_version', '0')) {
 const EP_RANGE_THRESHOLD = GM_getValue('ep_range_threshold', 12); // Number of episodes above which the ep range selector will be shown
 const MPV_PROTOCOL = GM_getValue('MPV_PROTOCOL', 'mpv-handler'); // you can set this to mpv-handler-debug if u want it to show the console~
 const SRC_IN_FN = GM_getValue('include_source_in_filename', true); // Whether the exported playlist filename should include the source name that you chose as well
+const PREFER_JAP_TITLE = GM_getValue('prefer_jap_title', false); // Prefer taking the japenese/romaji titles from sites where relevant like animepahe
 
 /**
  * Represents an anime episode with metadata and streaming links.
@@ -346,7 +348,7 @@ const Websites = [
                     const thumbnail = page.querySelector(this.thumbnail).src;
                     status.text = `Extracting episodes ${epNumber - Math.min(epNumber, this._chunkSize) + 1} - ${epNumber}...`;
                     const links = Object.fromEntries(await Promise.all([...page.querySelectorAll(this.linkElems)].map(async elm => [elm.textContent, { stream: await Extractors.use(elm.getAttribute('data-src')), type: 'm3u8', referer: 'https://kwik.cx/' }])));
-                    return new Episode(epNumber, animeTitle, links, thumbnail);
+                    return new Episode(epNumber, PREFER_JAP_TITLE ? ($('h2.japanese').text() || animeTitle) : animeTitle, links, thumbnail, epLink.parentNode?.parentNode?.querySelector('.episode-title')?.textContent);
                 }));
         },
         styles: `div#AniLINK_LinksContainer { font-size: 10px; } #Quality > b > div > ul {font-size: 16px;}`
@@ -523,7 +525,7 @@ const Websites = [
     },
     {
         name: 'Miruro',
-        url: ['miruro.to', 'miruro.tv', 'miruro.online'],
+        url: ['miruro.to', 'miruro.tv', 'miruro.ru', 'miruro.bz'],
         animeTitle: '.anime-title > a',
         thumbnail: 'a[href^="/info?id="] > img',
         baseApiUrl: `${location.origin}/api`,
@@ -1365,6 +1367,7 @@ async function extractEpisodes() {
     const headerButtons = document.createElement('div');
     headerButtons.className = 'anlink-header-buttons';
     headerButtons.innerHTML = `
+        <button type="button" class="anlink-copy-all">Copy</button>
         <button type="button" class="anlink-export-all">Export</button>
         <button type="button" class="anlink-play-all">Play with MPV</button>
     `;
@@ -1643,9 +1646,11 @@ async function extractEpisodes() {
 
     // Attach header button handlers
     function attachHeaderButtons() {
+        const copyBtn = linksContainer.querySelector('.anlink-copy-all');
         const exportBtn = linksContainer.querySelector('.anlink-export-all');
         const playBtn = linksContainer.querySelector('.anlink-play-all');
 
+        copyBtn?.addEventListener('click', () => onCopyAll(copyBtn));
         exportBtn.addEventListener('click', () => onExportAll(exportBtn));
         playBtn.addEventListener('click', () => onPlayAll(playBtn));
     };
@@ -1688,6 +1693,15 @@ async function extractEpisodes() {
             });
         }
         return out;
+    }
+
+    async function onCopyAll(btn) {
+        const selected = getAllSelectedEpisodes();
+        if (!Object.keys(selected).length) return showToast('No episodes selected');
+        const links = Object.values(selected).flat().map(i => i.querySelector('.anlink-episode-link').href).join('\n') + '\n';
+        GM_setClipboard(links, "text", () => showToast(`Copied ${links.split('\n').filter(l => l).length} links to clipboard`));
+        btn.textContent = `Copied ${links.split('\n').filter(l => l).length} links!`;
+        setTimeout(() => btn.textContent = 'Copy Links', 1000);
     }
 
     async function onExportAll(btn) {
