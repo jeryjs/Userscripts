@@ -2,6 +2,10 @@ __version__ = "1.7.0"
 
 # pip install rich py7zr requests -- nvm... these are now auto-installed if missing, so no need to worry about that! Just run the script and it will handle dependencies for you.
 
+# If u wanna compile to exe, u can use pyinstaller and get the exe from dist folder. Just run these commands in the terminal:
+# pip install pyinstaller
+# pyinstaller --onefile --name AniLINK get-m3u.py
+
 import argparse
 import importlib.util
 import os
