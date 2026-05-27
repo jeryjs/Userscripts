@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.30.0
+// @version     6.31.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -71,6 +71,8 @@
 // @match       https://animewave.to/watch/*/*
 // @match       https://anix.best/watch/*/*
 // @match       https://animesogo.to/watch/*/*
+// @match       https://av1please.com/anime/*
+// @match       https://av1please.com/episodes/*/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
 // @grant       GM.xmlHttpRequest
@@ -1005,6 +1007,53 @@ const Websites = [
                 }))
         },
     },
+    {
+        name: "AV1 EnCodes",
+        url: ["av1please.com/"],
+        addStartButton: id => (document.querySelector('.season-dropdown') || document.querySelector('h1')).after(Object.assign(document.createElement('button'), { id, className: 'btn episode-card', style: 'color: grey; display: flex; width: stretch; align-items: center; justify-content: space-between; background-color: #101010; justify-self: right; margin-bottom: 10px;', innerHTML: 'AniLINK: Extract Download Links <svg style="margin-left: 8px;" fill="#ff6b6b" height="24px" width="24px" style="margin-left: 8px;"><path d="M5 6H19V7.5H5V6ZM5 9.5H19V11H5V9.5ZM13 12.5H5V14H13V12.5ZM15.3533 18.9393L17.1287 17.164H5V15.664H17.1287L15.3533 13.8886L16.414 12.8279L20 16.414L16.414 20L15.3533 18.9393Z"></path></svg>' })),
+        extractEpisodes: async function* (status) {
+            let epLinks = {}, srcCfg = {}, sources = [..._$$('.episode-container:not([style*="display:none"]) .quality-grid a')].reverse().map(a => a.textContent.trim());
+            if (sources.length) { srcCfg = await showSourceSelector(sources, 'av1encodes', { mode: 'single', forceSingle: true }) } else { srcCfg = { sources: [decodeURI(location.href.split('/').pop())] } };
+            for (const quality of srcCfg.sources) {
+                const epElms = [];
+                if (sources.length) await fetchPage(_$(`.episode-container:not([style*="display:none"]) a[href*="${encodeURI(quality)}"]`).href).then(page => epElms.push(..._$$('.episode-item a', page))).catch(() => showToast(`Failed to fetch episode list for ${quality}`));
+                else if (_$('.episode-item a')) epElms.push(..._$$('.episode-item a'));
+                let arr = epElms.map(a => ({ link: a.href, num: parseInt(a.querySelector('.episode-label')?.textContent.trim().match(/\d+/)[0]), quality }));
+                for (const { link, num, quality } of arr) { if (!epLinks[num]) epLinks[num] = {}; epLinks[num][quality] = link; }
+            }
+            for (epNum of await applyEpisodeRangeFilter(Object.keys(epLinks)))
+                yield* yieldEpisodesFromPromises([(async () => {
+                    status.text = `Extracting Episode ${epNum}...`;
+                    const links = {};
+                    for (const q of srcCfg.sources) {
+                        const link = epLinks[epNum][q]; if (!link) continue;
+                        try {
+                            const token = await this._safeFetch(link).then(r => r.text()).then(t => t.match(/'X-DDL-Token'\s*:\s*"([^"]+)"/)[1]);
+                            const data = await this._safeFetch(`/get_ddl/${link.split('/').pop().split('?')[0]}`, { headers: { 'X-DDL-Token': token } }).then(r => r.json());
+                            if (!data || !data.success) throw new Error(`Failed to fetch DDL info. ${data?.error || ''}`);
+                            links[q] = { stream: location.origin + data.download_link, type: 'mkv' };
+                            break; // Stop after first successful link
+                        // Continue to next quality if failed
+                        } catch (e) { showToast(`Ep ${epNum} [${q}]: ${e.message || e}`); }
+                    }
+                    return new Episode(epNum, _$('h1').textContent, links, _$('meta[property="og:image"]').content);
+                })()]);
+        },
+        // helper function to handle rate limits by retrying after a delay based on status code
+        _safeFetch: async function (url, opts = {}) {
+            for (; ;) {
+                const res = await fetch(url, opts);
+                if (res.ok) return res;
+                if (res.status === 429 || res.status === 500) {
+                    const wait = res.status === 429 ? 60000 : 10000;
+                    showToast(`Rate limited ${res.status}, retrying in ${wait / 1000}s... (${new Date(Date.now() + wait).toLocaleTimeString()})`, wait);
+                    await new Promise(r => setTimeout(r, wait));
+                    continue;
+                }
+                throw new Error(`${res.status} ${res.statusText}`);
+            }
+        }
+    }
 ];
 
 const USER_AGENT_HEADER = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0";
@@ -1917,7 +1966,7 @@ async function showSourceSelector(sourcesGetter, siteKey, defaults = {}) {
             <small style="display:block;color:#ccc;font-size:11px;margin-bottom:12px;text-align:center;">Drag to reorder • Top = highest priority</small>
             <div class="anlink-source-mode">
                 <label><input type="radio" name="mode" value="single" ${config.mode === 'single' ? 'checked' : ''}> Single (1st available)</label>
-                <label><input type="radio" name="mode" value="multi" ${config.mode === 'multi' ? 'checked' : ''}> Multi (all selected)</label>
+                <label ${defaults.forceSingle && 'title="Multi-mode is disabled for this site"'}><input type="radio" name="mode" value="multi" ${defaults.forceSingle && 'disabled'}  ${config.mode === 'multi' ? 'checked' : ''}> Multi (all selected)</label>
             </div>
             <div class="anlink-source-list" data-mode="${config.mode}">
                 ${config.sources.map((s, i) => `<div class="anlink-source-item" draggable="true" data-source="${s}">
@@ -1959,6 +2008,7 @@ async function showSourceSelector(sourcesGetter, siteKey, defaults = {}) {
             .anlink-source-mode label { display: flex; align-items: center; gap: 6px; cursor: pointer; color: #ccc; transition: color 0.2s; }
             .anlink-source-mode input[type="radio"] { accent-color: #26a69a; }
             .anlink-source-mode label:has(input:checked) { color: #26a69a; font-weight: 600; }
+            .anlink-source-mode label:has(input:disabled) { color: #555; cursor: not-allowed; }
             .anlink-source-list { max-height: 320px; overflow-y: auto; margin-bottom: 16px; border: 1px solid #444; border-radius: 8px; padding: 8px; background: #1a1a1a; }
             .anlink-source-item { display: flex; align-items: center; gap: 10px; padding: 10px; margin-bottom: 6px; background: #2d2d2d; border: 1px solid #444; border-radius: 6px; cursor: move; transition: all 0.2s; }
             .anlink-source-item:hover { border-color: #26a69a; background: #333; }
