@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.31.0
+// @version     6.32.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -73,6 +73,7 @@
 // @match       https://animesogo.to/watch/*/*
 // @match       https://av1please.com/anime/*
 // @match       https://av1please.com/episodes/*/*
+// @match       https://anidb.app/anime/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
 // @grant       GM.xmlHttpRequest
@@ -1053,6 +1054,25 @@ const Websites = [
                 throw new Error(`${res.status} ${res.statusText}`);
             }
         }
+    },
+    {
+        name: "AniDB",
+        url: ["anidb.app/"],
+        _chunkSize: 12,
+        addStartButton: id => document.querySelector('h2')?.insertAdjacentHTML('afterend', `<button id="${id}" class="px-3 py-1 rounded-md transition-colors text-xs text-muted hover:text-faint">Extract Episode Links</button>`),
+        extractEpisodes: async function* (status) {
+            const eps = await applyEpisodeRangeFilter(await fetch(`https://anidb.app/api/frontend/anime/${location.pathname.split('-').pop()}/episodes`).then(r => r.json()).then(d => d.episodes));
+            const srcCfg = await showSourceSelector([..._$$('button[x-text="lang.name"]')].map(b => b.textContent), 'anidb', { mode: 'single' });
+            const o = +(eps.find(e => +e.number > 1)?.number || eps[0].number) - 1; eps.forEach(ep => ep.number = (+ep.number - o).toString()); // Resolve the ep numbering offset (sometimes, a 2nd cour can have ep.num=13 while its s2e1)
+            for (let i = 0; i < eps.length; i += this._chunkSize)
+                yield* yieldEpisodesFromPromises(eps.slice(i, i + this._chunkSize).map(async ep => {
+                    status.text = `Extracting Episodes ${Math.max(1, ep.number - Math.min(this._chunkSize, ep.number) + 1)} - ${ep.number}...`;
+                    const sources = await fetchJSON(`https://anidb.app/api/frontend/episode/${ep.id}/languages`, {}, d => d.languages);
+                    const fetchSource = async lang => await fetch(sources.find(s => s.name === lang)?.embed_url).then(r => r.text()).then(t => t.match(/sources\s*:\s*\[\s*\{\s*file\s*:\s*'([^']+)'/i) || t.match(/file\s*:\s*'(https?:\/\/[^']+\.m3u8[^']*)'/i) || t.match(/["'](https?:\/\/[^"']+\.m3u8[^"']*)['"]/)).then(l => ({ stream: l[1], type: 'm3u8' }));
+                    const links = srcCfg?.mode === 'multi' ? Object.fromEntries((await Promise.all(srcCfg.sources.map(async lang => [lang, await fetchSource(lang)]))).filter(([, v]) => v)) : await (async () => { for (const lang of srcCfg.sources) { const v = await fetchSource(lang); if (v) return { [lang]: v }; } return {}; })();
+                    return new Episode(ep.number, _$('h1').textContent, links, _$('img[src*="posters"]').src);
+                }));
+        }
     }
 ];
 
@@ -1182,6 +1202,28 @@ async function fetchPage(url, options = {}) {
         throw new Error(`Failed to fetch HTML for ${url} : ${response.status}`);
     }
 }
+
+/**
+ * Fetches JSON data from a given URL with optional callback and fetch function.
+ *
+ * @param {string} url - The URL to fetch JSON data from.
+ * @param {Object} options - The options for the fetch request.
+ * @param {Function} callbackFn - An optional function to process the fetched data.
+ * @param {Function} fetchFn - The fetch function to use (default is global fetch).
+ * @returns {Promise<Object>} A promise that resolves to the fetched JSON data.
+ */
+async function fetchJSON(url, options = {}, callbackFn = null, fetchFn = fetch) {
+    const response = await fetchFn(url, options);
+    if (response.ok) {
+        const data = await response.json();
+        if (callbackFn) return callbackFn(data);
+        return data;
+    } else {
+        showToast(`Failed to fetch JSON for ${url} : ${response.status}`);
+        throw new Error(`Failed to fetch JSON for ${url} : ${response.status}`);
+    }
+}
+GM_fetchJSON = (url, options = {}, callbackFn = null) => fetchJSON(url, options, callbackFn, GM_fetch);
 
 /**
  * Fetches a URL with retry logic for handling rate limits or temporary errors.
