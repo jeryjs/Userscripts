@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.33.0
+// @version     6.33.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -317,7 +317,7 @@ const Websites = [
         epTitle: '.theatre-info > h1',
         linkElems: '#resolutionMenu > button',
         thumbnail: '.theatre-info > a > img',
-        _chunkSize: 36, // Setting high throttle limit actually improves performance
+        _chunkSize: 1, // pahe's lately been rate limiting heavily... set this to 1 for now/
         addStartButton: function () {
             GM_addStyle(`.theatre-settings .col-sm-3 { max-width: 20%; }`);
             (document.location.pathname.startsWith('/anime/'))
@@ -337,17 +337,20 @@ const Websites = [
                 await new Promise(r => { const c = () => firstEp() !== firstEpNum ? r() : setTimeout(c, 500); c(); });
                 firstEpNum = firstEp();
             }
-
-            for (let i = 0; i < epLinks.length; i += this._chunkSize)
+            // TODO: properly implement support for source selector
+			const quality = await prompt("Quality: (1080, 720, 360, etc)", 1080)
+            for (let i = 0; i < epLinks.length; i += this._chunkSize) {
                 yield* yieldEpisodesFromPromises(epLinks.slice(i, i + this._chunkSize).map(async epLink => {
                     const page = await fetchPage(epLink.href);
                     const [, animeTitle, epNum] = page.querySelector(this.epTitle).outerText.split(/Watch (.+) - (\d+(?:\.\d+)?) Online$/);
                     const epNumber = (epNum - firstEpNum + 1).toString();
                     const thumbnail = page.querySelector(this.thumbnail).src;
                     status.text = `Extracting episodes ${epNumber - Math.min(epNumber, this._chunkSize) + 1} - ${epNumber}...`;
-                    const links = Object.fromEntries(await Promise.all([...page.querySelectorAll(this.linkElems)].map(async elm => [elm.textContent, { stream: await Extractors.use(elm.getAttribute('data-src')), type: 'm3u8', referer: 'https://kwik.cx/' }])));
+                    const links = Object.fromEntries(await Promise.all([...page.querySelectorAll(this.linkElems+`[data-resolution="${quality}"]`)].map(async elm => [elm.textContent, { stream: await Extractors.use(elm.getAttribute('data-src')), type: 'm3u8', referer: 'https://kwik.cx/' }])));
                     return new Episode(epNumber, PREFER_JAP_TITLE ? ($('h2.japanese').text() || animeTitle) : animeTitle, links, thumbnail, epLink.parentNode?.parentNode?.querySelector('.episode-title')?.textContent);
                 }));
+				await sleep(2500);  // for prevent rate limit
+			}
         },
         styles: `div#AniLINK_LinksContainer { font-size: 10px; } #Quality > b > div > ul {font-size: 16px;}`
     },
@@ -572,7 +575,7 @@ const Websites = [
                     const source = this._getLocalSourceName(provider, type);
                     try {
                         const sresJson = await this._secureFetch(`${this.baseApiUrl}/sources`, { query: { episodeId: id, provider, category: type } });
-                        const referer = "https://" + (provider == 'kaa' ? 'kaa.to' : provider == 'zoro' ? 'megacloud.blog' : provider == 'kiwi' ? 'kwik.cx' : provider == 'arc' ? 'anikai.to' : location.origin) + "/";
+                        const referer = `https://${{kaa:'kaa.to', zoro:'megacloud.blog', bonk:'vivibebe.site', kiwi:'kwik.cx', hop:'krussdomi.com', moo:'www.animegg.org', bee:'megaplay.buzz'}[provider] || location.host}/`;
                         links[source] = { stream: sresJson.streams[0].url, type: "m3u8", tracks: sresJson.tracks || sresJson.subtitles || [], referer };
                     } catch (e) { showToast(`Failed to fetch ep-${epNum} from ${source}: ${e}`); }
                 };
@@ -592,7 +595,7 @@ const Websites = [
         },
         _getLocalSourceName: function (source, type) {
             source = source.toLowerCase();
-            const sourceNames = { 'animepahe': 'kiwi', 'animekai': 'arc', 'animez': 'jet', 'zoro': 'zoro', 'kickassanime': 'kaa', 'megaplay': 'bee', 'bunnies': 'bun' };
+            const sourceNames = { 'allmanga': 'ally', 'anineko': 'bonk', 'anidbapp': 'pewe', 'animepahe': 'kiwi', 'kickassanime': 'hop', 'animegg': 'moo', 'anikoto': 'bee', 'animekai': 'arc', 'animez': 'jet', 'zoro': 'zoro', 'megaplay': 'bee', 'bunnies': 'bun'};
             return (sourceNames[source] || source) + (type !== undefined ? `-${type.toLowerCase()}` : '');
         },
     },
@@ -1027,7 +1030,7 @@ const Websites = [
                             const token = await this._safeFetch(link).then(r => r.text()).then(t => t.match(/'X-DDL-Token'\s*:\s*"([^"]+)"/)[1]);
                             const data = await this._safeFetch(`/get_ddl/${link.split('/').pop().split('?')[0]}`, { headers: { 'X-DDL-Token': token } }).then(r => r.json());
                             if (!data || !data.success) throw new Error(`Failed to fetch DDL info. ${data?.error || ''}`);
-                            links[q] = { stream: location.origin + data.download_link, type: 'mkv' };
+                            links[q] = { stream: (await GM_fetch((location.origin + data.download_link), { method: 'HEAD' })).url, type: 'mkv' };
                             break; // Stop after first successful link
                         // Continue to next quality if failed
                         } catch (e) { showToast(`Ep ${epNum} [${q}]: ${e.message || e}`); }
@@ -1255,6 +1258,14 @@ async function* yieldEpisodesFromPromises(episodePromises) {
         }
     }
 }
+
+/**
+ * A utility function that returns a promise that resolves after a specified number of milliseconds.
+ * @param {number} ms - The number of milliseconds to sleep.
+ * @returns {Promise} A promise that resolves after the specified time.
+ * @example await sleep(1000); // sleeps for 1 second
+ */
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
  * encodes a string to base64url format thats safe for URLs
@@ -2224,3 +2235,111 @@ function showMPVHandlerHelp() {
 // Simple query selector shortcuts
 const _$ = (s, p=document) => (p || document).querySelector(s);
 const _$$ = (s, p=document) => (p || document).querySelectorAll(s);
+
+
+// =============== DOWNLOADER ================= \\
+class Downloader {
+    #dirHandle = null;
+    #tasks = new Map();
+    #dependencies = {};
+    #isInitialized = false;
+
+    constructor() {
+        // Shared mental context: Keeping this isolated allows seamless UI integration later.
+        this.init()
+    }
+
+    /**
+     * Initializes the downloader and dynamically loads required dependencies via GM_xhr
+     * to safely bypass the host site's Content Security Policy (CSP).
+     */
+    async init() {
+        if (this.#isInitialized) return;
+        
+        // Example of CSP-safe dependency injection (e.g., if you need a lightweight muxer later)
+        // const depUrl = "https://cdn.jsdelivr.net/npm/some-pure-js-lib.js";
+        // const scriptText = await this.#fetchXHR(depUrl, { responseType: 'text' });
+        // this.#dependencies.SomeLib = new Function(`${scriptText}; return SomeLib;`)();
+        
+        this.#isInitialized = true;
+        console.log("[AniLINK Downloader] Initialized.");
+    }
+
+    /**
+     * Prompts the user to select an output directory.
+     * Must be called via a transient user activation (e.g., button click).
+     */
+    async setDirectory() {
+        try {
+            this.#dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+            console.log(`[AniLINK Downloader] Output directory bound: ${this.#dirHandle.name}`);
+            return true;
+        } catch (error) {
+            console.error("[AniLINK Downloader] Directory access denied or cancelled.", error);
+            return false;
+        }
+    }
+}
+
+
+
+// ================= TESTING =================== \\
+function testdl() {
+    // Create a temporary relay button on the DOM to capture a native user gesture
+    const relayBtn = document.createElement('button');
+    relayBtn.innerText = "Start AniLINK Test Download";
+    Object.assign(relayBtn.style, {
+        position: 'fixed',
+        top: '20px',
+        right: '20px',
+        zIndex: '999999',
+        padding: '15px 20px',
+        backgroundColor: '#ff4757',
+        color: '#fff',
+        border: 'none',
+        borderRadius: '8px',
+        fontWeight: 'bold',
+        cursor: 'pointer',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+    });
+
+    // Inject the button into the page
+    document.body.appendChild(relayBtn);
+
+    // Attach the async downloader logic to the native DOM click event
+    relayBtn.addEventListener('click', async () => {
+        // Remove the button immediately so it doesn't clutter the UI
+        relayBtn.remove(); 
+        
+        const url = "https://vault-99.owocdn.top/stream/99/01/9aaaabffd315374b8c5166e6b5e70ce6fcfcf9a9f8dc308be8db2fca3d88c090/uwu.m3u8";
+        const ref = 'https://kwik.cx/';
+        
+        const dl = new Downloader();
+        unsafeWindow.dl = dl
+
+        const dirSelected = await dl.setDirectory(); 
+        if (!dirSelected) {
+            console.log("[AniLINK] Download aborted: No directory selected.");
+            return;
+        }
+        
+        const filename = "test_episode.ts";
+        const anime = "test_anime";
+        
+        const task = dl.addTask(filename, anime, url, {
+            threads: 8,
+            headers: {
+                'Referer': ref,
+                'Origin': new URL(ref).origin
+            },
+            speedLimitBps: Infinity
+        });
+        
+        console.log(`[AniLINK] Launching task: ${task.id} — ${task.filepath}`);
+        await dl.startTask(task.id); // or `await task.start()`
+
+        while (task.status == 'downloading') {
+            console.log(`${task.id}] ${task.filename}: ${task.totalSize ? `${task.filesize}/${task.totalsize}` : `${task.filesegments}/${task.totalsegments}`} @${task.speed}/${task.speedBps} (${task.eta})`)
+        }
+    });
+}
