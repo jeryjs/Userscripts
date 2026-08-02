@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.33.4
+// @version     6.33.5
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -1061,7 +1061,7 @@ const Websites = [
         extractEpisodes: async function* (status) {
             const eps = await applyEpisodeRangeFilter(await fetch(`https://anidb.app/api/frontend/anime/${location.pathname.split('-').pop()}/episodes`).then(r => r.json()).then(d => d.episodes));
             const srcCfg = await showSourceSelector([..._$$('button[x-text="lang.name"]')].map(b => b.textContent), 'anidb', { mode: 'single' });
-            const o = +(eps.find(e => +e.number > 1)?.number || eps[0].number) - 1; eps.forEach(ep => ep.number = (+ep.number - o).toString()); // Resolve the ep numbering offset (sometimes, a 2nd cour can have ep.num=13 while its s2e1)
+            const o = eps[0].number == 1 ? 0 : +(eps.find(e => +e.number > 1)?.number || eps[0].number) - 1; eps.forEach(ep => ep.number = (+ep.number - o).toString()); // Resolve the ep numbering offset (sometimes, a 2nd cour can have ep.num=13 while its s2e1)
             for (let i = 0; i < eps.length; i += this._chunkSize)
                 yield* yieldEpisodesFromPromises(eps.slice(i, i + this._chunkSize).map(async ep => {
                     status.text = `Extracting Episodes ${Math.max(1, ep.number - Math.min(this._chunkSize, ep.number) + 1)} - ${ep.number}...`;
