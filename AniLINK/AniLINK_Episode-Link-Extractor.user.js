@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.33.1
+// @version     6.33.2
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -1068,7 +1068,7 @@ const Websites = [
                     const sources = await fetchJSON(`https://anidb.app/api/frontend/episode/${ep.id}/languages`, {}, d => d.languages);
                     const fetchSource = async lang => await fetch(sources.find(s => s.name === lang)?.embed_url).then(r => r.text()).then(t => t.match(/sources\s*:\s*\[\s*\{\s*file\s*:\s*'([^']+)'/i) || t.match(/file\s*:\s*'(https?:\/\/[^']+\.m3u8[^']*)'/i) || t.match(/["'](https?:\/\/[^"']+\.m3u8[^"']*)['"]/)).then(l => ({ stream: l[1], type: 'm3u8' }));
                     const links = srcCfg?.mode === 'multi' ? Object.fromEntries((await Promise.all(srcCfg.sources.map(async lang => [lang, await fetchSource(lang)]))).filter(([, v]) => v)) : await (async () => { for (const lang of srcCfg.sources) { const v = await fetchSource(lang); if (v) return { [lang]: v }; } return {}; })();
-                    return new Episode(ep.number, _$('h1').textContent, links, _$('img[src*="posters"]').src);
+                    return new Episode(ep.number, _$('h1').textContent, links, _$('img[src*="poster"]')?.src);
                 }));
         }
     }
