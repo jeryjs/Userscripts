@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      5.3.9
+// @version      5.4.0
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -59,7 +59,7 @@ const configurations = [
 		type: "slider",
 		value: COOLDOWN_TIMEOUT,
 		range: [3, 30],
-        disabled: !UNDER_COOLDOWN,
+		disabled: !UNDER_COOLDOWN,
 		description: "The Cooldown timeout between every 4th search (in seconds).<br> Under Cooldown must be enabled for this option to become active.<br>Default: 15",
 	},
 	{
@@ -123,19 +123,19 @@ autoSearchContainer.classList.add("auto-search-container");
 
 const searchIcon = document.createElement("div");
 searchIcon.classList.add("search-icon");
-if(!isRewardPage) searchIcon.innerHTML = `<a style="font-size: 25px">🔍</a><span>Auto-Search</span>`;
+if (!isRewardPage) searchIcon.innerHTML = `<a style="font-size: 25px">🔍</a><span>Auto-Search</span>`;
 searchIcon.title = "Start Auto-Search!!";
 searchIcon.addEventListener("click", startSearch);
 
 const settingsIcon = document.createElement("div");
 settingsIcon.classList.add("settings-icon");
-if(!isRewardPage) settingsIcon.innerHTML = `<a style="font-size: 20px;">⚙️</a><span>Configure</span>`;
+if (!isRewardPage) settingsIcon.innerHTML = `<a style="font-size: 20px;">⚙️</a><span>Configure</span>`;
 
 autoSearchContainer.appendChild(searchIcon);
 autoSearchContainer.appendChild(settingsIcon);
 
 setTimeout(() => {
-    if (searchIcon.textContent.includes("Auto-Search")) searchIcon.classList.add("shrink")
+	if (searchIcon.textContent.includes("Auto-Search")) searchIcon.classList.add("shrink")
 }, 3000);
 
 
@@ -194,11 +194,11 @@ configurations.forEach(config => {
 
 	const currentValue = document.createElement("div");
 	currentValue.classList.add("settings-item-value");
-	currentValue.textContent = input.valueText??input.value;
+	currentValue.textContent = input.valueText ?? input.value;
 
 	input.addEventListener("input", () => {
 		GM_setValue(config.id, input.type == "checkbox" ? input.checked : input.value);
-		currentValue.textContent = input.valueText??input.value;
+		currentValue.textContent = input.valueText ?? input.value;
 		updateConfigVariable(config.id, input.type == "checkbox" ? input.checked : input.value);
 	});
 	inputContainer.appendChild(input);
@@ -240,8 +240,8 @@ settingsOverlay.addEventListener("mousedown", function (event) {
 
 // Add logic to enable/disable the cooldown-timeout input
 document.getElementById("under-cooldown").addEventListener("change", (event) => {
-    const cooldownInput = document.getElementById("cooldown-timeout");
-    cooldownInput.disabled = !event.target.checked;
+	const cooldownInput = document.getElementById("cooldown-timeout");
+	cooldownInput.disabled = !event.target.checked;
 });
 
 
@@ -250,7 +250,7 @@ document.getElementById("under-cooldown").addEventListener("change", (event) => 
  * @param {string} content - The content to display in the icon.
  * @param {string} classlist - The classlist to apply to the icon.
  */
-function updateIcon(content, classlist="searching") {
+function updateIcon(content, classlist = "searching") {
 	searchIcon.classList.add(classlist);
 	settingsIcon.classList.add(classlist);
 	searchIcon.querySelector("span").textContent = content;
@@ -267,7 +267,7 @@ function updateConfigVariable(id, value) {
 	if (id === "max-searches") MAX_SEARCHES = parseInt(value);
 	else if (id === "cooldown-timeout") COOLDOWN_TIMEOUT = parseInt(value);
 	else if (id === "under-cooldown") UNDER_COOLDOWN = value == "true";
-  }
+}
 
 /*=============================================*\
 |* 				HELPER FUNCTIONS			   *|
@@ -302,12 +302,12 @@ function startSearch() {
 	console.log(searches);
 
 	GM_setValue("searches", searches);
-	
-	if (COLLECT_DAILY_ACTIVITY) window.open(`https://rewards.bing.com/?ref=rewardspanel`, "_blank");
-	if (AUTO_CLOSE_TABS) addTabToClose("https://rewards.bing.com/?ref=rewardspanel");
-	
+
+	if (COLLECT_DAILY_ACTIVITY) window.open(`https://rewards.bing.com/earn`, "_blank");
+	if (AUTO_CLOSE_TABS) addTabToClose("https://rewards.bing.com/earn");
+
 	const nextSearchTerm = searches.pop();
-	
+
 	GM_setValue("searches", searches);
 	addTabToClose(generateSearchUrl(searches[0]));
 	window.open(generateSearchUrl(nextSearchTerm), "_self");
@@ -340,11 +340,11 @@ function waitForElements(selectors, callback) {
  * The tabs to close are stored in the local storage and are closed after the specified timeout.
  * @param {Window} tab - The tab to close.
  * @param {number} timeout - The timeout in milliseconds to close the tab.
- * @example addTabToClose(window.open("https://rewards.bing.com/?ref=rewardspanel", "_blank"), 5000);
+ * @example addTabToClose(window.open("https://rewards.bing.com/earn", "_blank"), 5000);
  */
-function addTabToClose(tab, timeout=5000) {
+function addTabToClose(tab, timeout = 5000) {
 	tabsToClose.push(
-		{"url": tab, "timeout": timeout}
+		{ "url": tab, "timeout": timeout }
 	);
 	GM_setValue("tabsToClose", tabsToClose);
 }
@@ -371,7 +371,6 @@ function generateSearchUrl(searchTerm) {
  * put inside [pointsElem]
  * In case of mobile, the script skips searching for the element.
  */
-try {
 if (isSearchPage) {
 	// Add the auto-search icons to the top left corner of the page
 	document.body.appendChild(autoSearchContainer);
@@ -398,7 +397,7 @@ if (isSearchPage) {
 			let targetNode = document.querySelector(pointsElem);
 			const observerTimeout = 4000;
 
-			let observerOptions = {characterData: true, childList: true, subtree: true};
+			let observerOptions = { characterData: true, childList: true, subtree: true };
 
 			if (pointsElem != null) {
 				let oldTextContent = targetNode.textContent.trim();
@@ -439,14 +438,14 @@ if (isSearchPage) {
 				if (OPEN_RANDOM_LINKS) {
 					try {
 						let searchLinks = isMobile
-						? document.querySelectorAll(".b_algoheader > a")
-						: document.querySelectorAll("li.b_algo h2 a");
+							? document.querySelectorAll(".b_algoheader > a")
+							: document.querySelectorAll("li.b_algo h2 a");
 
 						// workaround for the britannica bug.
 						const excludeDomains = ["britannica.com", "sunshineseeker.com"];
 						searchLinks = Array.from(searchLinks).filter(link => !excludeDomains.some(domain => link.closest(".b_algo").querySelector(".b_tpcn div.tpmeta").innerText.includes(domain)));
 						let randLink = searchLinks[Math.floor(Math.random() * searchLinks.length)];
-						
+
 						let iframe = document.createElement("iframe");
 						iframe.name = "randLinkFrame";
 						iframe.style.width = "100%";
@@ -461,8 +460,8 @@ if (isSearchPage) {
 
 				setTimeout(() => {
 					// if this is the final search, then open the points breakdown page in a new tab if OPEN_POINTS_BREAKDOWN is enabled
-					if (searches.length==1 && OPEN_POINTS_BREAKDOWN) window.open("https://rewards.bing.com/pointsbreakdown", "_blank");
-					
+					if (searches.length == 1 && OPEN_POINTS_BREAKDOWN) window.open("https://rewards.bing.com/earn", "_blank");
+
 					// window.open(`https://www.bing.com/search?go=Search&q=${encodeURI(searches.pop())}&qs=ds&form=QBRE`, "_self");
 					window.open(generateSearchUrl(searches.pop()), "_self");
 					// document.querySelector("textarea.b_searchbox").value = searches.pop();
@@ -499,7 +498,7 @@ if (isRewardPage) {
 	if (COLLECT_DAILY_ACTIVITY) {
 		// Wait for the page to load the point cards first
 		window.onload = () => setTimeout(() => {
-			document.querySelectorAll("a.ds-card-sec:has(span.mee-icon-AddMedium), #moreactivities a[data-rac]:not(:has(div.bg-statusSuccessBg3))").forEach((card) => {
+			document.querySelectorAll("a.ds-card-sec:has(span.mee-icon-AddMedium), #moreactivities a[data-rac]:not(:has(div.bg-statusSuccessRewardsBg)), #dailyset .flex-col a.group\\/ctrl:not(:has(div.bg-statusSuccessRewardsBg))").forEach((card) => {
 				addTabToClose(card.href);
 				card.click();
 			})
@@ -516,134 +515,138 @@ if (isRewardPage) {
  * by checking for the title of the window (Close this window).
  */
 if (AUTO_CLOSE_TABS) {
-    const tabToClose = tabsToClose.find(tab => window.location.href == tab.url);
+	const tabToClose = tabsToClose.find(tab => window.location.href == tab.url) || location.pathname.startsWith('/spotlight/imagepuzzle') ? { url: location.href, timeout: 1500 } : undefined;
 	if (tabToClose) {
 		tabsToClose = tabsToClose.filter(tab => tab.url != tabToClose.url);
 		GM_setValue("tabsToClose", tabsToClose);
-        setTimeout(() => {
+		setTimeout(() => {
+			// If the current page is /earn and need to collect daily activity, open dashboard
+			if (location.href.includes("rewards.bing.com/earn") && COLLECT_DAILY_ACTIVITY) {
+				addTabToClose("https://rewards.bing.com/dashboard");
+				return window.open("/dashboard", "_self");
+			}
+			
 			window.close()
 
 			// IF the tab still hasnt closed, take the user to close-this-window page
 			window.open(`https://jeryjs.github.io/Userscripts/Bing-AutoGrind/close-this-window.html?bing-autogrind=true`, "_self");
 		}, tabToClose.timeout);
-    }
+	}
 }
 
 /*=============================================*\
 |*					CSS STYLES				   *|
 \*=============================================*/
 
-const stylesheet = Object.assign(document.createElement("style"), {textContent: `
-    .auto-search-container {
-        position: fixed;
-        top: 90px;
-        left: 20px;
-		display: inline-grid;
-		align-items: flex-start;
-		z-index: 1000;
-    }
-    .auto-search-container span {
-		margin-left: 5px;
-    }
-    .search-icon, .settings-icon {
-        display: flex;
-        align-items: center;
-		overflow: hidden;
-        cursor: pointer;
-        border-radius: 20px;
-        background-color: lightgray;
-        padding: 2px 10px 2px 0px;
-        transition: all 0.5s ease;
-    }
-    .b_drk .search-icon,
-    .b_drk .settings-icon,
-    .b_dark .search-icon,
-    .b_dark .settings-icon {
-        background-color: #333;
-    }
-    .search-icon.shrink {
-        width: 27px;
-        transition: width 0.5s;
-    }
-    .search-icon.shrink:hover {
-        width: 100%;
-    }
-    .settings-icon {
-		opacity: 0;
-        width: 23px;
-        transition: all 0.5s ease;
-    }
-	.auto-search-container:hover .settings-icon,
-	.auto-search-container .settings-icon.searching {
-		opacity: 1;
-	}
-    .settings-icon:hover {
-        width: 100%;
-    }
-    .search-icon.searching {
-        background-color: lightblue !important;
-    }
-    .b_drk .search-icon.searching,
-    .b_dark .search-icon.searching {
-        background-color: midnightblue !important;
-    }
-    .search-icon.counting {
-        background-color: lightgreen !important;
-    }
-    .b_drk .search-icon.counting,
-    .b_dark .search-icon.counting {
-        background-color: green !important;
-    }
-	
+const stylesheet = Object.assign(document.createElement("style"), {
+	textContent: `
+		.auto-search-container {
+			position: fixed;
+			top: 90px;
+			left: 20px;
+			display: inline-grid;
+			align-items: flex-start;
+			z-index: 1000;
+		}
+		.auto-search-container span {
+			margin-left: 5px;
+		}
+		.search-icon, .settings-icon {
+			display: flex;
+			align-items: center;
+			overflow: hidden;
+			cursor: pointer;
+			border-radius: 20px;
+			background-color: lightgray;
+			padding: 2px 10px 2px 0px;
+			transition: all 0.5s ease;
+		}
+		.b_drk .search-icon,
+		.b_drk .settings-icon,
+		.b_dark .search-icon,
+		.b_dark .settings-icon {
+			background-color: #333;
+		}
+		.search-icon.shrink {
+			width: 27px;
+			transition: width 0.5s;
+		}
+		.search-icon.shrink:hover {
+			width: 100%;
+		}
+		.settings-icon {
+			opacity: 0;
+			width: 23px;
+			transition: all 0.5s ease;
+		}
+		.auto-search-container:hover .settings-icon,
+		.auto-search-container .settings-icon.searching {
+			opacity: 1;
+		}
+		.settings-icon:hover {
+			width: 100%;
+		}
+		.search-icon.searching {
+			background-color: lightblue !important;
+		}
+		.b_drk .search-icon.searching,
+		.b_dark .search-icon.searching {
+			background-color: midnightblue !important;
+		}
+		.search-icon.counting {
+			background-color: lightgreen !important;
+		}
+		.b_drk .search-icon.counting,
+		.b_dark .search-icon.counting {
+			background-color: green !important;
+		}
+		
 
-	/******** Settings Overlay *********/
+		/******** Settings Overlay *********/
 
-	.b_drk .settings-overlay > div,
-	.b_dark .settings-overlay > div {
-		background-color: black !important;
-	}
-	.settings-item {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin: 10px 0;
-	}
-	.settings-item:hover {
-		border: ivory groove 1px;
-		border-radius: 10px;
-	}
-	.settings-item-name {
-		flex-basis: 20%;
-		text-align: left;
-	}
-	.settings-item-input {
-		flex-basis: 10%;
-    	text-align: center;
-	}
-	.settings-item-value {
-		flex-basis: 20%;
-		text-align: center;
-	}
-	.settings-item-description {
-		flex-basis: 40%;
-		height: 0;
-		width: 50vw;
-		padding: 5px 10px 20px 10px;
-		border: grey solid 1px;
-		border-radius: 10px;
-		overflow: hidden;
-		transition: height 0.3s ease;
-	}
-	.settings-item:hover .settings-item-description {
-		height: 60px;
-		overflow-y: scroll;
-		place-content: center;
-		text-align: center;
-   		padding: 20px;
-	}
-`})
-if(!isRewardPage) document.head.appendChild(stylesheet);
-} catch (e) {
-	alert("AutoGrind ran into an error. Check the console for more information.\n"+e);
-	console.error("AutoGrind ran into an error. Check the console for more information.\n"+e);
-}
+		.b_drk .settings-overlay > div,
+		.b_dark .settings-overlay > div {
+			background-color: black !important;
+		}
+		.settings-item {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			margin: 10px 0;
+		}
+		.settings-item:hover {
+			border: ivory groove 1px;
+			border-radius: 10px;
+		}
+		.settings-item-name {
+			flex-basis: 20%;
+			text-align: left;
+		}
+		.settings-item-input {
+			flex-basis: 10%;
+			text-align: center;
+		}
+		.settings-item-value {
+			flex-basis: 20%;
+			text-align: center;
+		}
+		.settings-item-description {
+			flex-basis: 40%;
+			height: 0;
+			width: 50vw;
+			padding: 5px 10px 20px 10px;
+			border: grey solid 1px;
+			border-radius: 10px;
+			overflow: hidden;
+			transition: height 0.3s ease;
+		}
+		.settings-item:hover .settings-item-description {
+			height: 60px;
+			overflow-y: scroll;
+			place-content: center;
+			text-align: center;
+			padding: 20px;
+		}
+	`
+})
+if (!isRewardPage) document.head.appendChild(stylesheet);
