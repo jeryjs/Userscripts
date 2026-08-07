@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AutoGrind: Intelligent Bing Rewards Auto-Grinder
 // @namespace    https://github.com/jeryjs/
-// @version      5.4.0
+// @version      5.4.1
 // @description  This user script automatically finds random words from the current search results and searches Bing with them. Additionally, it auto clicks the unclaimed daily points from your rewards dashboard too.
 // @icon         https://www.bing.com/favicon.ico
 // @author       Jery
@@ -522,7 +522,7 @@ if (AUTO_CLOSE_TABS) {
 		setTimeout(() => {
 			// If the current page is /earn and need to collect daily activity, open dashboard
 			if (location.href.includes("rewards.bing.com/earn") && COLLECT_DAILY_ACTIVITY) {
-				addTabToClose("https://rewards.bing.com/dashboard");
+				addTabToClose("https://rewards.bing.com/dashboard", 10000);
 				return window.open("/dashboard", "_self");
 			}
 			
