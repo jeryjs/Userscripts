@@ -43,7 +43,7 @@
 // @match       https://animetsu.live/*
 // @match       https://animekai.tld/*/*
 // @match       https://anikai.to/*
-// @match       https://*pahe.pw/*/*
+// @match       https://animepahe.pw/*/*
 // @match       https://yflix.to/watch/*
 // @match       https://anime.uniquestream.net/*/*/*
 // @match       https://www.fmovies.gd/*/*
@@ -80,6 +80,7 @@
 // @grant       GM_deleteValue
 // @grant       GM_download
 // @grant       GM_setClipboard
+// @grant       unsafeWindow
 // @downloadURL https://update.greasyfork.org/scripts/492029/AniLINK%20-%20Episode%20Link%20Extractor.user.js
 // @updateURL https://update.greasyfork.org/scripts/492029/AniLINK%20-%20Episode%20Link%20Extractor.meta.js
 // ==/UserScript==
@@ -2238,15 +2239,192 @@ const _$$ = (s, p=document) => (p || document).querySelectorAll(s);
 
 
 // =============== DOWNLOADER ================= \\
+const dlUtils = {
+    anlinkGMRequest: (url, options = {}) => {
+        const requestFn = typeof GM_xmlhttpRequest === 'function'
+            ? GM_xmlhttpRequest
+            : typeof GM !== 'undefined' && typeof GM.xmlHttpRequest === 'function' ? GM.xmlHttpRequest : null;
+        if (!requestFn) throw new Error('No GM cross-origin request API is available.');
+
+        let request;
+        let settled = false;
+        const promise = new Promise((resolve, reject) => {
+            const finish = (callback, value) => {
+                if (settled) return;
+                settled = true;
+                callback(value);
+            };
+            try {
+                request = requestFn({
+                    method: options.method || 'GET',
+                    url,
+                    headers: options.headers || {},
+                    responseType: options.responseType || 'arraybuffer',
+                    timeout: options.timeout || 0,
+                    anonymous: options.anonymous,
+                    onprogress: options.onprogress,
+                    onload: response => finish(resolve, {
+                        status: response.status,
+                        statusText: response.statusText,
+                        response: response.response,
+                        responseHeaders: response.responseHeaders || '',
+                        finalUrl: response.finalUrl || url
+                    }),
+                    onerror: response => finish(reject, new Error(`GM request failed for ${url} (${response.status || 'network error'})`)),
+                    ontimeout: () => finish(reject, new Error(`GM request timed out for ${url}`)),
+                    onabort: () => finish(reject, Object.assign(new Error('GM request aborted'), { name: 'AbortError' }))
+                });
+            } catch (error) {
+                finish(reject, error);
+            }
+        });
+
+        return { promise, abort: () => request?.abort?.() };
+    },
+
+    anlinkParseHeaders: (rawHeaders = '') => {
+        const headers = new Headers();
+        for (const line of rawHeaders.split(/\r?\n/)) {
+            const separator = line.indexOf(':');
+            if (separator > 0) headers.append(line.slice(0, separator).trim(), line.slice(separator + 1).trim());
+        }
+        return headers;
+    },
+
+    anlinkFormatBytes: (bytes) => {
+        if (!Number.isFinite(bytes)) return 'N/A';
+        if (bytes < 1024) return `${bytes} B`;
+        const units = ['KB', 'MB', 'GB', 'TB'];
+        let value = bytes;
+        let unit = -1;
+        do { value /= 1024; unit++; } while (value >= 1024 && unit < units.length - 1);
+        return `${value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : 2)} ${units[unit]}`;
+    },
+
+    anlinkFormatRate: (bytesPerSecond) => { return `${dlUtils.anlinkFormatBytes(bytesPerSecond)}/s`; },
+
+    anlinkFormatDuration: (milliseconds) => {
+        if (!Number.isFinite(milliseconds)) return 'N/A';
+        const seconds = Math.max(0, Math.round(milliseconds / 1000));
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = seconds % 60;
+        return h ? `${h}h ${m}m ${s}s` : m ? `${m}m ${s}s` : `${s}s`;
+    },
+
+    anlinkSafeFilename: (filename) => {
+        return String(filename || 'download').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/, '').slice(0, 240) || 'download';
+    },
+
+    anlinkNewId: () => {
+        return globalThis.crypto?.randomUUID?.() || `anlink-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+}
+
+class DownloadTask {
+    constructor(controller, filename, anime, url, options) {
+        this._controller = controller;
+        this.id = dlUtils.anlinkNewId();
+        this.filename = dlUtils.anlinkSafeFilename(filename);
+        this.anime = anime || '';
+        this.url = url;
+        this.options = options;
+        this._status = 'queued';
+        this._listeners = new Map();
+        this._runPromise = null;
+        this._paused = false;
+        this._cancelled = false;
+        this._resumeResolvers = [];
+        this._activeRequests = new Set();
+        this._pendingHlsWrites = new Map();
+        this._nextHlsWrite = 0;
+        this._hlsOutputOffset = 0;
+        this._writeChain = Promise.resolve();
+        this._throttleChain = Promise.resolve();
+        this._rateState = { tokens: options.speedLimitBps, timestamp: performance.now() };
+        this._samples = [{ timestamp: performance.now(), bytes: 0 }];
+        this._stats = {
+            bytesWritten: 0,
+            bytesReceived: 0,
+            totalSize: 0,
+            totalSegments: 0,
+            completedSegments: 0,
+            activeThreads: 0,
+            threads: options.threads,
+            retries: 0,
+            errors: [],
+            speedBps: 0,
+            speedLimitBps: options.speedLimitBps,
+            rangeSupported: null,
+            format: options.format,
+            contentType: '',
+            startedAt: null,
+            finishedAt: null,
+            lastProgressAt: null
+        };
+    }
+
+    get status() { return this._status; }
+    get filepath() { return this._filepath || `${this._controller.directoryName || 'selected directory'}\\${this.filename}`; }
+    get totalSize() { return this._stats.totalSize; }
+    get filesize() { return dlUtils.anlinkFormatBytes(this._stats.bytesWritten); }
+    get totalsize() { return this._stats.totalSize ? dlUtils.anlinkFormatBytes(this._stats.totalSize) : '?'; }
+    get filesegments() { return this._stats.completedSegments; }
+    get totalsegments() { return this._stats.totalSegments; }
+    get speedBps() { return this._stats.speedBps; }
+    get speed() { return dlUtils.anlinkFormatRate(this._stats.speedBps); }
+    get eta() { return this._stats.speedBps && this._stats.totalSize ? dlUtils.anlinkFormatDuration((this._stats.totalSize - this._stats.bytesWritten) / this._stats.speedBps * 1000) : 'N/A'; }
+    get stats() { return this._controller.getTaskStats(this.id); }
+    get error() { return this._stats.error || null; }
+
+    on(event, listener) {
+        if (!this._listeners.has(event)) this._listeners.set(event, new Set());
+        this._listeners.get(event).add(listener);
+        return () => this._listeners.get(event)?.delete(listener);
+    }
+
+    pause() { return this._controller.pauseTask(this.id); }
+    resume() { return this._controller.resumeTask(this.id); }
+    cancel() { return this._controller.cancelTask(this.id); }
+    setSpeedLimit(speedLimitBps) { return this._controller.setSpeedLimit(this.id, speedLimitBps); }
+    setThreads(threads) { return this._controller.setThreads(this.id, threads); }
+    start() { return this._controller.startTask(this.id); }
+
+    _setStatus(status) {
+        this._status = status;
+        this._emit('status', this.stats);
+    }
+
+    _emit(event, value) {
+        for (const listener of this._listeners.get(event) || []) {
+            try { listener(value, this); } catch (error) { console.error('[AniLINK Downloader] Task listener failed:', error); }
+        }
+    }
+
+    _waitForResume() {
+        if (!this._paused) return Promise.resolve();
+        return new Promise(resolve => this._resumeResolvers.push(resolve));
+    }
+
+    _resume() {
+        this._paused = false;
+        for (const resolve of this._resumeResolvers.splice(0)) resolve();
+    }
+
+    _wake() {
+        for (const resolve of this._resumeResolvers.splice(0)) resolve();
+    }
+}
+
 class Downloader {
+    static formats = new Map();
     #dirHandle = null;
     #tasks = new Map();
-    #dependencies = {};
-    #isInitialized = false;
+    #keyCache = new Map();
 
     constructor() {
         // Shared mental context: Keeping this isolated allows seamless UI integration later.
-        this.init()
+        this._ready = this.init();
     }
 
     /**
@@ -2254,15 +2432,39 @@ class Downloader {
      * to safely bypass the host site's Content Security Policy (CSP).
      */
     async init() {
-        if (this.#isInitialized) return;
+        if (this._initialized) return this;
+        if (!window.showDirectoryPicker && !unsafeWindow?.showDirectoryPicker) console.warn('[AniLINK Downloader] File System Access API is unavailable.');
         
         // Example of CSP-safe dependency injection (e.g., if you need a lightweight muxer later)
         // const depUrl = "https://cdn.jsdelivr.net/npm/some-pure-js-lib.js";
         // const scriptText = await this.#fetchXHR(depUrl, { responseType: 'text' });
         // this.#dependencies.SomeLib = new Function(`${scriptText}; return SomeLib;`)();
         
-        this.#isInitialized = true;
-        console.log("[AniLINK Downloader] Initialized.");
+        this._initialized = true;
+        return this;
+    }
+
+    get directoryName() { return this.#dirHandle?.name || ''; }
+    get tasks() { return [...this.#tasks.values()]; }
+
+    static registerFormat(name, handler) {
+        if (!name || typeof handler !== 'function') throw new TypeError('A format name and handler function are required.');
+        Downloader.formats.set(name.toLowerCase().replace(/^\./, ''), handler);
+    }
+
+    getFormatContext(taskId) {
+        const task = this.#requireTask(taskId);
+        return Object.freeze({
+            task,
+            request: (url, options) => this.#requestWithRetry(task, url, options),
+            fetchText: url => this.#fetchText(task, url),
+            writeAt: (position, data) => this.#writeAt(task, position, data),
+            throttle: bytes => this.#throttle(task, bytes),
+            recordBytes: (written, received = written) => this.#recordBytes(task, written, received),
+            setTotalSize: totalSize => { task._stats.totalSize = Math.max(0, Number(totalSize) || 0); },
+            setTotalSegments: totalSegments => { task._stats.totalSegments = Math.max(0, Number(totalSegments) || 0); },
+            setStatus: status => task._setStatus(status)
+        });
     }
 
     /**
@@ -2270,76 +2472,462 @@ class Downloader {
      * Must be called via a transient user activation (e.g., button click).
      */
     async setDirectory() {
+        await this._ready;
+        const picker = window.showDirectoryPicker || unsafeWindow?.showDirectoryPicker;
+        if (!picker) throw new Error('This browser does not support the File System Access API.');
         try {
-            this.#dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
-            console.log(`[AniLINK Downloader] Output directory bound: ${this.#dirHandle.name}`);
+            this.#dirHandle = await picker.call(window, { mode: 'readwrite' });
             return true;
         } catch (error) {
-            console.error("[AniLINK Downloader] Directory access denied or cancelled.", error);
-            return false;
+            if (error?.name === 'AbortError') return false;
+            throw error;
         }
+    }
+
+    addTask(filename, anime, url, options = {}) {
+        if (!url) throw new TypeError('A download URL is required.');
+        const inferredFormat = options.format || options.type || new URL(url).pathname.split('.').pop() || 'bin';
+        const normalizedOptions = {
+            threads: Math.max(1, Math.floor(options.threads ?? 6)),
+            segmentSize: Math.max(256 * 1024, Math.floor(options.segmentSize ?? 8 * 1024 * 1024)),
+            speedLimitBps: Number.isFinite(options.speedLimitBps) && options.speedLimitBps > 0 ? options.speedLimitBps : Infinity,
+            headers: { ...(options.headers || {}) },
+            referer: options.referer,
+            origin: options.origin,
+            anonymous: options.anonymous,
+            timeout: options.timeout ?? 30000,
+            retries: Math.max(0, Math.floor(options.retries ?? 3)),
+            overwrite: options.overwrite !== false,
+            format: String(inferredFormat).toLowerCase().replace(/^\./, '').split('?')[0],
+            allowBufferedFallback: options.allowBufferedFallback === true,
+            allowLive: options.allowLive === true,
+            quality: options.quality
+        };
+        const task = new DownloadTask(this, filename, anime, url, normalizedOptions);
+        this.#tasks.set(task.id, task);
+        return task;
+    }
+
+    getTask(taskId) { return this.#tasks.get(typeof taskId === 'string' ? taskId : taskId?.id); }
+
+    removeTask(taskId) {
+        const task = this.#requireTask(taskId);
+        if (['downloading', 'preparing', 'paused'].includes(task.status)) throw new Error('Pause or cancel the task before removing it.');
+        return this.#tasks.delete(task.id);
+    }
+
+    async startTask(taskId) {
+        const task = this.#requireTask(taskId);
+        if (task._runPromise) return task._runPromise;
+        task._runPromise = this.#run(task);
+        return task._runPromise;
+    }
+
+    pauseTask(taskId) {
+        const task = this.#requireTask(taskId);
+        if (!['preparing', 'downloading'].includes(task.status)) return false;
+        task._paused = true;
+        task._setStatus('paused');
+        for (const request of task._activeRequests) request.abort();
+        return true;
+    }
+
+    setSpeedLimit(taskId, speedLimitBps) {
+        const task = this.#requireTask(taskId);
+        if (speedLimitBps !== Infinity && (!Number.isFinite(speedLimitBps) || speedLimitBps <= 0)) throw new RangeError('Speed limit must be a positive number or Infinity.');
+        task.options.speedLimitBps = speedLimitBps;
+        task._stats.speedLimitBps = speedLimitBps;
+        task._rateState.tokens = Math.min(task._rateState.tokens, speedLimitBps);
+        task._emit('status', task.stats);
+        return speedLimitBps;
+    }
+
+    setThreads(taskId, threads) {
+        const task = this.#requireTask(taskId);
+        if (task.status !== 'queued') throw new Error('Thread count can only be changed before a task starts.');
+        task.options.threads = Math.max(1, Math.floor(threads));
+        task._stats.threads = task.options.threads;
+        return task.options.threads;
+    }
+
+    resumeTask(taskId) {
+        const task = this.#requireTask(taskId);
+        if (task.status !== 'paused') return false;
+        task._resume();
+        task._setStatus('downloading');
+        return true;
+    }
+
+    cancelTask(taskId) {
+        const task = this.#requireTask(taskId);
+        if (['completed', 'failed', 'cancelled'].includes(task.status)) return false;
+        task._cancelled = true;
+        task._paused = false;
+        task._wake();
+        for (const request of task._activeRequests) request.abort();
+        task._setStatus('cancelled');
+        return true;
+    }
+
+    getTaskStats(taskId) {
+        const task = this.#requireTask(taskId);
+        const now = performance.now();
+        const elapsedMs = task._stats.startedAt ? (task._stats.finishedAt || Date.now()) - task._stats.startedAt : 0;
+        return {
+            id: task.id, filename: task.filename, anime: task.anime, url: task.url, status: task.status,
+            ...task._stats, elapsedMs, elapsed: dlUtils.anlinkFormatDuration(elapsedMs), filesize: task.filesize,
+            totalsize: task.totalsize, speed: task.speed, eta: task.eta, activeRequests: task._activeRequests.size,
+            paused: task._paused, cancelled: task._cancelled, now
+        };
+    }
+
+    #requireTask(taskId) {
+        const task = this.getTask(taskId);
+        if (!task) throw new Error(`Unknown download task: ${taskId?.id || taskId}`);
+        return task;
+    }
+
+    async #run(task) {
+        task._stats.startedAt = Date.now();
+        task._setStatus('preparing');
+        try {
+            if (!this.#dirHandle) throw new Error('Select an output directory before starting a download.');
+            await this.#openWriter(task);
+            if (Downloader.formats.has(task.options.format)) await Downloader.formats.get(task.options.format)(task, this.getFormatContext(task));
+            else if (['m3u8', 'hls'].includes(task.options.format) || /\.m3u8(?:$|\?)/i.test(task.url)) await this.#runHls(task);
+            else if (task.options.format === 'mpd' || /\.mpd(?:$|\?)/i.test(task.url)) throw new Error('DASH (.mpd) is not implemented yet; register a format handler before starting this task.');
+            else await this.#runDirect(task);
+            if (task._cancelled) throw Object.assign(new Error('Download cancelled'), { name: 'AbortError' });
+            task._stats.finishedAt = Date.now();
+            task._setStatus('completed');
+            task._emit('complete', task.stats);
+            return task;
+        } catch (error) {
+            if (task._cancelled || error?.name === 'AbortError' && task.status === 'cancelled') {
+                task._stats.error = 'Download cancelled';
+                task._stats.finishedAt = Date.now();
+                task._setStatus('cancelled');
+            } else {
+                task._stats.error = error.message || String(error);
+                task._stats.errors.push(task._stats.error);
+                task._stats.finishedAt = Date.now();
+                task._setStatus('failed');
+                task._emit('error', error);
+            }
+            throw error;
+        } finally {
+            await this.#closeWriter(task);
+        }
+    }
+
+    async #openWriter(task) {
+        let filename = task.filename;
+        if (!task.options.overwrite) {
+            const extension = filename.match(/\.[^.]+$/)?.[0] || '';
+            const stem = extension ? filename.slice(0, -extension.length) : filename;
+            for (let suffix = 0; ; suffix++) {
+                const candidate = `${stem}${suffix ? ` (${suffix})` : ''}${extension}`;
+                try { await this.#dirHandle.getFileHandle(candidate); } catch { filename = candidate; break; }
+            }
+            task.filename = filename;
+        }
+        const fileHandle = await this.#dirHandle.getFileHandle(filename, { create: true });
+        task._fileHandle = fileHandle;
+        task._filepath = `${this.#dirHandle.name}\\${task.filename}`;
+        task._writer = await fileHandle.createWritable({ keepExistingData: false });
+    }
+
+    async #closeWriter(task) {
+        if (!task._writer) return;
+        try {
+            await task._writeChain;
+            await task._writer.close();
+        } catch (error) {
+            task._stats.errors.push(`File close failed: ${error.message || error}`);
+        } finally {
+            task._writer = null;
+        }
+    }
+
+    #headers(task, extra = {}) {
+        const headers = { ...task.options.headers };
+        if (task.options.referer && !Object.keys(headers).some(key => key.toLowerCase() === 'referer')) headers.Referer = task.options.referer;
+        if (task.options.origin && !Object.keys(headers).some(key => key.toLowerCase() === 'origin')) headers.Origin = task.options.origin;
+        return { ...headers, ...extra };
+    }
+
+    async #request(task, url, options = {}) {
+        await task._waitForResume();
+        if (task._cancelled) throw Object.assign(new Error('Download cancelled'), { name: 'AbortError' });
+        const request = dlUtils.anlinkGMRequest(url, {
+            method: options.method || 'GET', headers: this.#headers(task, options.headers),
+            responseType: options.responseType || 'arraybuffer', timeout: options.timeout ?? task.options.timeout,
+            anonymous: task.options.anonymous, onprogress: options.onprogress
+        });
+        task._activeRequests.add(request);
+        try { return await request.promise; } finally { task._activeRequests.delete(request); }
+    }
+
+    async #requestWithRetry(task, url, options = {}) {
+        for (let attempt = 0; ; attempt++) {
+            try {
+                const response = await this.#request(task, url, options);
+                if (response.status >= 200 && response.status < 300) return response;
+                const error = Object.assign(new Error(`HTTP ${response.status} ${response.statusText || ''}`.trim()), { status: response.status });
+                if (![408, 425, 429, 500, 502, 503, 504].includes(response.status) || attempt >= task.options.retries) throw error;
+                task._stats.retries++;
+                const retryAfter = Number(response.responseHeaders?.match(/(?:^|\n)Retry-After:\s*(\d+)/i)?.[1] || 0);
+                await sleep(Math.max(250, retryAfter * 1000 || 1000 * 2 ** attempt));
+            } catch (error) {
+                if (error.name === 'AbortError' && task._paused && !task._cancelled) { await task._waitForResume(); continue; }
+                if (!error.status && attempt < task.options.retries && !task._cancelled) { task._stats.retries++; await sleep(1000 * 2 ** attempt); continue; }
+                throw error;
+            }
+        }
+    }
+
+    async #writeAt(task, position, data) {
+        const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+        task._writeChain = task._writeChain.then(() => task._writer.write({ type: 'write', position, data: bytes }));
+        await task._writeChain;
+    }
+
+    async #throttle(task, bytes) {
+        if (!Number.isFinite(task.options.speedLimitBps)) return;
+        task._throttleChain = task._throttleChain.then(async () => {
+            const limit = task.options.speedLimitBps;
+            while (true) {
+                const now = performance.now();
+                task._rateState.tokens = Math.min(limit, task._rateState.tokens + (now - task._rateState.timestamp) / 1000 * limit);
+                task._rateState.timestamp = now;
+                if (task._rateState.tokens >= bytes) { task._rateState.tokens -= bytes; return; }
+                await sleep(Math.max(10, (bytes - task._rateState.tokens) / limit * 1000));
+            }
+        });
+        return task._throttleChain;
+    }
+
+    #recordBytes(task, written, received = written) {
+        task._stats.bytesWritten += written;
+        task._stats.bytesReceived += received;
+        task._stats.lastProgressAt = Date.now();
+        const now = performance.now();
+        task._samples.push({ timestamp: now, bytes: task._stats.bytesWritten });
+        while (task._samples.length > 2 && now - task._samples[0].timestamp > 5000) task._samples.shift();
+        const first = task._samples[0];
+        task._stats.speedBps = (task._stats.bytesWritten - first.bytes) / Math.max((now - first.timestamp) / 1000, 0.001);
+        task._emit('progress', task.stats);
+    }
+
+    async #runWorkers(task, jobs, workerFn) {
+        task._stats.totalSegments = jobs.length;
+        let nextJob = 0;
+        const worker = async () => {
+            task._stats.activeThreads++;
+            try {
+                while (true) {
+                    await task._waitForResume();
+                    if (task._cancelled) throw Object.assign(new Error('Download cancelled'), { name: 'AbortError' });
+                    const index = nextJob++;
+                    if (index >= jobs.length) return;
+                    while (true) {
+                        try { await workerFn(jobs[index], index); task._stats.completedSegments++; task._emit('progress', task.stats); break; }
+                        catch (error) {
+                            if (error.name === 'AbortError' && task._paused && !task._cancelled) { await task._waitForResume(); continue; }
+                            throw error;
+                        }
+                    }
+                }
+            } finally { task._stats.activeThreads--; }
+        };
+        const results = await Promise.allSettled(Array.from({ length: Math.min(task.options.threads, Math.max(1, jobs.length)) }, worker));
+        const failure = results.find(result => result.status === 'rejected');
+        if (failure) { for (const request of task._activeRequests) request.abort(); throw failure.reason; }
+    }
+
+    async #probeDirect(task) {
+        let head;
+        try { head = await this.#requestWithRetry(task, task.url, { method: 'HEAD', responseType: 'text' }); } catch { head = null; }
+        const headHeaders = head ? dlUtils.anlinkParseHeaders(head.responseHeaders) : new Headers();
+        const headSize = Number(headHeaders.get('content-length')) || 0;
+        const probe = await this.#requestWithRetry(task, task.url, { headers: { Range: 'bytes=0-0' } });
+        const headers = dlUtils.anlinkParseHeaders(probe.responseHeaders);
+        task._stats.contentType = headers.get('content-type') || headHeaders.get('content-type') || '';
+        const range = headers.get('content-range')?.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
+        if (probe.status === 206 && range) {
+            const totalSize = Number(range[3]) || headSize;
+            if (!totalSize) throw new Error('The server returned a range response without a total size.');
+            task._stats.totalSize = totalSize;
+            task._stats.rangeSupported = true;
+            return { firstByte: probe.response, totalSize };
+        }
+        const body = new Uint8Array(probe.response || new ArrayBuffer(0));
+        const reportedSize = Number(headers.get('content-length')) || headSize;
+        if (task.options.allowBufferedFallback && probe.status === 200 && body.length && (!reportedSize || body.length === reportedSize)) {
+            task._stats.totalSize = body.length;
+            task._stats.rangeSupported = false;
+            task._stats.bufferedFallback = true;
+            return { buffered: body, totalSize: body.length };
+        }
+        throw new Error(`The server does not support byte ranges; direct pause/resume and multi-threading are unavailable for ${task.url}`);
+    }
+
+    async #runDirect(task) {
+        const probe = await this.#probeDirect(task);
+        task._setStatus('downloading');
+        if (probe.buffered) {
+            await this.#throttle(task, probe.buffered.byteLength);
+            await this.#writeAt(task, 0, probe.buffered);
+            this.#recordBytes(task, probe.buffered.byteLength);
+            task._stats.totalSegments = task._stats.completedSegments = 1;
+            return;
+        }
+        const firstByte = new Uint8Array(probe.firstByte);
+        await this.#writeAt(task, 0, firstByte);
+        this.#recordBytes(task, 1);
+        const jobs = [];
+        for (let start = 1; start < probe.totalSize; start += task.options.segmentSize) jobs.push({ start, end: Math.min(probe.totalSize - 1, start + task.options.segmentSize - 1) });
+        await this.#runWorkers(task, jobs, async job => {
+            const response = await this.#requestWithRetry(task, task.url, { headers: { Range: `bytes=${job.start}-${job.end}` } });
+            const range = dlUtils.anlinkParseHeaders(response.responseHeaders).get('content-range');
+            const match = range?.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
+            if (response.status !== 206 || !match || +match[1] !== job.start || +match[2] > job.end) throw new Error(`Invalid range response for bytes ${job.start}-${job.end}.`);
+            const bytes = new Uint8Array(response.response);
+            if (bytes.byteLength !== +match[2] - +match[1] + 1) throw new Error(`Incomplete range response for bytes ${job.start}-${job.end}.`);
+            await this.#throttle(task, bytes.byteLength);
+            await this.#writeAt(task, job.start, bytes);
+            this.#recordBytes(task, bytes.byteLength);
+        });
+        task._stats.completedSegments++;
+        task._stats.totalSegments++;
+    }
+
+    async #fetchText(task, url) {
+        await task._waitForResume();
+        const response = await GM_fetch(url, { headers: this.#headers(task) });
+        if (!response.ok) throw new Error(`HTTP ${response.status} while fetching ${url}`);
+        return { text: await response.text(), url: response.url || url };
+    }
+
+    #parseHlsAttributes(value) {
+        return Object.fromEntries([...value.matchAll(/([A-Z0-9-]+)=("[^"]*"|[^,]*)/gi)].map(([, key, raw]) => [key, raw.replace(/^"|"$/g, '')]));
+    }
+
+    async #loadHlsPlaylist(task, url, depth = 0) {
+        if (depth > 3) throw new Error('HLS master playlist nesting is too deep.');
+        const loaded = await this.#fetchText(task, url);
+        const lines = loaded.text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+        const variants = [];
+        for (let i = 0; i < lines.length; i++) if (lines[i].startsWith('#EXT-X-STREAM-INF:')) {
+            const uri = lines.slice(i + 1).find(line => !line.startsWith('#'));
+            if (uri) variants.push({ uri: new URL(uri, loaded.url).href, ...this.#parseHlsAttributes(lines[i].slice(18)) });
+        }
+        if (variants.length) {
+            const requested = Number(task.options.quality);
+            variants.sort((a, b) => (Number(b.BANDWIDTH) || 0) - (Number(a.BANDWIDTH) || 0));
+            const selected = Number.isFinite(requested) ? variants.find(v => v.RESOLUTION?.endsWith(`x${requested}`) || v.NAME === `${requested}p`) || variants[0] : variants[0];
+            return this.#loadHlsPlaylist(task, selected.uri, depth + 1);
+        }
+        return { url: loaded.url, lines };
+    }
+
+    #parseHlsMediaPlaylist(playlist) {
+        let mediaSequence = 0;
+        let currentKey = { METHOD: 'NONE' };
+        let pendingRange = null;
+        const jobs = [];
+        let ended = false;
+        for (const line of playlist.lines) {
+            if (line.startsWith('#EXT-X-MEDIA-SEQUENCE:')) mediaSequence = Number(line.slice(22)) || 0;
+            else if (line.startsWith('#EXT-X-ENDLIST')) ended = true;
+            else if (line.startsWith('#EXT-X-KEY:')) currentKey = this.#parseHlsAttributes(line.slice(11));
+            else if (line.startsWith('#EXT-X-MAP:')) { const attrs = this.#parseHlsAttributes(line.slice(11)); jobs.push({ kind: 'map', uri: attrs.URI, range: attrs.BYTERANGE, sequence: mediaSequence, key: { ...currentKey } }); }
+            else if (line.startsWith('#EXT-X-BYTERANGE:')) pendingRange = line.slice(17);
+            else if (!line.startsWith('#')) { jobs.push({ kind: 'segment', uri: line, range: pendingRange, sequence: mediaSequence++, key: { ...currentKey } }); pendingRange = null; }
+        }
+        return { jobs, ended };
+    }
+
+    #parseHlsRange(value, previousEnd = 0) {
+        if (!value) return null;
+        const [length, offset] = value.split('@').map(Number);
+        return { start: Number.isFinite(offset) ? offset : previousEnd, end: (Number.isFinite(offset) ? offset : previousEnd) + length - 1 };
+    }
+
+    #hlsIv(value, sequence) {
+        if (value) { const hex = value.replace(/^0x/i, '').padStart(32, '0').slice(-32); return Uint8Array.from(hex.match(/.{2}/g).map(byte => parseInt(byte, 16))); }
+        const iv = new Uint8Array(16);
+        let number = sequence;
+        for (let i = 15; i >= 0; i--) { iv[i] = number & 255; number = Math.floor(number / 256); }
+        return iv;
+    }
+
+    async #hlsKey(task, key, baseUrl) {
+        if (!key || key.METHOD === 'NONE') return null;
+        if (key.METHOD !== 'AES-128') throw new Error(`Unsupported HLS encryption method: ${key.METHOD}`);
+        if (!key.URI) throw new Error('HLS AES-128 key has no URI.');
+        const keyUrl = new URL(key.URI, baseUrl).href;
+        if (!this.#keyCache.has(keyUrl)) {
+            const response = await GM_fetch(keyUrl, { headers: this.#headers(task) });
+            if (!response.ok) throw new Error(`HTTP ${response.status} while fetching HLS key.`);
+            const rawKey = new Uint8Array(await response.arrayBuffer());
+            if (rawKey.byteLength !== 16) throw new Error(`Invalid AES-128 key length: ${rawKey.byteLength}.`);
+            this.#keyCache.set(keyUrl, crypto.subtle.importKey('raw', rawKey, { name: 'AES-CBC' }, false, ['decrypt']));
+        }
+        return { cryptoKey: await this.#keyCache.get(keyUrl) };
+    }
+
+    async #runHls(task) {
+        const playlist = await this.#loadHlsPlaylist(task, task.url);
+        const parsed = this.#parseHlsMediaPlaylist(playlist);
+        if (!parsed.ended && !task.options.allowLive) throw new Error('Live HLS playlists are not supported unless allowLive is enabled.');
+        if (!parsed.jobs.length) throw new Error('No HLS segments found.');
+        task._stats.contentType = 'application/vnd.apple.mpegurl';
+        task._stats.rangeSupported = true;
+        task._setStatus('downloading');
+        let previousRangeEnd = 0;
+        const jobs = parsed.jobs.map(job => { const byteRange = this.#parseHlsRange(job.range, previousRangeEnd); if (byteRange) previousRangeEnd = byteRange.end + 1; return { ...job, url: new URL(job.uri, playlist.url).href, byteRange }; });
+        await this.#runWorkers(task, jobs, async (job, index) => {
+            const response = await this.#requestWithRetry(task, job.url, { headers: job.byteRange ? { Range: `bytes=${job.byteRange.start}-${job.byteRange.end}` } : {} });
+            let bytes = new Uint8Array(response.response);
+            const key = await this.#hlsKey(task, job.key, playlist.url);
+            if (key) bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: this.#hlsIv(job.key.IV, job.sequence) }, key.cryptoKey, bytes));
+            await this.#throttle(task, bytes.byteLength);
+            task._pendingHlsWrites.set(index, { bytes, received: new Uint8Array(response.response).byteLength });
+            task._writeChain = task._writeChain.then(async () => {
+                while (task._pendingHlsWrites.has(task._nextHlsWrite)) {
+                    const { bytes: next, received } = task._pendingHlsWrites.get(task._nextHlsWrite);
+                    task._pendingHlsWrites.delete(task._nextHlsWrite++);
+                    await task._writer.write({ type: 'write', position: task._hlsOutputOffset, data: next });
+                    task._hlsOutputOffset += next.byteLength;
+                    this.#recordBytes(task, next.byteLength, received);
+                }
+            });
+            await task._writeChain;
+        });
     }
 }
 
-
-
 // ================= TESTING =================== \\
 function testdl() {
-    // Create a temporary relay button on the DOM to capture a native user gesture
     const relayBtn = document.createElement('button');
-    relayBtn.innerText = "Start AniLINK Test Download";
-    Object.assign(relayBtn.style, {
-        position: 'fixed',
-        top: '20px',
-        right: '20px',
-        zIndex: '999999',
-        padding: '15px 20px',
-        backgroundColor: '#ff4757',
-        color: '#fff',
-        border: 'none',
-        borderRadius: '8px',
-        fontWeight: 'bold',
-        cursor: 'pointer',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
-    });
-
-    // Inject the button into the page
+    relayBtn.innerText = 'Start AniLINK Test Download';
+    Object.assign(relayBtn.style, { position: 'fixed', top: '20px', right: '20px', zIndex: '999999', padding: '15px 20px', backgroundColor: '#ff4757', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,0.3)' });
     document.body.appendChild(relayBtn);
-
-    // Attach the async downloader logic to the native DOM click event
     relayBtn.addEventListener('click', async () => {
-        // Remove the button immediately so it doesn't clutter the UI
-        relayBtn.remove(); 
-        
-        const url = "https://vault-99.owocdn.top/stream/99/01/9aaaabffd315374b8c5166e6b5e70ce6fcfcf9a9f8dc308be8db2fca3d88c090/uwu.m3u8";
+        relayBtn.remove();
+        const url = 'https://vault-16.owocdn.top/stream/16/06/fde781c4bbb0120e16fafe741cf61b4313bd2865ade7823ed9ff5f37e68c88b4/uwu.m3u8';
         const ref = 'https://kwik.cx/';
-        
         const dl = new Downloader();
-        unsafeWindow.dl = dl
-
-        const dirSelected = await dl.setDirectory(); 
-        if (!dirSelected) {
-            console.log("[AniLINK] Download aborted: No directory selected.");
-            return;
-        }
-        
-        const filename = "test_episode.ts";
-        const anime = "test_anime";
-        
-        const task = dl.addTask(filename, anime, url, {
-            threads: 8,
-            headers: {
-                'Referer': ref,
-                'Origin': new URL(ref).origin
-            },
-            speedLimitBps: Infinity
-        });
-        
+        unsafeWindow.dl = dl;
+        if (!await dl.setDirectory()) return console.log('[AniLINK] Download aborted: No directory selected.');
+        const task = dl.addTask('test_episode.ts', 'test_anime', url, { format: 'hls', threads: 8, headers: { Referer: ref, Origin: new URL(ref).origin }, speedLimitBps: Infinity });
+        task.on('progress', stats => console.log(`[${task.id}] ${task.filename}: ${stats.filesize}/${stats.totalsize} @ ${stats.speed} (${stats.eta})`));
+        task.on('error', error => console.error(`[${task.id}] failed:`, error));
         console.log(`[AniLINK] Launching task: ${task.id} — ${task.filepath}`);
-        await dl.startTask(task.id); // or `await task.start()`
-
-        while (task.status == 'downloading') {
-            console.log(`${task.id}] ${task.filename}: ${task.totalSize ? `${task.filesize}/${task.totalsize}` : `${task.filesegments}/${task.totalsegments}`} @${task.speed}/${task.speedBps} (${task.eta})`)
-        }
+        try { await task.start(); console.log('[AniLINK] Download complete:', task.stats); }
+        catch (error) { console.error('[AniLINK] Download ended:', task.status, error); }
     });
 }
+
+testdl();
