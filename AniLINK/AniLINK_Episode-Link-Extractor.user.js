@@ -1406,6 +1406,7 @@ async function extractEpisodes() {
         .anlink-sub-item { padding: 2px 0; width: max-content; user-select: none; }
         .anlink-sub-item a { color: #64b5f6; text-overflow: ellipsis; overflow: hidden; display: inline; user-select: text; }
         .anlink-sub-item a:hover { color: #90caf9; text-decoration: underline; }
+        button[data-action] * { pointer-events: none; }
 
         @keyframes spinning { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } /* Spinning animation */
         @keyframes checkTilt { from { transform: rotate(-20deg); } to { transform: rotate(0deg); } } /* Checkmark tilt animation */
@@ -1414,7 +1415,7 @@ async function extractEpisodes() {
     // Create an overlay to cover the page
     const overlayDiv = document.createElement("div");
     overlayDiv.id = "AniLINK_Overlay";
-    overlayDiv.onclick = e => !linksContainer.contains(e.target) &&
+    overlayDiv.onclick = e => !linksContainer.contains(e.target) && !rerunBtn.contains(e.target) &&
         (status.text.startsWith("Cancelled") ? AniLINKUI.removeExtractor() : AniLINKUI.close());
 
     // Rerun button
@@ -2312,6 +2313,7 @@ const AniLINKUI = (() => {
     const switchView = view => {
         ensure();
         activeView = view;
+        if (!extractorOverlay && view === 'extractor') extractEpisodes();
         setVisible(extractorOverlay, view === 'extractor');
         setVisible(downloaderOverlay, view === 'downloader');
         fab?.classList.toggle('anlink-fab-downloader', view === 'downloader');
@@ -2378,8 +2380,8 @@ const AniLINKUI = (() => {
         :host { all: initial; }
         *, *::before, *::after { box-sizing: border-box; }
         .anlink-view-hidden { opacity: 0 !important; transform: translateY(18px) scale(.985) !important; pointer-events: none !important; visibility: hidden !important; }
-        .anlink-fab { position: fixed; right: 26px; bottom: 26px; width: 58px; height: 58px; border: 0; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, #26a69a, #147d73); color: #fff; box-shadow: 0 12px 32px rgba(0,0,0,.42), 0 0 0 1px rgba(255,255,255,.12) inset; cursor: pointer; pointer-events: auto; transition: opacity .28s, transform .28s, background .28s; z-index: 1001; }
-        .anlink-fab:hover { transform: translateY(-3px) scale(1.04); background: linear-gradient(135deg, #31c7b8, #168d81); }
+        .anlink-fab { position: fixed; right: 26px; bottom: 26px; width: 58px; height: 58px; border: 1px solid #26a69a; border-radius: 50%; display: grid; place-items: center; background: rgba(38,166,154,.12); color: #7ce4d8; box-shadow: 0 12px 32px rgba(0,0,0,.42), 0 0 0 1px rgba(255,255,255,.12) inset; cursor: pointer; pointer-events: auto; transition: opacity .28s, transform .28s, background .28s; z-index: 1001; }
+        .anlink-fab:hover { transform: translateY(-3px) scale(1.04); color: #fff; background: linear-gradient(135deg, #31c7b8, #168d81); }
         .anlink-fab-hidden { opacity: 0; transform: scale(.65); pointer-events: none; }
         .anlink-fab-icon { font: 700 30px/1 system-ui, sans-serif; transform: translateY(-1px); }
         .anlink-fab-count { position: absolute; top: -3px; right: -2px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #ffca28; color: #1c2524; font: 700 11px/20px system-ui, sans-serif; }
@@ -2744,17 +2746,14 @@ class Downloader {
      * Prompts the user to select an output directory.
      * Must be called via a transient user activation (e.g., button click).
      */
-    async setDirectory() {
-        if (this.#dirHandle) return true;
+    setDirectory() {
+        if (this.#dirHandle) return Promise.resolve(true);
         const picker = window.showDirectoryPicker || unsafeWindow?.showDirectoryPicker;
-        if (!picker) throw new Error('This browser does not support the File System Access API.');
-        try {
-            this.#dirHandle = await picker.call(window, { mode: 'readwrite' });
-            return true;
-        } catch (error) {
-            if (error?.name === 'AbortError') return false;
-            throw error;
-        }
+        if (!picker) return Promise.reject(new Error('This browser does not support the File System Access API.'));
+        // Execute synchronously to preserve transient user activation before wrapping in Promise chain
+        return picker.call(window, { mode: 'readwrite' })
+            .then(handle => { this.#dirHandle = handle; return true; })
+            .catch(error => { if (error?.name === 'AbortError') return false; throw error; });
     }
 
     addTask(filename, anime, url, options = {}) {
@@ -2793,7 +2792,7 @@ class Downloader {
         return this.#tasks.delete(task.id);
     }
 
-    async startTask(taskId) {
+    startTask(taskId) {
         const task = this.#requireTask(taskId);
         if (task._runPromise) return task._runPromise;
         task._runPromise = new Promise((resolve, reject) => {
@@ -2803,6 +2802,7 @@ class Downloader {
             this.#persistTask(task);
             this.#pump();
         });
+        task._runPromise.catch(() => {}); // Suppress console noise if caller ignores the promise
         return task._runPromise;
     }
 
@@ -3105,13 +3105,16 @@ class Downloader {
         if (!Number.isFinite(task.options.speedLimitBps)) return;
         task._throttleChain = task._throttleChain.then(async () => {
             const limit = task.options.speedLimitBps;
-            while (true) {
-                const now = performance.now();
-                task._rateState.tokens = Math.min(limit, task._rateState.tokens + (now - task._rateState.timestamp) / 1000 * limit);
+            const now = performance.now();
+            task._rateState.tokens = Math.min(limit, task._rateState.tokens + (Math.max(0, now - task._rateState.timestamp) / 1000) * limit);
+            if (task._rateState.tokens >= bytes) {
+                task._rateState.tokens -= bytes;
                 task._rateState.timestamp = now;
-                if (task._rateState.tokens >= bytes) { task._rateState.tokens -= bytes; return; }
-                await sleep(Math.max(10, (bytes - task._rateState.tokens) / limit * 1000));
+                return;
             }
+            await new Promise(r => setTimeout(r, Math.max(10, ((bytes - task._rateState.tokens) / limit) * 1000)));
+            task._rateState.tokens = 0; // Consume the deficit implicitly gained during timeout
+            task._rateState.timestamp = performance.now();
         });
         return task._throttleChain;
     }
@@ -3348,6 +3351,7 @@ class DownloaderUI {
             .anlink-dl-popover { position: absolute; right: 12px; top: 48px; z-index: 5; width: 230px; padding: 12px; border: 1px solid rgba(100,220,207,.24); border-radius: 10px; background: #202a29; box-shadow: 0 12px 30px rgba(0,0,0,.4); } .anlink-dl-popover label, .anlink-dl-settings label { display: block; margin: 8px 0 4px; color: #9eb4b1; font: 11px system-ui, sans-serif; } .anlink-dl-popover input, .anlink-dl-settings input, .anlink-dl-settings select { width: 100%; padding: 7px 8px; border: 1px solid rgba(255,255,255,.12); border-radius: 6px; background: #18211f; color: #ecf7f5; }
             .anlink-dl-empty { padding: 28px 12px; border: 1px dashed rgba(255,255,255,.12); border-radius: 10px; color: #829794; text-align: center; font: 13px system-ui, sans-serif; }
             .anlink-dl-settings { padding: 14px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: rgba(255,255,255,.03); } .anlink-dl-setting-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } .anlink-dl-setting-wide { grid-column: 1 / -1; } .anlink-dl-help { margin-top: 12px; color: #829794; font: 11px/1.45 system-ui, sans-serif; } .anlink-dl-help a { color: #75cfc5; }
+            button[data-action] * { pointer-events: none; }
             @media (max-width: 680px) { #AniLINK_DownloaderOverlay { padding: 3vh 2vw; } #AniLINK_DownloaderPanel { width: 96vw; max-height: 92vh; } .anlink-dl-header, .anlink-dl-body { padding-left: 14px; padding-right: 14px; } .anlink-dl-setting-grid { grid-template-columns: 1fr; } .anlink-dl-setting-wide { grid-column: auto; } }
             @keyframes anlink-progress-slide { from { transform: translateX(-120%); } to { transform: translateX(280%); } }
         `);
@@ -3440,7 +3444,7 @@ class DownloaderUI {
         const stats = task.stats;
         const percent = stats.totalSize > 0 ? Math.min(100, stats.bytesWritten / stats.totalSize * 100) : 0;
         const escape = dlUtils.anlinkEscapeHtml;
-        const displayFilename = task._partialFilename || task.filename;
+        const displayFilename = task.filename;
         const card = document.createElement('article');
         card.className = 'anlink-dl-task';
         card.dataset.taskId = task.id;
@@ -3471,15 +3475,22 @@ class DownloaderUI {
         if (status) { status.className = `anlink-dl-status ${task.status}`; status.textContent = task.status; }
         const fields = { size: `${stats.filesize} / ${stats.totalsize}`, speed: stats.speed, eta: `ETA ${stats.eta}`, parts: `Parts ${stats.completedSegments}/${stats.totalSegments || '?'}` };
         for (const [name, value] of Object.entries(fields)) if (card.querySelector(`[data-field="${name}"]`)) card.querySelector(`[data-field="${name}"]`).textContent = value;
+        const logsHeader = card.querySelector('.anlink-dl-log summary');
+        if (logsHeader) logsHeader.textContent = `Logs (${task.logs.length})`;
         const logs = card.querySelector('[data-field="logs"]');
         if (logs) logs.textContent = task.logs.map(item => `[${new Date(item.at).toLocaleTimeString()}] ${item.level.toUpperCase()} ${item.message}`).join('\n');
         const error = card.querySelector('.anlink-dl-error');
         if (task.error && error) error.textContent = task.error;
         const actions = card.querySelector('.anlink-dl-actions');
         if (actions) {
-            actions.querySelector('[data-action="pause"], [data-action="resume"]')?.remove();
-            if (task.status === 'paused') actions.insertAdjacentHTML('afterbegin', '<button data-action="resume">Resume</button>');
-            else if (['preparing', 'downloading'].includes(task.status)) actions.insertAdjacentHTML('afterbegin', '<button data-action="pause">Pause</button>');
+            const btn = actions.querySelector('[data-action="pause"], [data-action="resume"]');
+            const act = task.status === 'paused' ? 'resume' : /preparing|downloading/.test(task.status) ? 'pause' : null;
+            
+            if (act) {
+                const txt = act === 'pause' ? 'Pause' : 'Resume';
+                if (btn) { btn.dataset.action = act; btn.textContent = txt; }
+                else actions.insertAdjacentHTML('afterbegin', `<button data-action="${act}">${txt}</button>`);
+            } else btn?.remove();
         }
     }
 
@@ -3502,16 +3513,10 @@ class DownloaderUI {
         return card;
     }
 
-    renderSettings() {
-        const settings = this.downloader.settings;
-        const escape = dlUtils.anlinkEscapeHtml;
-        return `<section class="anlink-dl-section"><div class="anlink-dl-section-head">Settings</div><div class="anlink-dl-settings"><div class="anlink-dl-setting-grid"><div><label>Parallel downloads</label><input name="maxConcurrentTasks" type="number" min="1" max="8" value="${settings.maxConcurrentTasks}"></div><div><label>Default threads</label><input name="defaultThreads" type="number" min="1" max="32" value="${settings.defaultThreads}"></div><div><label>Default speed limit (KB/s, 0 = unlimited)</label><input name="defaultSpeedLimitBps" type="number" min="0" value="${Number.isFinite(settings.defaultSpeedLimitBps) ? Math.round(settings.defaultSpeedLimitBps / 1024) : 0}"></div><div><label>Preferred quality</label><input name="preferredQuality" type="text" value="${escape(settings.preferredQuality || '')}" placeholder="Auto"></div><div><label>Notifications</label><select name="notifications"><option value="off" ${settings.notifications === 'off' ? 'selected' : ''}>Off</option><option value="completed" ${settings.notifications === 'completed' ? 'selected' : ''}>Completed only</option><option value="completed-and-failed" ${settings.notifications === 'completed-and-failed' ? 'selected' : ''}>Completed and failed</option><option value="all" ${settings.notifications === 'all' ? 'selected' : ''}>All state changes</option></select></div><div><label>History retention</label><input name="historyLimit" type="number" min="1" max="200" value="${settings.historyLimit}"></div></div><div class="anlink-dl-actions"><button data-action="save-settings">Save settings</button><button data-action="clear-history">Clear history</button></div><div class="anlink-dl-help">Need help? <a href="https://github.com/jeryjs/Userscripts/issues/new?title=%5BAniLINK%5D%20Downloader%20issue&body=%23%23%20Description%0A%0A%23%23%20Steps%20to%20reproduce%0A1.%20%0A2.%20%0A%0A%23%23%20Expected%20behavior%0A%0A%23%23%20Actual%20behavior%0A%0A%23%23%20Environment%0A-%20Browser%3A%20%0A-%20Userscript%20manager%3A%20" target="_blank" rel="noreferrer">Report an issue on GitHub</a></div></div></section>`;
-    }
-
     showSettingsDialog() {
         const settings = this.downloader.settings;
         const escape = dlUtils.anlinkEscapeHtml;
-        const bodyHTML = `<div class="anlink-dl-settings"><div class="anlink-dl-setting-grid"><div><label>Parallel downloads</label><input name="maxConcurrentTasks" type="number" min="1" max="8" value="${settings.maxConcurrentTasks}"></div><div><label>Default threads</label><input name="defaultThreads" type="number" min="1" max="32" value="${settings.defaultThreads}"></div><div><label>Default speed limit (KB/s, 0 = unlimited)</label><input name="defaultSpeedLimitBps" type="number" min="0" value="${Number.isFinite(settings.defaultSpeedLimitBps) ? Math.round(settings.defaultSpeedLimitBps / 1024) : 0}"></div><div><label>Preferred quality</label><input name="preferredQuality" type="text" value="${escape(settings.preferredQuality || '')}" placeholder="Auto"></div><div><label>Notifications</label><select name="notifications"><option value="off" ${settings.notifications === 'off' ? 'selected' : ''}>Off</option><option value="completed" ${settings.notifications === 'completed' ? 'selected' : ''}>Completed only</option><option value="completed-and-failed" ${settings.notifications === 'completed-and-failed' ? 'selected' : ''}>Completed and failed</option><option value="all" ${settings.notifications === 'all' ? 'selected' : ''}>All state changes</option></select></div><div><label>History retention</label><input name="historyLimit" type="number" min="1" max="100" value="${Math.min(100, settings.historyLimit)}"></div></div><div class="anlink-dl-actions"><button type="button" data-action="clear-history">Clear history</button></div><div class="anlink-dl-help">Need help? <a href="https://github.com/jeryjs/Userscripts/issues/new?title=%5BAniLINK%5D%20Downloader%20issue&body=%23%23%20Description%0A%0A%23%23%20Steps%20to%20reproduce%0A1.%20%0A2.%20%0A%0A%23%23%20Expected%20behavior%0A%0A%23%23%20Actual%20behavior%0A%0A%23%23%20Environment%0A-%20Browser%3A%20%0A-%20Userscript%20manager%3A%20" target="_blank" rel="noreferrer">Report an issue on GitHub</a></div></div>`;
+        const bodyHTML = `<div class="anlink-dl-settings"><div class="anlink-dl-setting-grid"><div><label>Parallel downloads</label><input name="maxConcurrentTasks" type="number" min="1" max="8" value="${settings.maxConcurrentTasks}"></div><div><label>Default threads</label><input name="defaultThreads" type="number" min="1" max="32" value="${settings.defaultThreads}"></div><div><label>Default speed limit (KB/s, 0 = unlimited)</label><input name="defaultSpeedLimitBps" type="number" min="0" value="${Number.isFinite(settings.defaultSpeedLimitBps) ? Math.round(settings.defaultSpeedLimitBps / 1024) : 0}"></div><div><label>Preferred quality <i>(Experimental feature*)</i></label><input name="preferredQuality" type="text" value="${escape(settings.preferredQuality || '')}" placeholder="Auto"></div><div><label>Notifications</label><select name="notifications"><option value="off" ${settings.notifications === 'off' ? 'selected' : ''}>Off</option><option value="completed" ${settings.notifications === 'completed' ? 'selected' : ''}>Completed only</option><option value="completed-and-failed" ${settings.notifications === 'completed-and-failed' ? 'selected' : ''}>Completed and failed</option><option value="all" ${settings.notifications === 'all' ? 'selected' : ''}>All state changes</option></select></div><div><label>History retention</label><input name="historyLimit" type="number" min="1" max="100" value="${Math.min(100, settings.historyLimit)}"></div></div><div class="anlink-dl-actions"><button type="button" data-action="clear-history">Clear history</button></div><div class="anlink-dl-help">Need help? <a href="https://github.com/jeryjs/Userscripts/issues/new?title=%5BAniLINK%5D%20Downloader%20issue&body=%23%23%20Description%0A%0A%23%23%20Steps%20to%20reproduce%0A1.%20%0A2.%20%0A%0A%23%23%20Expected%20behavior%0A%0A%23%23%20Actual%20behavior%0A%0A%23%23%20Environment%0A-%20Browser%3A%20%0A-%20Userscript%20manager%3A%20" target="_blank" rel="noreferrer">Report an issue on GitHub</a></div></div>`;
         const { modal } = createModal({
             title: 'Downloader Settings',
             icon: '⚙',
