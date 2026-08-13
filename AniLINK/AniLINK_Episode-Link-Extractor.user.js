@@ -1331,6 +1331,7 @@ const _analyzedMediaCache = new Map();  // Cache to store analyzed media results
 
 
 // initialize
+if (window.top !== window.self) throw new Error('[AniLINK] Skipping embedded frame.');
 console.log('Initializing AniLINK...');
 const site = Websites.find(site => site.url.some(url => window.location.href.includes(url)));
 
@@ -1365,12 +1366,12 @@ async function extractEpisodes() {
     // --- Materialize CSS Initialization ---
     AniLINKUI.addStyle(`
         #AniLINK_Overlay { position: fixed; inset: 0; background: rgba(0,0,0,.78); backdrop-filter: blur(12px); z-index: 1000; display: flex; align-items: center; justify-content: center; transition: opacity .28s ease, transform .28s ease, visibility .28s; pointer-events: auto; }
-        #AniLINK_RerunBtn { position: fixed; top: 22px; right: 26px; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; background: rgba(255,255,255,.05); color: #d9eeeb; font-size: 20px; cursor: pointer; transition: border-color .2s, background .2s, transform .2s; } #AniLINK_RerunBtn:hover { border-color: #26a69a; background: rgba(38,166,154,.18); transform: translateY(-2px); }
+        #AniLINK_RerunBtn { position: fixed; top: 22px; right: 26px; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; background: rgba(255,255,255,.05); color: #d9eeeb; font-size: 24px; cursor: pointer; transition: border-color .2s, background .2s, transform .2s; } #AniLINK_RerunBtn:hover { border-color: #26a69a; background: rgba(38,166,154,.18); transform: translateY(-2px); }
         #AniLINK_LinksContainer { width: min(1100px, 92vw); max-height: 86vh; background: linear-gradient(145deg, rgba(25,35,34,.98), rgba(28,28,31,.98)); color: #edf5f4; padding: 22px; border: 1px solid rgba(100,220,207,.18); border-radius: 18px; overflow-y: auto; display: flex; flex-direction: column; box-shadow: 0 24px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.04) inset; }
         .anlink-status-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; } /* Header for status bar and stop button */
         .anlink-status-bar { color: #9eb4b1; flex-grow: 1; margin-right: 10px; display: block; font: 12px/1.3 system-ui, sans-serif; } /* Status bar takes space */
         .anlink-status-icon { background: transparent; border: none; color: #d9eeeb; cursor: pointer; padding-right: 10px; } /* status icon style */
-        .anlink-status-icon i { font-size: 24px; transition: transform 0.3s ease-in-out; } /* Icon size and transition */
+        .anlink-status-icon i { display: inline-block; font: 700 24px/1 system-ui, sans-serif; transition: transform 0.3s ease-in-out; } /* Icon size and transition */
         .anlink-status-icon i.extracting { animation: spinning 2s linear infinite; } /* Spinner animation class */
         .anlink-header-buttons { display: flex; gap: 10px; }
         .anlink-header-buttons button { border: 1px solid rgba(255,255,255,.12); border-radius: 7px; padding: 8px 12px; background: rgba(255,255,255,.05); color: #d4e7e4; cursor: pointer; font: 11px system-ui, sans-serif; transition: border-color .2s, background .2s, color .2s; }
@@ -1383,7 +1384,7 @@ async function extractEpisodes() {
         .anlink-quality-count { cursor: pointer; margin-right: 8px; opacity: 0.7; transition: opacity 0.2s; }
         .anlink-quality-count:hover { opacity: 1; }
         .anlink-quality-name { cursor: pointer; flex-grow: 1; }
-        .anlink-quality-header i { margin-right: 8px; transition: transform 0.3s ease-in-out; }
+        .anlink-quality-header i { margin-right: 8px; font: 700 22px/1 system-ui, sans-serif; transition: transform 0.3s ease-in-out; }
         .anlink-quality-header i.rotate { transform: rotate(90deg); } /* Rotate class */
         .anlink-episode-list { list-style: none; padding-left: 0; margin-top: 0; overflow: hidden; transition: max-height 0.5s ease-in-out; } /* Transition for max-height */
         .anlink-episode-item { margin-bottom: 5px; padding: 10px; border-bottom: 1px solid rgba(255,255,255,.07); display: flex; flex-direction: column; }
@@ -1420,7 +1421,7 @@ async function extractEpisodes() {
     const rerunBtn = document.createElement('button');
     rerunBtn.id = 'AniLINK_RerunBtn';
     rerunBtn.title = 'Reset and Rerun Extraction';
-    rerunBtn.innerHTML = '<i class="material-icons" style="color:inherit;">delete</i>';
+    rerunBtn.textContent = '×';
     rerunBtn.addEventListener('click', () => {
         overlayDiv.remove();
         extractEpisodes();
@@ -1441,7 +1442,7 @@ async function extractEpisodes() {
     // Create dynamic status icon
     const statusIconElement = document.createElement('a');
     statusIconElement.className = 'anlink-status-icon';
-    statusIconElement.innerHTML = '<i class="material-icons extracting">auto_mode</i>';
+    statusIconElement.innerHTML = '<i class="extracting">⟳</i>';
     statusIconElement.title = 'Stop Extracting';
     statusBarHeader.appendChild(statusIconElement);
 
@@ -1478,7 +1479,7 @@ async function extractEpisodes() {
             } else {
                 statusIconElement.title = 'Restart Extraction.';
                 statusIconElement.querySelector('i').classList.remove('extracting'); // Stop spinner animation
-                statusIconElement.querySelector('i').textContent = status.stopped ? 'refresh' : status.error ? 'error' : 'check_circle';
+                statusIconElement.querySelector('i').textContent = status.stopped ? '↻' : status.error ? '!' : '✓';
                 if (status.error) {
                     statusIconElement.querySelector('i').classList.add('error'); // Show error icon
                     statusBar.textContent += ` : ${status.error}`; // Update status bar with error
@@ -1583,8 +1584,8 @@ async function extractEpisodes() {
                 });
 
                 const icon = document.createElement('i');
-                icon.className = 'material-icons';
-                icon.textContent = 'chevron_right';
+                icon.className = 'anlink-quality-chevron';
+                icon.textContent = '›';
 
                 const name = document.createElement('span');
                 name.className = 'anlink-quality-name';
@@ -1702,7 +1703,7 @@ async function extractEpisodes() {
 
             // Restore expand state only if section was previously expanded
             if (expandedState[quality]) {
-                const icon = qualitySection.querySelector('.material-icons');
+                const icon = qualitySection.querySelector('.anlink-quality-chevron');
                 episodeListElem.style.maxHeight = `${episodeListElem.scrollHeight}px`;
                 icon.classList.add('rotate');
             }
@@ -1713,7 +1714,7 @@ async function extractEpisodes() {
         const qualityName = event.currentTarget;
         const qualitySection = qualityName.closest('.anlink-quality-section');
         const episodeList = qualitySection.querySelector('.anlink-episode-list');
-        const icon = qualitySection.querySelector('.material-icons');
+        const icon = qualitySection.querySelector('.anlink-quality-chevron');
         const isCollapsed = episodeList.style.maxHeight === '0px';
 
         if (isCollapsed) {
@@ -1880,15 +1881,15 @@ function createModal({ title, icon, subtitle, bodyHTML, width = '420px', onConfi
                 </div>
             </div>
         `,
-        style: 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:1001;'
+        style: 'position:fixed;inset:0;z-index:1001;pointer-events:auto;'
     });
 
     // Inject shared modal styles (only once)
-    if (!AniLINKUI.query('#anlink-modal-styles')) {
+    if (!createModal.stylesReady) {
         AniLINKUI.addStyle(`
-            .anlink-modal-backdrop { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px); }
-            .anlink-modal { background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%); border-radius: 16px; box-shadow: 0 20px 40px rgba(0,0,0,0.4); max-width: 90vw; color: #fff; overflow: hidden; }
-            .anlink-modal-header { text-align: center; padding: 24px 24px 16px; background: linear-gradient(135deg, #26a69a 0%, #20847a 100%); }
+            .anlink-modal-backdrop { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; padding: 24px; background: rgba(4,12,13,.52); backdrop-filter: blur(18px) saturate(135%); }
+            .anlink-modal { background: linear-gradient(145deg, rgba(31,52,50,.78), rgba(24,31,34,.72)); border: 1px solid rgba(180,255,245,.2); border-radius: 18px; box-shadow: 0 24px 80px rgba(0,0,0,.5), 0 0 30px rgba(38,166,154,.08) inset; backdrop-filter: blur(24px) saturate(130%); max-width: 90vw; color: #edf7f5; overflow: hidden; }
+            .anlink-modal-header { text-align: center; padding: 24px 24px 16px; background: linear-gradient(135deg, rgba(38,166,154,.48), rgba(20,92,87,.34)); border-bottom: 1px solid rgba(180,255,245,.12); }
             .anlink-modal-icon { font-size: 48px; margin-bottom: 8px; }
             .anlink-modal h2 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
             .anlink-episode-count { opacity: 0.9; font-size: 14px; }
@@ -1896,9 +1897,9 @@ function createModal({ title, icon, subtitle, bodyHTML, width = '420px', onConfi
             .anlink-modal-footer { display: flex; gap: 12px; padding: 0 24px 24px; }
             .anlink-btn { flex: 1; padding: 12px 24px; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
             .anlink-btn:focus { outline: 2px solid #26a69a; outline-offset: 2px; }
-            .anlink-btn-cancel { background: #444; color: #ccc; }
-            .anlink-btn-cancel:hover, .anlink-btn-cancel:focus { background: #555; }
-            .anlink-btn-primary { background: linear-gradient(135deg, #26a69a 0%, #20847a 100%); color: #fff; }
+            .anlink-btn-cancel { background: rgba(255,255,255,.08); color: #c2d2d0; border: 1px solid rgba(255,255,255,.12); }
+            .anlink-btn-cancel:hover, .anlink-btn-cancel:focus { background: rgba(255,255,255,.14); }
+            .anlink-btn-primary { background: linear-gradient(135deg, rgba(38,166,154,.9), rgba(32,132,122,.82)); color: #fff; border: 1px solid rgba(180,255,245,.18); }
             .anlink-btn-primary:hover, .anlink-btn-primary:focus { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(38,166,154,0.3); }
             .anlink-quick-select { display: flex; gap: 8px; margin-bottom: 16px; }
             .anlink-quick-btn { flex: 1; padding: 8px 12px; border: 1px solid #444; border-radius: 6px; background: transparent; color: #ccc; cursor: pointer; font-size: 12px; transition: all 0.2s; }
@@ -1906,10 +1907,10 @@ function createModal({ title, icon, subtitle, bodyHTML, width = '420px', onConfi
             .anlink-help-text { font-size: 11px; color: #888; text-align: center; margin-top: 12px; }
             kbd { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 3px; padding: 1px 4px; font-size: 10px; margin-right: 4px; }
         `);
-        const tag = document.createElement('style'); tag.id = 'anlink-modal-styles'; AniLINKUI.root.appendChild(tag);
+        createModal.stylesReady = true;
     }
 
-    AniLINKUI.overlayRoot.appendChild(modal);
+    AniLINKUI.root.appendChild(modal);
     const primaryBtn = modal.querySelector('.anlink-btn-primary');
     const cancelBtn = modal.querySelector('.anlink-btn-cancel');
 
@@ -2169,29 +2170,20 @@ function showToast(message, duration = 5000) {
     console.log(message);
 
     // Inject toast styles if not already present
-    if (!AniLINKUI.query('#anlink-toast-styles')) {
+    if (!showToast.stylesReady) {
         AniLINKUI.addStyle(`
             @keyframes anlink-toast-slide-in { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
             @keyframes anlink-toast-slide-out { from { transform: translateX(0); opacity: 1; } to { transform: translateX(400px); opacity: 0; } }
-            .anlink-toast { position: fixed; right: 20px; min-width: 300px; max-width: 400px; background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%); border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 12px; padding: 16px 20px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08); z-index: 10000; display: flex; align-items: flex-start; gap: 12px; animation: anlink-toast-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1); backdrop-filter: blur(10px); transition: top 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+            .anlink-toast { position: fixed; right: 20px; min-width: 300px; max-width: 400px; background: linear-gradient(145deg, rgba(31,52,50,.78), rgba(24,31,34,.72)); border: 1px solid rgba(180,255,245,.2); border-radius: 14px; padding: 16px 20px; box-shadow: 0 18px 55px rgba(0,0,0,.42), 0 0 24px rgba(38,166,154,.08) inset; z-index: 10000; display: flex; align-items: flex-start; gap: 12px; animation: anlink-toast-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1); backdrop-filter: blur(22px) saturate(135%); transition: top 0.4s cubic-bezier(0.16, 1, 0.3, 1); pointer-events: auto; }
             .anlink-toast.slide-out { animation: anlink-toast-slide-out 0.3s cubic-bezier(0.7, 0, 0.84, 0) forwards; }
-            .anlink-toast-icon { flex-shrink: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #26a69a 0%, #20847a 100%); border-radius: 50%; color: white; font-size: 14px; font-weight: bold; }
-            .anlink-toast-content { flex: 1; color: #1a1a1a; font-size: 14px; line-height: 1.5; font-weight: 500; }
+            .anlink-toast-icon { flex-shrink: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: rgba(38,166,154,.48); border: 1px solid rgba(180,255,245,.18); border-radius: 50%; color: #f2fffd; font-size: 14px; font-weight: bold; }
+            .anlink-toast-content { flex: 1; color: #e8f6f3; font-size: 14px; line-height: 1.5; font-weight: 500; }
             .anlink-toast-content a { color: #26a69a; text-decoration: none; font-weight: 600; border-bottom: 1px solid transparent; transition: border-color 0.2s; }
             .anlink-toast-content a:hover { border-bottom-color: #26a69a; }
-            .anlink-toast-close { flex-shrink: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.05); border: none; border-radius: 50%; color: #666; cursor: pointer; font-size: 16px; line-height: 1; transition: all 0.2s; padding: 0; }
-            .anlink-toast-close:hover { background: rgba(0, 0, 0, 0.1); color: #1a1a1a; transform: scale(1.1); }
-            /* Dark mode support */
-            @media (prefers-color-scheme: dark) {
-                .anlink-toast { background: linear-gradient(135deg, #2d2d2d 0%, #1a1a1a 100%); border-color: rgba(255, 255, 255, 0.1); }
-                .anlink-toast-content { color: #e0e0e0; }
-                .anlink-toast-close { background: rgba(255, 255, 255, 0.1); color: #ccc; }
-                .anlink-toast-close:hover { background: rgba(255, 255, 255, 0.2); color: #fff; }
-            }
+            .anlink-toast-close { flex-shrink: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.1); border-radius: 50%; color: #c7d8d5; cursor: pointer; font-size: 16px; line-height: 1; transition: all 0.2s; padding: 0; }
+            .anlink-toast-close:hover { background: rgba(255,255,255,.16); color: #fff; transform: scale(1.1); }
         `);
-        const styleTag = document.createElement('style');
-        styleTag.id = 'anlink-toast-styles';
-        AniLINKUI.root.appendChild(styleTag);
+        showToast.stylesReady = true;
     }
 
     // Create the new toast element
@@ -2219,7 +2211,7 @@ function showToast(message, duration = 5000) {
         <button class="anlink-toast-close" aria-label="Close">×</button>
     `;
 
-    AniLINKUI.overlayRoot.appendChild(toast);
+    AniLINKUI.root.appendChild(toast);
 
     // Close button handler
     const closeBtn = toast.querySelector('.anlink-toast-close');
@@ -2276,7 +2268,6 @@ const _$$ = (s, p=document) => (p || document).querySelectorAll(s);
 const AniLINKUI = (() => {
     let host;
     let root;
-    let rootOverlay;
     let activeView = 'extractor';
     let extractorOverlay;
     let downloaderOverlay;
@@ -2288,10 +2279,6 @@ const AniLINKUI = (() => {
         host = Object.assign(document.createElement('div'), { id: 'AniLINK_UIHost' });
         host.style.cssText = 'position: fixed; inset: 0; z-index: 2147483000; pointer-events: none;';
         root = host.attachShadow({ mode: 'open' });
-        rootOverlay = Object.assign(document.createElement('div'), { id: 'AniLINK_RootOverlay', className: 'anlink-root-overlay' });
-        root.appendChild(rootOverlay);
-        const iconLink = Object.assign(document.createElement('link'), { rel: 'stylesheet', href: 'https://fonts.googleapis.com/icon?family=Material+Icons' });
-        root.appendChild(iconLink);
         styleNode = document.createElement('style');
         root.appendChild(styleNode);
         document.body.appendChild(host);
@@ -2308,17 +2295,13 @@ const AniLINKUI = (() => {
         syncPointerEvents();
     };
     const syncPointerEvents = () => {
-        const fullViewVisible = [extractorOverlay, downloaderOverlay].some(element => element && !element.classList.contains('anlink-view-hidden'));
-        const hasInteractiveChild = rootOverlay?.querySelector('.anlink-fab:not(.anlink-fab-hidden), .anlink-modal, .anlink-toast');
-        const interactive = fullViewVisible || Boolean(hasInteractiveChild);
-        host && (host.style.pointerEvents = interactive ? 'auto' : 'none');
-        if (rootOverlay) rootOverlay.style.pointerEvents = interactive ? 'auto' : 'none';
+        host && (host.style.pointerEvents = 'none');
     };
     const updateFab = () => {
         const downloader = typeof anilinkDownloader === 'undefined' ? null : anilinkDownloader;
         const extractorVisible = extractorOverlay && !extractorOverlay.classList.contains('anlink-view-hidden');
         const shouldShow = Boolean(downloader?.hasVisibleState?.() || extractorVisible);
-        if (fab) fab.classList.toggle('anlink-fab-hidden', !shouldShow);
+        if (fab) fab.classList.toggle('anlink-fab-hidden', false);
         if (fab) {
             const count = downloader?.activeTaskCount?.() || 0;
             fab.dataset.count = count || '';
@@ -2333,6 +2316,10 @@ const AniLINKUI = (() => {
         setVisible(downloaderOverlay, view === 'downloader');
         fab?.classList.toggle('anlink-fab-downloader', view === 'downloader');
         fab?.setAttribute('aria-label', view === 'downloader' ? 'Open extractor' : 'Open downloads');
+        if (fab) {
+            fab.querySelector('.anlink-fab-icon').textContent = view === 'downloader' ? '←' : '⇩';
+            fab.title = view === 'downloader' ? 'Open extractor' : 'Open downloads';
+        }
         updateFab();
     };
     const createFab = () => {
@@ -2343,21 +2330,24 @@ const AniLINKUI = (() => {
             title: 'Open downloads',
             innerHTML: '<span class="anlink-fab-icon">⇩</span><span class="anlink-fab-count"></span>'
         });
-        fab.addEventListener('click', () => switchView(activeView === 'downloader' ? 'extractor' : 'downloader'));
-        rootOverlay.appendChild(fab);
+        fab.addEventListener('click', () => {
+            if (activeView === 'downloader') switchView('extractor');
+            else if (typeof anilinkDownloaderUI !== 'undefined') anilinkDownloaderUI.show();
+        });
+        root.appendChild(fab);
         return fab;
     };
     const mountExtractor = overlay => {
         ensure();
         extractorOverlay = overlay;
-        rootOverlay.appendChild(overlay);
+        root.appendChild(overlay);
         createFab();
         switchView('extractor');
     };
     const mountDownloader = overlay => {
         ensure();
         downloaderOverlay = overlay;
-        rootOverlay.appendChild(overlay);
+        root.appendChild(overlay);
         createFab();
         setVisible(downloaderOverlay, false);
     };
@@ -2387,10 +2377,8 @@ const AniLINKUI = (() => {
     addStyle(`
         :host { all: initial; }
         *, *::before, *::after { box-sizing: border-box; }
-        .anlink-root-overlay { position: fixed; inset: 0; pointer-events: none; }
         .anlink-view-hidden { opacity: 0 !important; transform: translateY(18px) scale(.985) !important; pointer-events: none !important; visibility: hidden !important; }
-        .material-icons { font-family: 'Material Icons'; font-weight: normal; font-style: normal; font-size: 24px; line-height: 1; letter-spacing: normal; text-transform: none; display: inline-block; white-space: nowrap; word-wrap: normal; direction: ltr; -webkit-font-feature-settings: 'liga'; -webkit-font-smoothing: antialiased; font-feature-settings: 'liga'; }
-        .anlink-fab { position: fixed; right: 26px; bottom: 26px; width: 58px; height: 58px; border: 0; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, #26a69a, #147d73); color: #fff; box-shadow: 0 12px 32px rgba(0,0,0,.42), 0 0 0 1px rgba(255,255,255,.12) inset; cursor: pointer; pointer-events: auto; transition: opacity .28s, transform .28s, background .28s; z-index: 20; }
+        .anlink-fab { position: fixed; right: 26px; bottom: 26px; width: 58px; height: 58px; border: 0; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, #26a69a, #147d73); color: #fff; box-shadow: 0 12px 32px rgba(0,0,0,.42), 0 0 0 1px rgba(255,255,255,.12) inset; cursor: pointer; pointer-events: auto; transition: opacity .28s, transform .28s, background .28s; z-index: 1001; }
         .anlink-fab:hover { transform: translateY(-3px) scale(1.04); background: linear-gradient(135deg, #31c7b8, #168d81); }
         .anlink-fab-hidden { opacity: 0; transform: scale(.65); pointer-events: none; }
         .anlink-fab-icon { font: 700 30px/1 system-ui, sans-serif; transform: translateY(-1px); }
@@ -2400,7 +2388,8 @@ const AniLINKUI = (() => {
         @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
     `);
 
-    return { ensure, addStyle, query, queryAll, mountExtractor, mountDownloader, switchView, removeExtractor, close, updateFab, animateDrop, get root() { return ensure(); }, get overlayRoot() { ensure(); return rootOverlay; } };
+    const bootstrap = () => { ensure(); createFab(); updateFab(); };
+    return { ensure, addStyle, query, queryAll, mountExtractor, mountDownloader, switchView, removeExtractor, close, updateFab, animateDrop, bootstrap, get root() { return ensure(); } };
 })();
 
 
@@ -2479,7 +2468,13 @@ const dlUtils = {
     },
 
     anlinkSafeFilename: (filename) => {
-        return String(filename || 'download').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/, '').slice(0, 240) || 'download';
+        const normalized = String(filename || 'download').normalize('NFKC');
+        const extensionMatch = normalized.match(/(\.[A-Za-z0-9]{1,8})$/);
+        const extension = extensionMatch?.[1] || '';
+        let stem = extension ? normalized.slice(0, -extension.length) : normalized;
+        stem = stem.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+/g, ' ').replace(/^\.+/, '').trim().slice(0, 170);
+        if (!stem || /^(con|prn|aux|nul|clock\$|com[1-9]|lpt[1-9])$/i.test(stem)) stem = `download-${Date.now()}`;
+        return `${stem}${extension}`;
     },
 
     anlinkEscapeHtml: (value) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])),
@@ -2657,7 +2652,7 @@ class Downloader {
             preferredQuality: '',
             notifications: 'completed-and-failed',
             overwrite: true,
-            historyLimit: 30,
+            historyLimit: 15,
             historyCollapsed: true
         };
     }
@@ -2668,13 +2663,14 @@ class Downloader {
             const saved = JSON.parse(localStorage.getItem(this.#storageKey) || '{}');
             const history = Array.isArray(saved.history) ? saved.history.map(item => ['queued', 'preparing', 'downloading', 'paused'].includes(item.status) ? { ...item, status: 'interrupted' } : item) : [];
             const settings = { ...defaults, ...(saved.settings || {}) };
+            settings.historyLimit = Math.min(100, Math.max(1, Number(settings.historyLimit) || 15));
             if (!Number.isFinite(settings.defaultSpeedLimitBps) || settings.defaultSpeedLimitBps <= 0) settings.defaultSpeedLimitBps = Infinity;
             return { settings, history };
         } catch { return { settings: defaults, history: [] }; }
     }
 
     #saveStore(emit = true) {
-        const historyLimit = Math.max(1, Number(this.#settings.historyLimit) || 30);
+        const historyLimit = Math.min(100, Math.max(1, Number(this.#settings.historyLimit) || 15));
         this.#history = this.#history.slice(0, historyLimit);
         localStorage.setItem(this.#storageKey, JSON.stringify({ settings: this.#settings, history: this.#history }));
         if (emit) this.#emit('change', this);
@@ -2685,10 +2681,11 @@ class Downloader {
         next.maxConcurrentTasks = Math.max(1, Math.floor(Number(next.maxConcurrentTasks) || 1));
         next.defaultThreads = Math.max(1, Math.floor(Number(next.defaultThreads) || 6));
         next.defaultSpeedLimitBps = next.defaultSpeedLimitBps === Infinity ? Infinity : Math.max(0, Number(next.defaultSpeedLimitBps) || 0) || Infinity;
-        next.historyLimit = Math.max(1, Math.floor(Number(next.historyLimit) || 30));
+        next.historyLimit = Math.min(100, Math.max(1, Math.floor(Number(next.historyLimit) || 15)));
         if (!['off', 'completed', 'completed-and-failed', 'all'].includes(next.notifications)) next.notifications = 'completed-and-failed';
         this.#settings = next;
         this.#saveStore();
+        this.#emit('history', this);
         this.#pump();
         return this.settings;
     }
@@ -2696,11 +2693,13 @@ class Downloader {
     clearHistory() {
         this.#history = [];
         this.#saveStore();
+        this.#emit('history', this);
     }
 
     removeHistory(id) {
         this.#history = this.#history.filter(item => item.id !== id);
         this.#saveStore();
+        this.#emit('history', this);
     }
 
     async retryHistory(id) {
@@ -3000,9 +2999,20 @@ class Downloader {
             task.filename = filename;
         }
         const extension = filename.match(/\.[^.]+$/)?.[0] || '';
-        const stem = extension ? filename.slice(0, -extension.length) : filename;
-        const partialFilename = `${stem}.partial${extension}`;
-        const fileHandle = await this.#dirHandle.getFileHandle(partialFilename, { create: true });
+        let stem = extension ? filename.slice(0, -extension.length) : filename;
+        let partialFilename = `${stem}.partial${extension}`;
+        let fileHandle;
+        try {
+            fileHandle = await this.#dirHandle.getFileHandle(partialFilename, { create: true });
+        } catch (error) {
+            const fallbackStem = `AniLINK-${Date.now()}-${task.id.slice(0, 8)}`;
+            stem = fallbackStem;
+            filename = `${fallbackStem}${extension}`;
+            partialFilename = `${fallbackStem}.partial${extension}`;
+            task.filename = filename;
+            task._log(`Filename rejected; using ${partialFilename}: ${error.message || error}`, 'warning');
+            fileHandle = await this.#dirHandle.getFileHandle(partialFilename, { create: true });
+        }
         task._fileHandle = fileHandle;
         task._partialFilename = partialFilename;
         task._filepath = `${this.#dirHandle.name}\\${partialFilename}`;
@@ -3348,7 +3358,6 @@ class DownloaderUI {
         panel.id = 'AniLINK_DownloaderPanel';
         this.overlay.appendChild(panel);
         AniLINKUI.mountDownloader(this.overlay);
-        this.render();
         return this.overlay;
     }
 
@@ -3502,7 +3511,7 @@ class DownloaderUI {
     showSettingsDialog() {
         const settings = this.downloader.settings;
         const escape = dlUtils.anlinkEscapeHtml;
-        const bodyHTML = `<div class="anlink-dl-settings"><div class="anlink-dl-setting-grid"><div><label>Parallel downloads</label><input name="maxConcurrentTasks" type="number" min="1" max="8" value="${settings.maxConcurrentTasks}"></div><div><label>Default threads</label><input name="defaultThreads" type="number" min="1" max="32" value="${settings.defaultThreads}"></div><div><label>Default speed limit (KB/s, 0 = unlimited)</label><input name="defaultSpeedLimitBps" type="number" min="0" value="${Number.isFinite(settings.defaultSpeedLimitBps) ? Math.round(settings.defaultSpeedLimitBps / 1024) : 0}"></div><div><label>Preferred quality</label><input name="preferredQuality" type="text" value="${escape(settings.preferredQuality || '')}" placeholder="Auto"></div><div><label>Notifications</label><select name="notifications"><option value="off" ${settings.notifications === 'off' ? 'selected' : ''}>Off</option><option value="completed" ${settings.notifications === 'completed' ? 'selected' : ''}>Completed only</option><option value="completed-and-failed" ${settings.notifications === 'completed-and-failed' ? 'selected' : ''}>Completed and failed</option><option value="all" ${settings.notifications === 'all' ? 'selected' : ''}>All state changes</option></select></div><div><label>History retention</label><input name="historyLimit" type="number" min="1" max="200" value="${settings.historyLimit}"></div></div><div class="anlink-dl-actions"><button type="button" data-action="clear-history">Clear history</button></div><div class="anlink-dl-help">Need help? <a href="https://github.com/jeryjs/Userscripts/issues/new?title=%5BAniLINK%5D%20Downloader%20issue&body=%23%23%20Description%0A%0A%23%23%20Steps%20to%20reproduce%0A1.%20%0A2.%20%0A%0A%23%23%20Expected%20behavior%0A%0A%23%23%20Actual%20behavior%0A%0A%23%23%20Environment%0A-%20Browser%3A%20%0A-%20Userscript%20manager%3A%20" target="_blank" rel="noreferrer">Report an issue on GitHub</a></div></div>`;
+        const bodyHTML = `<div class="anlink-dl-settings"><div class="anlink-dl-setting-grid"><div><label>Parallel downloads</label><input name="maxConcurrentTasks" type="number" min="1" max="8" value="${settings.maxConcurrentTasks}"></div><div><label>Default threads</label><input name="defaultThreads" type="number" min="1" max="32" value="${settings.defaultThreads}"></div><div><label>Default speed limit (KB/s, 0 = unlimited)</label><input name="defaultSpeedLimitBps" type="number" min="0" value="${Number.isFinite(settings.defaultSpeedLimitBps) ? Math.round(settings.defaultSpeedLimitBps / 1024) : 0}"></div><div><label>Preferred quality</label><input name="preferredQuality" type="text" value="${escape(settings.preferredQuality || '')}" placeholder="Auto"></div><div><label>Notifications</label><select name="notifications"><option value="off" ${settings.notifications === 'off' ? 'selected' : ''}>Off</option><option value="completed" ${settings.notifications === 'completed' ? 'selected' : ''}>Completed only</option><option value="completed-and-failed" ${settings.notifications === 'completed-and-failed' ? 'selected' : ''}>Completed and failed</option><option value="all" ${settings.notifications === 'all' ? 'selected' : ''}>All state changes</option></select></div><div><label>History retention</label><input name="historyLimit" type="number" min="1" max="100" value="${Math.min(100, settings.historyLimit)}"></div></div><div class="anlink-dl-actions"><button type="button" data-action="clear-history">Clear history</button></div><div class="anlink-dl-help">Need help? <a href="https://github.com/jeryjs/Userscripts/issues/new?title=%5BAniLINK%5D%20Downloader%20issue&body=%23%23%20Description%0A%0A%23%23%20Steps%20to%20reproduce%0A1.%20%0A2.%20%0A%0A%23%23%20Expected%20behavior%0A%0A%23%23%20Actual%20behavior%0A%0A%23%23%20Environment%0A-%20Browser%3A%20%0A-%20Userscript%20manager%3A%20" target="_blank" rel="noreferrer">Report an issue on GitHub</a></div></div>`;
         const { modal } = createModal({
             title: 'Downloader Settings',
             icon: '⚙',
@@ -3527,7 +3536,11 @@ class DownloaderUI {
         panel.querySelector('[data-action="back"]')?.addEventListener('click', () => AniLINKUI.switchView('extractor'));
         panel.querySelector('[data-action="close"]')?.addEventListener('click', () => AniLINKUI.close());
         panel.querySelector('[data-action="settings"]')?.addEventListener('click', () => this.showSettingsDialog());
-        panel.querySelector('[data-action="toggle-history"]')?.addEventListener('click', () => { this.historyOpen = !this.historyOpen; this.downloader.updateSettings({ historyCollapsed: !this.historyOpen }); });
+        panel.querySelector('[data-action="toggle-history"]')?.addEventListener('click', () => {
+            this.historyOpen = !this.historyOpen;
+            this.downloader.updateSettings({ historyCollapsed: !this.historyOpen });
+            this.render();
+        });
         panel.onclick = event => {
             const button = event.target.closest('button[data-action]');
             if (!button) return;
@@ -3565,7 +3578,7 @@ class DownloaderUI {
 
 const anilinkDownloader = new Downloader();
 const anilinkDownloaderUI = new DownloaderUI(anilinkDownloader);
-anilinkDownloaderUI.mount();
+AniLINKUI.bootstrap();
 
 window.addEventListener('beforeunload', event => {
     if (!anilinkDownloader.hasActiveTasks) return;
