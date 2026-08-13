@@ -1364,35 +1364,29 @@ async function extractEpisodes() {
 
     // --- Materialize CSS Initialization ---
     AniLINKUI.addStyle(`
-        @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
-
-        #AniLINK_Overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.8); z-index: 1000; display: flex; align-items: center; justify-content: center; transition: opacity .28s ease, transform .28s ease, visibility .28s; pointer-events: auto; }
-        #AniLINK_RerunBtn { position: fixed; top: 10px; right: 10px; background: transparent; border: 0; font-size: 36px; color: red; } #AniLINK_RerunBtn:hover { cursor: pointer; color: darkred; background-color: rgba(255, 255, 255, 0.1); }
-        #AniLINK_LinksContainer { width: 80%; max-height: 85%; background-color: #222; color: #eee; padding: 20px; border-radius: 8px; overflow-y: auto; display: flex; flex-direction: column;}
+        #AniLINK_Overlay { position: fixed; inset: 0; background: rgba(0,0,0,.78); backdrop-filter: blur(12px); z-index: 1000; display: flex; align-items: center; justify-content: center; transition: opacity .28s ease, transform .28s ease, visibility .28s; pointer-events: auto; }
+        #AniLINK_RerunBtn { position: fixed; top: 22px; right: 26px; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; background: rgba(255,255,255,.05); color: #d9eeeb; font-size: 20px; cursor: pointer; transition: border-color .2s, background .2s, transform .2s; } #AniLINK_RerunBtn:hover { border-color: #26a69a; background: rgba(38,166,154,.18); transform: translateY(-2px); }
+        #AniLINK_LinksContainer { width: min(1100px, 92vw); max-height: 86vh; background: linear-gradient(145deg, rgba(25,35,34,.98), rgba(28,28,31,.98)); color: #edf5f4; padding: 22px; border: 1px solid rgba(100,220,207,.18); border-radius: 18px; overflow-y: auto; display: flex; flex-direction: column; box-shadow: 0 24px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.04) inset; }
         .anlink-status-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; } /* Header for status bar and stop button */
-        .anlink-status-bar { color: #eee; flex-grow: 1; margin-right: 10px; display: block; } /* Status bar takes space */
-        .anlink-status-icon { background: transparent; border: none; color: #eee; cursor: pointer; padding-right: 10px; } /* status icon style */
+        .anlink-status-bar { color: #9eb4b1; flex-grow: 1; margin-right: 10px; display: block; font: 12px/1.3 system-ui, sans-serif; } /* Status bar takes space */
+        .anlink-status-icon { background: transparent; border: none; color: #d9eeeb; cursor: pointer; padding-right: 10px; } /* status icon style */
         .anlink-status-icon i { font-size: 24px; transition: transform 0.3s ease-in-out; } /* Icon size and transition */
-        .anlink-status-icon i::before { content: 'check_circle'; } /* Show check icon when not extracting */
-        .anlink-status-icon i.extracting::before { content: 'auto_mode'; animation: spinning 2s linear infinite; } /* Spinner animation class */
-        .anlink-status-icon i.retry::before { content: 'refresh'; } /* Retry icon */
-        .anlink-status-icon i.error::before { content: 'error'; } /* Error icon */
-        .anlink-status-icon:hover i.extracting::before { content: 'stop_circle'; animation: stop; } /* Show stop icon on hover when extracting */
+        .anlink-status-icon i.extracting { animation: spinning 2s linear infinite; } /* Spinner animation class */
         .anlink-header-buttons { display: flex; gap: 10px; }
-        .anlink-header-buttons button { background-color: #26a69a; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; }
-        .anlink-header-buttons button:hover { background-color: #2bbbad; }
+        .anlink-header-buttons button { border: 1px solid rgba(255,255,255,.12); border-radius: 7px; padding: 8px 12px; background: rgba(255,255,255,.05); color: #d4e7e4; cursor: pointer; font: 11px system-ui, sans-serif; transition: border-color .2s, background .2s, color .2s; }
+        .anlink-header-buttons button:hover { border-color: #26a69a; background: rgba(38,166,154,.18); color: #7ce4d8; }
         .anlink-quick-download { margin-left: 8px; width: 22px; height: 22px; padding: 0; border: 1px solid #26a69a; border-radius: 50%; background: rgba(38,166,154,.12); color: #7ce4d8; cursor: pointer; font-weight: 700; line-height: 18px; transition: transform .18s, background .18s; }
         .anlink-quick-download:hover { transform: translateY(-2px) scale(1.08); background: #26a69a; color: #fff; }
-        .anlink-quality-section { margin-top: 20px; margin-bottom: 10px; border-bottom: 1px solid #444; padding-bottom: 5px; }
+        .anlink-quality-section { margin-top: 18px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 12px; background: rgba(255,255,255,.035); }
         .anlink-quality-header { display: flex; justify-content: space-between; align-items: center; }
-        .anlink-quality-header > span { color: #26a69a; font-size: 1.5em; display: flex; align-items: center; flex-grow: 1; } /* Flex and align items for icon and text */
+        .anlink-quality-header > span { color: #65d6c8; font-size: 1.25em; display: flex; align-items: center; flex-grow: 1; } /* Flex and align items for icon and text */
         .anlink-quality-count { cursor: pointer; margin-right: 8px; opacity: 0.7; transition: opacity 0.2s; }
         .anlink-quality-count:hover { opacity: 1; }
         .anlink-quality-name { cursor: pointer; flex-grow: 1; }
         .anlink-quality-header i { margin-right: 8px; transition: transform 0.3s ease-in-out; }
         .anlink-quality-header i.rotate { transform: rotate(90deg); } /* Rotate class */
         .anlink-episode-list { list-style: none; padding-left: 0; margin-top: 0; overflow: hidden; transition: max-height 0.5s ease-in-out; } /* Transition for max-height */
-        .anlink-episode-item { margin-bottom: 5px; padding: 8px; border-bottom: 1px solid #333; display: flex; flex-direction: column; }
+        .anlink-episode-item { margin-bottom: 5px; padding: 10px; border-bottom: 1px solid rgba(255,255,255,.07); display: flex; flex-direction: column; }
         .anlink-episode-item:last-child { border-bottom: none; }
         .anlink-episode-missing-count { margin-left:32px; margin-top: -22px; margin-bottom: 6px; color: #888; font-size:0.85em; user-select: none; }
         .anlink-episode-main { display: flex; align-items: baseline; }
@@ -1402,7 +1396,7 @@ async function extractEpisodes() {
         .anlink-episode-checkbox { appearance: none; width: 20px; height: 20px; margin-right: 10px; margin-bottom: -5px; border: 1px solid #26a69a; border-radius: 4px; outline: none; cursor: pointer; transition: background-color 0.3s, border-color 0.3s; }
         .anlink-episode-checkbox:checked { background-color: #26a69a; border-color: #26a69a; }
         .anlink-episode-checkbox:checked::after { content: '✔'; display: block; color: white; font-size: 14px; text-align: center; line-height: 20px; animation: checkTilt 0.3s; }
-        .anlink-episode-link { color: #ffca28; text-decoration: none; display: inline; }
+        .anlink-episode-link { color: #f4d36b; text-decoration: none; display: inline; }
         .anlink-episode-link:hover { color: #fff; }
         .anlink-subs-toggle, .anlink-referrer { font-size: 0.85em; color: #888; cursor: pointer; margin-left: 10px; user-select: none; transition: color 0.2s; white-space: nowrap; }
         .anlink-subs-toggle:hover, .anlink-referrer:hover { color: #26a69a; }
@@ -1447,7 +1441,7 @@ async function extractEpisodes() {
     // Create dynamic status icon
     const statusIconElement = document.createElement('a');
     statusIconElement.className = 'anlink-status-icon';
-    statusIconElement.innerHTML = '<i class="material-icons extracting"></i>';
+    statusIconElement.innerHTML = '<i class="material-icons extracting">auto_mode</i>';
     statusIconElement.title = 'Stop Extracting';
     statusBarHeader.appendChild(statusIconElement);
 
@@ -1484,9 +1478,7 @@ async function extractEpisodes() {
             } else {
                 statusIconElement.title = 'Restart Extraction.';
                 statusIconElement.querySelector('i').classList.remove('extracting'); // Stop spinner animation
-                if (status.stopped) {
-                    statusIconElement.querySelector('i').classList.add('retry'); // Show retry icon
-                }
+                statusIconElement.querySelector('i').textContent = status.stopped ? 'refresh' : status.error ? 'error' : 'check_circle';
                 if (status.error) {
                     statusIconElement.querySelector('i').classList.add('error'); // Show error icon
                     statusBar.textContent += ` : ${status.error}`; // Update status bar with error
@@ -1917,7 +1909,7 @@ function createModal({ title, icon, subtitle, bodyHTML, width = '420px', onConfi
         const tag = document.createElement('style'); tag.id = 'anlink-modal-styles'; AniLINKUI.root.appendChild(tag);
     }
 
-    AniLINKUI.root.appendChild(modal);
+    AniLINKUI.overlayRoot.appendChild(modal);
     const primaryBtn = modal.querySelector('.anlink-btn-primary');
     const cancelBtn = modal.querySelector('.anlink-btn-cancel');
 
@@ -2227,7 +2219,7 @@ function showToast(message, duration = 5000) {
         <button class="anlink-toast-close" aria-label="Close">×</button>
     `;
 
-    AniLINKUI.root.appendChild(toast);
+    AniLINKUI.overlayRoot.appendChild(toast);
 
     // Close button handler
     const closeBtn = toast.querySelector('.anlink-toast-close');
@@ -2284,6 +2276,7 @@ const _$$ = (s, p=document) => (p || document).querySelectorAll(s);
 const AniLINKUI = (() => {
     let host;
     let root;
+    let rootOverlay;
     let activeView = 'extractor';
     let extractorOverlay;
     let downloaderOverlay;
@@ -2295,6 +2288,10 @@ const AniLINKUI = (() => {
         host = Object.assign(document.createElement('div'), { id: 'AniLINK_UIHost' });
         host.style.cssText = 'position: fixed; inset: 0; z-index: 2147483000; pointer-events: none;';
         root = host.attachShadow({ mode: 'open' });
+        rootOverlay = Object.assign(document.createElement('div'), { id: 'AniLINK_RootOverlay', className: 'anlink-root-overlay' });
+        root.appendChild(rootOverlay);
+        const iconLink = Object.assign(document.createElement('link'), { rel: 'stylesheet', href: 'https://fonts.googleapis.com/icon?family=Material+Icons' });
+        root.appendChild(iconLink);
         styleNode = document.createElement('style');
         root.appendChild(styleNode);
         document.body.appendChild(host);
@@ -2308,13 +2305,26 @@ const AniLINKUI = (() => {
         if (!element) return;
         element.classList.toggle('anlink-view-hidden', !visible);
         element.setAttribute('aria-hidden', String(!visible));
+        syncPointerEvents();
+    };
+    const syncPointerEvents = () => {
+        const fullViewVisible = [extractorOverlay, downloaderOverlay].some(element => element && !element.classList.contains('anlink-view-hidden'));
+        const hasInteractiveChild = rootOverlay?.querySelector('.anlink-fab:not(.anlink-fab-hidden), .anlink-modal, .anlink-toast');
+        const interactive = fullViewVisible || Boolean(hasInteractiveChild);
+        host && (host.style.pointerEvents = interactive ? 'auto' : 'none');
+        if (rootOverlay) rootOverlay.style.pointerEvents = interactive ? 'auto' : 'none';
     };
     const updateFab = () => {
         const downloader = typeof anilinkDownloader === 'undefined' ? null : anilinkDownloader;
         const extractorVisible = extractorOverlay && !extractorOverlay.classList.contains('anlink-view-hidden');
         const shouldShow = Boolean(downloader?.hasVisibleState?.() || extractorVisible);
         if (fab) fab.classList.toggle('anlink-fab-hidden', !shouldShow);
-        if (fab) fab.dataset.count = downloader?.activeTaskCount?.() || '';
+        if (fab) {
+            const count = downloader?.activeTaskCount?.() || 0;
+            fab.dataset.count = count || '';
+            fab.querySelector('.anlink-fab-count').textContent = count || '';
+        }
+        syncPointerEvents();
     };
     const switchView = view => {
         ensure();
@@ -2334,20 +2344,20 @@ const AniLINKUI = (() => {
             innerHTML: '<span class="anlink-fab-icon">⇩</span><span class="anlink-fab-count"></span>'
         });
         fab.addEventListener('click', () => switchView(activeView === 'downloader' ? 'extractor' : 'downloader'));
-        root.appendChild(fab);
+        rootOverlay.appendChild(fab);
         return fab;
     };
     const mountExtractor = overlay => {
         ensure();
         extractorOverlay = overlay;
-        root.appendChild(overlay);
+        rootOverlay.appendChild(overlay);
         createFab();
         switchView('extractor');
     };
     const mountDownloader = overlay => {
         ensure();
         downloaderOverlay = overlay;
-        root.appendChild(overlay);
+        rootOverlay.appendChild(overlay);
         createFab();
         setVisible(downloaderOverlay, false);
     };
@@ -2377,7 +2387,9 @@ const AniLINKUI = (() => {
     addStyle(`
         :host { all: initial; }
         *, *::before, *::after { box-sizing: border-box; }
+        .anlink-root-overlay { position: fixed; inset: 0; pointer-events: none; }
         .anlink-view-hidden { opacity: 0 !important; transform: translateY(18px) scale(.985) !important; pointer-events: none !important; visibility: hidden !important; }
+        .material-icons { font-family: 'Material Icons'; font-weight: normal; font-style: normal; font-size: 24px; line-height: 1; letter-spacing: normal; text-transform: none; display: inline-block; white-space: nowrap; word-wrap: normal; direction: ltr; -webkit-font-feature-settings: 'liga'; -webkit-font-smoothing: antialiased; font-feature-settings: 'liga'; }
         .anlink-fab { position: fixed; right: 26px; bottom: 26px; width: 58px; height: 58px; border: 0; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, #26a69a, #147d73); color: #fff; box-shadow: 0 12px 32px rgba(0,0,0,.42), 0 0 0 1px rgba(255,255,255,.12) inset; cursor: pointer; pointer-events: auto; transition: opacity .28s, transform .28s, background .28s; z-index: 20; }
         .anlink-fab:hover { transform: translateY(-3px) scale(1.04); background: linear-gradient(135deg, #31c7b8, #168d81); }
         .anlink-fab-hidden { opacity: 0; transform: scale(.65); pointer-events: none; }
@@ -2388,7 +2400,7 @@ const AniLINKUI = (() => {
         @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
     `);
 
-    return { ensure, addStyle, query, queryAll, mountExtractor, mountDownloader, switchView, removeExtractor, close, updateFab, animateDrop, get root() { return ensure(); } };
+    return { ensure, addStyle, query, queryAll, mountExtractor, mountDownloader, switchView, removeExtractor, close, updateFab, animateDrop, get root() { return ensure(); }, get overlayRoot() { ensure(); return rootOverlay; } };
 })();
 
 
@@ -2518,6 +2530,8 @@ class DownloadTask {
             finishedAt: null,
             lastProgressAt: null
         };
+        this._logs = [];
+        this._log('Task created');
     }
 
     get status() { return this._status; }
@@ -2532,6 +2546,13 @@ class DownloadTask {
     get eta() { return this._stats.speedBps && this._stats.totalSize ? dlUtils.anlinkFormatDuration((this._stats.totalSize - this._stats.bytesWritten) / this._stats.speedBps * 1000) : 'N/A'; }
     get stats() { return this._controller.getTaskStats(this.id); }
     get error() { return this._stats.error || null; }
+    get logs() { return [...this._logs]; }
+
+    _log(message, level = 'info') {
+        this._logs.push({ at: Date.now(), level, message: String(message) });
+        if (this._logs.length > 200) this._logs.splice(0, this._logs.length - 200);
+        this._emit('log', this._logs[this._logs.length - 1]);
+    }
 
     on(event, listener) {
         if (!this._listeners.has(event)) this._listeners.set(event, new Set());
@@ -2548,6 +2569,7 @@ class DownloadTask {
 
     _setStatus(status) {
         this._status = status;
+        this._log(`Status: ${status}`);
         this._emit('status', this.stats);
     }
 
@@ -2653,7 +2675,7 @@ class Downloader {
 
     #saveStore(emit = true) {
         const historyLimit = Math.max(1, Number(this.#settings.historyLimit) || 30);
-        this.#history = this.#history.slice(-historyLimit);
+        this.#history = this.#history.slice(0, historyLimit);
         localStorage.setItem(this.#storageKey, JSON.stringify({ settings: this.#settings, history: this.#history }));
         if (emit) this.#emit('change', this);
     }
@@ -2689,6 +2711,9 @@ class Downloader {
             format: record.format, quality: record.quality, threads: record.threads,
             speedLimitBps: record.speedLimitBps, referer: record.referer
         });
+        task._historyId = record.id;
+        this.#history = this.#history.filter(item => item.id !== record.id && item.id !== task.id);
+        this.#saveStore(false);
         task.start().catch(() => { });
         return task;
     }
@@ -2855,11 +2880,14 @@ class Downloader {
         try {
             if (!this.#dirHandle) throw new Error('Select an output directory before starting a download.');
             await this.#openWriter(task);
+            task._log(`Writing partial file: ${task._partialFilename}`);
             if (Downloader.formats.has(task.options.format)) await Downloader.formats.get(task.options.format)(task, this.getFormatContext(task));
             else if (['m3u8', 'hls'].includes(task.options.format) || /\.m3u8(?:$|\?)/i.test(task.url)) await this.#runHls(task);
             else if (task.options.format === 'mpd' || /\.mpd(?:$|\?)/i.test(task.url)) throw new Error('DASH (.mpd) is not implemented yet; register a format handler before starting this task.');
             else await this.#runDirect(task);
             if (task._cancelled) throw Object.assign(new Error('Download cancelled'), { name: 'AbortError' });
+            await this.#closeWriter(task);
+            await this.#finalizeFile(task);
             task._stats.finishedAt = Date.now();
             task._setStatus('completed');
             task._emit('complete', task.stats);
@@ -2870,19 +2898,35 @@ class Downloader {
                 task._stats.error = 'Download cancelled';
                 task._stats.finishedAt = Date.now();
                 task._setStatus('cancelled');
+                task._log(`Partial file retained: ${task.filepath}`, 'warning');
                 this.#recordHistory(task);
             } else {
                 task._stats.error = error.message || String(error);
                 task._stats.errors.push(task._stats.error);
                 task._stats.finishedAt = Date.now();
                 task._setStatus('failed');
+                task._log(`Partial file retained: ${task.filepath}`, 'error');
                 task._emit('error', error);
                 this.#recordHistory(task);
             }
             throw error;
         } finally {
             await this.#closeWriter(task);
+            task._emit('settled', task);
         }
+    }
+
+    clearTask(taskId) {
+        const task = this.#requireTask(taskId);
+        if (['preparing', 'downloading', 'paused'].includes(task.status)) {
+            const unsubscribe = task.on('settled', () => { unsubscribe(); this.#tasks.delete(task.id); this.#emit('change', this); });
+            task.cancel();
+            return true;
+        }
+        if (task.status === 'queued') task.cancel();
+        this.#tasks.delete(task.id);
+        this.#emit('change', this);
+        return true;
     }
 
     #finishQueuedTask(task, error) {
@@ -2893,25 +2937,30 @@ class Downloader {
     }
 
     #persistTask(task) {
+        const historyId = task._historyId || task.id;
         const record = {
-            id: task.id, filename: task.filename, anime: task.anime, url: task.url, status: task.status,
+            id: historyId, filename: task.filename, partialFilename: task._partialFilename || '', anime: task.anime, url: task.url, status: task.status,
             format: task.options.format, quality: task.options.quality || '', threads: task.options.threads,
-            speedLimitBps: task.options.speedLimitBps, referer: task.options.referer || '', stats: { ...task._stats }, updatedAt: Date.now()
+            speedLimitBps: task.options.speedLimitBps, referer: task.options.referer || '', logs: task.logs, stats: { ...task._stats }, updatedAt: Date.now()
         };
-        this.#history = this.#history.filter(item => item.id !== task.id);
+        this.#history = this.#history.filter(item => item.id !== historyId);
         if (!['completed', 'failed', 'cancelled'].includes(task.status)) this.#history.push(record);
+        this.#history.sort((a, b) => b.updatedAt - a.updatedAt);
         this.#saveStore();
+        this.#emit('history', this);
     }
 
     #recordHistory(task) {
         const record = {
-            id: task.id, filename: task.filename, anime: task.anime, url: task.url, status: task.status,
+            id: task._historyId || task.id, filename: task.filename, partialFilename: task._partialFilename || '', anime: task.anime, url: task.url, status: task.status,
             format: task.options.format, quality: task.options.quality || '', threads: task.options.threads,
-            speedLimitBps: task.options.speedLimitBps, referer: task.options.referer || '', stats: { ...task._stats }, updatedAt: Date.now()
+            speedLimitBps: task.options.speedLimitBps, referer: task.options.referer || '', logs: task.logs, stats: { ...task._stats }, updatedAt: Date.now()
         };
-        this.#history = this.#history.filter(item => item.id !== task.id);
+        this.#history = this.#history.filter(item => item.id !== record.id);
         this.#history.push(record);
+        this.#history.sort((a, b) => b.updatedAt - a.updatedAt);
         this.#saveStore();
+        this.#emit('history', this);
         this.#notifyTask(task);
     }
 
@@ -2950,10 +2999,39 @@ class Downloader {
             }
             task.filename = filename;
         }
-        const fileHandle = await this.#dirHandle.getFileHandle(filename, { create: true });
+        const extension = filename.match(/\.[^.]+$/)?.[0] || '';
+        const stem = extension ? filename.slice(0, -extension.length) : filename;
+        const partialFilename = `${stem}.partial${extension}`;
+        const fileHandle = await this.#dirHandle.getFileHandle(partialFilename, { create: true });
         task._fileHandle = fileHandle;
-        task._filepath = `${this.#dirHandle.name}\\${task.filename}`;
+        task._partialFilename = partialFilename;
+        task._filepath = `${this.#dirHandle.name}\\${partialFilename}`;
         task._writer = await fileHandle.createWritable({ keepExistingData: false });
+        task._log(`Opened ${partialFilename}`);
+    }
+
+    async #finalizeFile(task) {
+        const extension = task.filename.match(/\.[^.]+$/)?.[0] || '';
+        const stem = extension ? task.filename.slice(0, -extension.length) : task.filename;
+        const finalFilename = `${stem}${extension}`;
+        const partialHandle = await this.#dirHandle.getFileHandle(task._partialFilename);
+        const partialFile = await partialHandle.getFile();
+        const finalHandle = await this.#dirHandle.getFileHandle(finalFilename, { create: true });
+        const writer = await finalHandle.createWritable({ keepExistingData: false });
+        try {
+            const reader = partialFile.stream().getReader();
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                await writer.write(value);
+            }
+        } finally {
+            await writer.close();
+        }
+        await this.#dirHandle.removeEntry(task._partialFilename);
+        task.filename = finalFilename;
+        task._filepath = `${this.#dirHandle.name}\\${finalFilename}`;
+        task._log(`Finalized ${finalFilename}`);
     }
 
     async #closeWriter(task) {
@@ -2990,6 +3068,7 @@ class Downloader {
     async #requestWithRetry(task, url, options = {}) {
         for (let attempt = 0; ; attempt++) {
             try {
+                task._log(`${options.method || 'GET'} ${url}${options.headers?.Range ? ` (${options.headers.Range})` : ''}`);
                 const response = await this.#request(task, url, options);
                 if (response.status >= 200 && response.status < 300) return response;
                 const error = Object.assign(new Error(`HTTP ${response.status} ${response.statusText || ''}`.trim()), { status: response.status });
@@ -3007,6 +3086,7 @@ class Downloader {
 
     async #writeAt(task, position, data) {
         const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+        task._log(`Queue write: ${bytes.byteLength} bytes at offset ${position}`);
         task._writeChain = task._writeChain.then(() => task._writer.write({ type: 'write', position, data: bytes }));
         await task._writeChain;
     }
@@ -3232,9 +3312,9 @@ class DownloaderUI {
         this.downloader = downloader;
         this.overlay = null;
         this.container = null;
-        this.settingsOpen = false;
         this.historyOpen = downloader.settings.historyCollapsed === false;
-        downloader.on('change', () => this.render());
+        downloader.on('change', () => this.refresh());
+        downloader.on('history', () => this.refreshHistory());
     }
 
     mount() {
@@ -3251,13 +3331,15 @@ class DownloaderUI {
             .anlink-dl-task { position: relative; padding: 14px; margin: 9px 0; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: rgba(255,255,255,.035); transition: border-color .2s, background .2s; } .anlink-dl-task:hover { border-color: rgba(38,166,154,.42); background: rgba(38,166,154,.06); }
             .anlink-dl-task-top { display: flex; align-items: flex-start; gap: 10px; } .anlink-dl-task-name { min-width: 0; flex: 1; color: #f2fbfa; font: 600 14px/1.3 system-ui, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .anlink-dl-task-meta { margin-top: 4px; color: #829794; font: 11px/1.3 system-ui, sans-serif; }
             .anlink-dl-status { flex: none; padding: 4px 8px; border-radius: 10px; background: rgba(38,166,154,.14); color: #7ce4d8; font: 700 10px/1 system-ui, sans-serif; text-transform: uppercase; letter-spacing: .05em; } .anlink-dl-status.failed { background: rgba(239,83,80,.16); color: #ff8b89; } .anlink-dl-status.completed { background: rgba(102,187,106,.16); color: #a0e7a3; }
-            .anlink-dl-progress { height: 7px; margin: 13px 0 9px; overflow: hidden; border-radius: 5px; background: rgba(0,0,0,.32); } .anlink-dl-progress > span { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, #26a69a, #8be7dc); transition: width .25s ease; }
+            .anlink-dl-progress { height: 7px; margin: 13px 0 9px; overflow: hidden; border-radius: 5px; background: rgba(0,0,0,.32); } .anlink-dl-progress > span { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, #26a69a, #8be7dc); transition: width .25s ease; } .anlink-dl-progress.indeterminate > span { width: 38%; animation: anlink-progress-slide 1.15s ease-in-out infinite; }
+            .anlink-dl-log { margin-top: 10px; border-top: 1px solid rgba(255,255,255,.07); color: #8ea3a1; font: 11px/1.45 ui-monospace, monospace; } .anlink-dl-log summary { padding-top: 9px; cursor: pointer; color: #82aaa6; font: 11px system-ui, sans-serif; } .anlink-dl-log pre { max-height: 180px; margin: 8px 0 0; overflow: auto; white-space: pre-wrap; color: #b9cbc8; }
             .anlink-dl-stats { display: flex; flex-wrap: wrap; gap: 8px 16px; color: #9eb4b1; font: 11px/1.3 ui-monospace, monospace; } .anlink-dl-error { margin-top: 8px; color: #ff9997; font: 11px/1.4 system-ui, sans-serif; }
             .anlink-dl-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; } .anlink-dl-actions button, .anlink-dl-settings button { border: 1px solid rgba(255,255,255,.12); border-radius: 7px; padding: 6px 9px; background: rgba(255,255,255,.05); color: #d4e7e4; cursor: pointer; font: 11px system-ui, sans-serif; } .anlink-dl-actions button:hover, .anlink-dl-settings button:hover { border-color: #26a69a; color: #7ce4d8; }
             .anlink-dl-popover { position: absolute; right: 12px; top: 48px; z-index: 5; width: 230px; padding: 12px; border: 1px solid rgba(100,220,207,.24); border-radius: 10px; background: #202a29; box-shadow: 0 12px 30px rgba(0,0,0,.4); } .anlink-dl-popover label, .anlink-dl-settings label { display: block; margin: 8px 0 4px; color: #9eb4b1; font: 11px system-ui, sans-serif; } .anlink-dl-popover input, .anlink-dl-settings input, .anlink-dl-settings select { width: 100%; padding: 7px 8px; border: 1px solid rgba(255,255,255,.12); border-radius: 6px; background: #18211f; color: #ecf7f5; }
             .anlink-dl-empty { padding: 28px 12px; border: 1px dashed rgba(255,255,255,.12); border-radius: 10px; color: #829794; text-align: center; font: 13px system-ui, sans-serif; }
             .anlink-dl-settings { padding: 14px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: rgba(255,255,255,.03); } .anlink-dl-setting-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } .anlink-dl-setting-wide { grid-column: 1 / -1; } .anlink-dl-help { margin-top: 12px; color: #829794; font: 11px/1.45 system-ui, sans-serif; } .anlink-dl-help a { color: #75cfc5; }
             @media (max-width: 680px) { #AniLINK_DownloaderOverlay { padding: 3vh 2vw; } #AniLINK_DownloaderPanel { width: 96vw; max-height: 92vh; } .anlink-dl-header, .anlink-dl-body { padding-left: 14px; padding-right: 14px; } .anlink-dl-setting-grid { grid-template-columns: 1fr; } .anlink-dl-setting-wide { grid-column: auto; } }
+            @keyframes anlink-progress-slide { from { transform: translateX(-120%); } to { transform: translateX(280%); } }
         `);
         this.overlay = document.createElement('div');
         this.overlay.id = 'AniLINK_DownloaderOverlay';
@@ -3272,6 +3354,28 @@ class DownloaderUI {
 
     show() { this.mount(); AniLINKUI.switchView('downloader'); this.render(); }
     hide() { AniLINKUI.close(); }
+
+    refresh() {
+        if (!this.overlay || !this.overlay.isConnected) return;
+        const panel = this.overlay.querySelector('#AniLINK_DownloaderPanel');
+        if (!panel?.querySelector('[data-region="active"]')) return this.render();
+        const active = this.downloader.tasks.filter(task => !['completed', 'failed', 'cancelled'].includes(task.status));
+        const region = panel.querySelector('[data-region="active"]');
+        const existing = new Map([...region.querySelectorAll('[data-task-id]')].map(card => [card.dataset.taskId, card]));
+        if (!active.length) region.innerHTML = '<div class="anlink-dl-empty">No active downloads yet.<br>Choose episodes in the extractor to send them here.</div>';
+        else {
+            region.querySelector('.anlink-dl-empty')?.remove();
+            active.forEach(task => {
+                const card = existing.get(task.id) || this.renderTask(task);
+                if (!card.isConnected) region.appendChild(card);
+                this.updateTaskCard(task, card);
+            });
+            existing.forEach((card, id) => !active.some(task => task.id === id) && card.remove());
+        }
+        const activeLabel = panel.querySelector('.anlink-dl-title p');
+        if (activeLabel) activeLabel.textContent = active.length ? `${active.length} active task${active.length === 1 ? '' : 's'}` : 'Ready for downloads';
+        AniLINKUI.updateFab();
+    }
 
     addEpisodes(episodes, quality, options = {}) {
         const { show = true, ...taskOptions } = options;
@@ -3289,8 +3393,6 @@ class DownloaderUI {
             ...options, format: link.type, quality, headers: options.headers, referer: link.referer, threads: options.threads,
             speedLimitBps: options.speedLimitBps, metadata: { episodeNumber: episode.number, quality, tracks: link.tracks || [] }
         });
-        task.on('complete', () => this.render());
-        task.on('error', () => this.render());
         task.start().catch(() => { });
         return task;
     }
@@ -3311,7 +3413,6 @@ class DownloaderUI {
             <div class="anlink-dl-body">
                 <section class="anlink-dl-section"><div class="anlink-dl-section-head">Active downloads</div><div data-region="active"></div></section>
                 <section class="anlink-dl-section"><div class="anlink-dl-section-head">History <button data-action="toggle-history">${this.historyOpen ? 'Collapse' : 'Expand'}</button></div><div data-region="history"></div></section>
-                ${this.settingsOpen ? this.renderSettings() : ''}
             </div>
         `;
         const activeRegion = panel.querySelector('[data-region="active"]');
@@ -3328,23 +3429,58 @@ class DownloaderUI {
 
     renderTask(task) {
         const stats = task.stats;
-        const percent = stats.totalSize ? Math.min(100, stats.bytesWritten / stats.totalSize * 100) : 0;
+        const percent = stats.totalSize > 0 ? Math.min(100, stats.bytesWritten / stats.totalSize * 100) : 0;
         const escape = dlUtils.anlinkEscapeHtml;
+        const displayFilename = task._partialFilename || task.filename;
         const card = document.createElement('article');
         card.className = 'anlink-dl-task';
         card.dataset.taskId = task.id;
         card.innerHTML = `
-            <div class="anlink-dl-task-top"><div class="anlink-dl-task-name" title="${escape(task.filename)}">${escape(task.filename)}<div class="anlink-dl-task-meta">${escape(task.anime || 'Anime')} · ${escape(task.options.quality || task.options.format || 'source')}</div></div><span class="anlink-dl-status ${escape(task.status)}">${escape(task.status)}</span></div>
-            <div class="anlink-dl-progress"><span style="width:${percent}%"></span></div>
-            <div class="anlink-dl-stats"><span>${stats.filesize} / ${stats.totalsize}</span><span>${stats.speed}</span><span>ETA ${stats.eta}</span><span>Parts ${stats.completedSegments}/${stats.totalSegments || '?'}</span><span>Threads ${stats.activeThreads}/${stats.threads}</span><span>Retries ${stats.retries}</span></div>
+            <div class="anlink-dl-task-top"><div class="anlink-dl-task-name" title="${escape(displayFilename)}">${escape(displayFilename)}<div class="anlink-dl-task-meta">${escape(task.anime || 'Anime')} · ${escape(task.options.quality || task.options.format || 'source')}</div></div><span class="anlink-dl-status ${escape(task.status)}">${escape(task.status)}</span></div>
+            <div class="anlink-dl-progress${stats.totalSize > 0 ? '' : ' indeterminate'}"><span style="width:${percent}%"></span></div>
+            <div class="anlink-dl-stats"><span data-field="size">${stats.filesize} / ${stats.totalsize}</span><span data-field="speed">${stats.speed}</span><span data-field="eta">ETA ${stats.eta}</span><span data-field="parts">Parts ${stats.completedSegments}/${stats.totalSegments || '?'}</span></div>
             ${task.error ? `<div class="anlink-dl-error">${escape(task.error)}</div>` : ''}
             <div class="anlink-dl-actions">
                 ${task.status === 'paused' ? '<button data-action="resume">Resume</button>' : ['preparing', 'downloading'].includes(task.status) ? '<button data-action="pause">Pause</button>' : ''}
-                ${['queued', 'preparing', 'downloading', 'paused'].includes(task.status) ? '<button data-action="cancel">Cancel</button>' : ''}
+                ${['queued', 'preparing', 'downloading', 'paused'].includes(task.status) ? '<button data-action="clear">Clear</button>' : '<button data-action="clear">Clear</button>'}
                 <button data-action="task-settings">More</button>
             </div>
+            <details class="anlink-dl-log"><summary>Logs (${task.logs.length})</summary><pre data-field="logs"></pre></details>
         `;
+        this.updateTaskCard(task, card);
         return card;
+    }
+
+    updateTaskCard(task, card) {
+        const stats = task.stats;
+        const progress = card.querySelector('.anlink-dl-progress');
+        const percent = stats.totalSize > 0 ? Math.min(100, stats.bytesWritten / stats.totalSize * 100) : 0;
+        progress?.classList.toggle('indeterminate', stats.totalSize <= 0);
+        const bar = progress?.querySelector('span');
+        if (bar) bar.style.width = `${percent}%`;
+        const status = card.querySelector('.anlink-dl-status');
+        if (status) { status.className = `anlink-dl-status ${task.status}`; status.textContent = task.status; }
+        const fields = { size: `${stats.filesize} / ${stats.totalsize}`, speed: stats.speed, eta: `ETA ${stats.eta}`, parts: `Parts ${stats.completedSegments}/${stats.totalSegments || '?'}` };
+        for (const [name, value] of Object.entries(fields)) if (card.querySelector(`[data-field="${name}"]`)) card.querySelector(`[data-field="${name}"]`).textContent = value;
+        const logs = card.querySelector('[data-field="logs"]');
+        if (logs) logs.textContent = task.logs.map(item => `[${new Date(item.at).toLocaleTimeString()}] ${item.level.toUpperCase()} ${item.message}`).join('\n');
+        const error = card.querySelector('.anlink-dl-error');
+        if (task.error && error) error.textContent = task.error;
+        const actions = card.querySelector('.anlink-dl-actions');
+        if (actions) {
+            actions.querySelector('[data-action="pause"], [data-action="resume"]')?.remove();
+            if (task.status === 'paused') actions.insertAdjacentHTML('afterbegin', '<button data-action="resume">Resume</button>');
+            else if (['preparing', 'downloading'].includes(task.status)) actions.insertAdjacentHTML('afterbegin', '<button data-action="pause">Pause</button>');
+        }
+    }
+
+    refreshHistory(panel = this.overlay?.querySelector('#AniLINK_DownloaderPanel')) {
+        const historyRegion = panel?.querySelector('[data-region="history"]');
+        if (!historyRegion || !this.historyOpen) return;
+        const history = this.downloader.history.filter(item => ['completed', 'failed', 'cancelled', 'interrupted'].includes(item.status));
+        historyRegion.replaceChildren(...(history.length
+            ? history.map(record => this.renderHistory(record))
+            : [Object.assign(document.createElement('div'), { className: 'anlink-dl-empty', textContent: 'Completed and interrupted downloads will appear here.' })]));
     }
 
     renderHistory(record) {
@@ -3352,7 +3488,8 @@ class DownloaderUI {
         const card = document.createElement('article');
         card.className = 'anlink-dl-task';
         card.dataset.historyId = record.id;
-        card.innerHTML = `<div class="anlink-dl-task-top"><div class="anlink-dl-task-name" title="${escape(record.filename)}">${escape(record.filename)}<div class="anlink-dl-task-meta">${escape(record.anime || 'Anime')} · ${new Date(record.updatedAt).toLocaleString()}</div></div><span class="anlink-dl-status ${escape(record.status)}">${escape(record.status)}</span></div><div class="anlink-dl-stats"><span>${dlUtils.anlinkFormatBytes(record.stats?.bytesWritten || 0)}</span><span>${escape(record.stats?.error || '')}</span></div><div class="anlink-dl-actions"><button data-action="retry-history">Retry</button><button data-action="remove-history" data-history-id="${escape(record.id)}">Remove</button></div>`;
+        const displayFilename = record.partialFilename && record.status !== 'completed' ? record.partialFilename : record.filename;
+        card.innerHTML = `<div class="anlink-dl-task-top"><div class="anlink-dl-task-name" title="${escape(displayFilename)}">${escape(displayFilename)}<div class="anlink-dl-task-meta">${escape(record.anime || 'Anime')} · ${new Date(record.updatedAt).toLocaleString()}</div></div><span class="anlink-dl-status ${escape(record.status)}">${escape(record.status)}</span></div><div class="anlink-dl-stats"><span>${dlUtils.anlinkFormatBytes(record.stats?.bytesWritten || 0)}</span><span>${escape(record.stats?.error || '')}</span></div><details class="anlink-dl-log"><summary>Logs (${record.logs?.length || 0})</summary><pre>${escape((record.logs || []).map(item => `[${new Date(item.at).toLocaleTimeString()}] ${String(item.level).toUpperCase()} ${item.message}`).join('\n'))}</pre></details><div class="anlink-dl-actions"><button data-action="retry-history">Retry</button><button data-action="remove-history" data-history-id="${escape(record.id)}">Remove</button></div>`;
         return card;
     }
 
@@ -3362,24 +3499,51 @@ class DownloaderUI {
         return `<section class="anlink-dl-section"><div class="anlink-dl-section-head">Settings</div><div class="anlink-dl-settings"><div class="anlink-dl-setting-grid"><div><label>Parallel downloads</label><input name="maxConcurrentTasks" type="number" min="1" max="8" value="${settings.maxConcurrentTasks}"></div><div><label>Default threads</label><input name="defaultThreads" type="number" min="1" max="32" value="${settings.defaultThreads}"></div><div><label>Default speed limit (KB/s, 0 = unlimited)</label><input name="defaultSpeedLimitBps" type="number" min="0" value="${Number.isFinite(settings.defaultSpeedLimitBps) ? Math.round(settings.defaultSpeedLimitBps / 1024) : 0}"></div><div><label>Preferred quality</label><input name="preferredQuality" type="text" value="${escape(settings.preferredQuality || '')}" placeholder="Auto"></div><div><label>Notifications</label><select name="notifications"><option value="off" ${settings.notifications === 'off' ? 'selected' : ''}>Off</option><option value="completed" ${settings.notifications === 'completed' ? 'selected' : ''}>Completed only</option><option value="completed-and-failed" ${settings.notifications === 'completed-and-failed' ? 'selected' : ''}>Completed and failed</option><option value="all" ${settings.notifications === 'all' ? 'selected' : ''}>All state changes</option></select></div><div><label>History retention</label><input name="historyLimit" type="number" min="1" max="200" value="${settings.historyLimit}"></div></div><div class="anlink-dl-actions"><button data-action="save-settings">Save settings</button><button data-action="clear-history">Clear history</button></div><div class="anlink-dl-help">Need help? <a href="https://github.com/jeryjs/Userscripts/issues/new?title=%5BAniLINK%5D%20Downloader%20issue&body=%23%23%20Description%0A%0A%23%23%20Steps%20to%20reproduce%0A1.%20%0A2.%20%0A%0A%23%23%20Expected%20behavior%0A%0A%23%23%20Actual%20behavior%0A%0A%23%23%20Environment%0A-%20Browser%3A%20%0A-%20Userscript%20manager%3A%20" target="_blank" rel="noreferrer">Report an issue on GitHub</a></div></div></section>`;
     }
 
+    showSettingsDialog() {
+        const settings = this.downloader.settings;
+        const escape = dlUtils.anlinkEscapeHtml;
+        const bodyHTML = `<div class="anlink-dl-settings"><div class="anlink-dl-setting-grid"><div><label>Parallel downloads</label><input name="maxConcurrentTasks" type="number" min="1" max="8" value="${settings.maxConcurrentTasks}"></div><div><label>Default threads</label><input name="defaultThreads" type="number" min="1" max="32" value="${settings.defaultThreads}"></div><div><label>Default speed limit (KB/s, 0 = unlimited)</label><input name="defaultSpeedLimitBps" type="number" min="0" value="${Number.isFinite(settings.defaultSpeedLimitBps) ? Math.round(settings.defaultSpeedLimitBps / 1024) : 0}"></div><div><label>Preferred quality</label><input name="preferredQuality" type="text" value="${escape(settings.preferredQuality || '')}" placeholder="Auto"></div><div><label>Notifications</label><select name="notifications"><option value="off" ${settings.notifications === 'off' ? 'selected' : ''}>Off</option><option value="completed" ${settings.notifications === 'completed' ? 'selected' : ''}>Completed only</option><option value="completed-and-failed" ${settings.notifications === 'completed-and-failed' ? 'selected' : ''}>Completed and failed</option><option value="all" ${settings.notifications === 'all' ? 'selected' : ''}>All state changes</option></select></div><div><label>History retention</label><input name="historyLimit" type="number" min="1" max="200" value="${settings.historyLimit}"></div></div><div class="anlink-dl-actions"><button type="button" data-action="clear-history">Clear history</button></div><div class="anlink-dl-help">Need help? <a href="https://github.com/jeryjs/Userscripts/issues/new?title=%5BAniLINK%5D%20Downloader%20issue&body=%23%23%20Description%0A%0A%23%23%20Steps%20to%20reproduce%0A1.%20%0A2.%20%0A%0A%23%23%20Expected%20behavior%0A%0A%23%23%20Actual%20behavior%0A%0A%23%23%20Environment%0A-%20Browser%3A%20%0A-%20Userscript%20manager%3A%20" target="_blank" rel="noreferrer">Report an issue on GitHub</a></div></div>`;
+        const { modal } = createModal({
+            title: 'Downloader Settings',
+            icon: '⚙',
+            subtitle: 'Defaults apply to newly added tasks',
+            bodyHTML,
+            width: '560px',
+            onConfirm: dialog => {
+                const value = name => dialog.querySelector(`[name="${name}"]`)?.value;
+                this.downloader.updateSettings({ maxConcurrentTasks: +value('maxConcurrentTasks'), defaultThreads: +value('defaultThreads'), defaultSpeedLimitBps: +(value('defaultSpeedLimitBps') || 0) * 1024 || Infinity, preferredQuality: value('preferredQuality'), notifications: value('notifications'), historyLimit: +value('historyLimit') });
+                this.refresh();
+            }
+        });
+        modal.querySelector('[data-action="clear-history"]').addEventListener('click', () => {
+            if (confirm('Clear all completed and interrupted download history?')) {
+                this.downloader.clearHistory();
+                modal.remove();
+            }
+        });
+    }
+
     bindActions(panel) {
         panel.querySelector('[data-action="back"]')?.addEventListener('click', () => AniLINKUI.switchView('extractor'));
         panel.querySelector('[data-action="close"]')?.addEventListener('click', () => AniLINKUI.close());
-        panel.querySelector('[data-action="settings"]')?.addEventListener('click', () => { this.settingsOpen = !this.settingsOpen; this.render(); });
+        panel.querySelector('[data-action="settings"]')?.addEventListener('click', () => this.showSettingsDialog());
         panel.querySelector('[data-action="toggle-history"]')?.addEventListener('click', () => { this.historyOpen = !this.historyOpen; this.downloader.updateSettings({ historyCollapsed: !this.historyOpen }); });
-        panel.querySelector('[data-action="clear-history"]')?.addEventListener('click', () => { this.downloader.clearHistory(); this.render(); });
-        panel.querySelector('[data-action="save-settings"]')?.addEventListener('click', () => {
-            const value = name => panel.querySelector(`[name="${name}"]`)?.value;
-            this.downloader.updateSettings({ maxConcurrentTasks: +value('maxConcurrentTasks'), defaultThreads: +value('defaultThreads'), defaultSpeedLimitBps: +(value('defaultSpeedLimitBps') || 0) * 1024 || Infinity, preferredQuality: value('preferredQuality'), notifications: value('notifications'), historyLimit: +value('historyLimit') });
-            this.settingsOpen = false;
-            this.render();
-        });
-        panel.querySelectorAll('[data-action="pause"]').forEach(button => button.addEventListener('click', () => this.downloader.getTask(button.closest('[data-task-id]').dataset.taskId).pause()));
-        panel.querySelectorAll('[data-action="resume"]').forEach(button => button.addEventListener('click', () => this.downloader.getTask(button.closest('[data-task-id]').dataset.taskId).resume()));
-        panel.querySelectorAll('[data-action="cancel"]').forEach(button => button.addEventListener('click', () => this.downloader.getTask(button.closest('[data-task-id]').dataset.taskId).cancel()));
-        panel.querySelectorAll('[data-action="remove-history"]').forEach(button => button.addEventListener('click', () => { this.downloader.removeHistory(button.dataset.historyId); this.render(); }));
-        panel.querySelectorAll('[data-action="retry-history"]').forEach(button => button.addEventListener('click', () => { this.downloader.retryHistory(button.closest('[data-history-id]').dataset.historyId).then(() => this.render()).catch(error => showToast(`Retry failed: ${error.message || error}`)); }));
-        panel.querySelectorAll('[data-action="task-settings"]').forEach(button => button.addEventListener('click', () => this.showTaskPopover(button.closest('[data-task-id]'))));
+        panel.onclick = event => {
+            const button = event.target.closest('button[data-action]');
+            if (!button) return;
+            const action = button.dataset.action;
+            if (action === 'pause' || action === 'resume') this.downloader.getTask(button.closest('[data-task-id]').dataset.taskId)[action]();
+            else if (action === 'clear') {
+                const task = this.downloader.getTask(button.closest('[data-task-id]').dataset.taskId);
+                if (!confirm(`Clear ${task.filename} from the downloader? An active task will be cancelled and its partial file will be kept.`)) return;
+                this.downloader.clearTask(task.id);
+            } else if (action === 'remove-history') {
+                this.downloader.removeHistory(button.dataset.historyId);
+                this.render();
+            } else if (action === 'retry-history') {
+                this.downloader.retryHistory(button.closest('[data-history-id]').dataset.historyId).catch(error => showToast(`Retry failed: ${error.message || error}`));
+            } else if (action === 'task-settings') this.showTaskPopover(button.closest('[data-task-id]'));
+        };
     }
 
     showTaskPopover(card) {
