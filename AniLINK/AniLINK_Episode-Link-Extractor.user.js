@@ -106,6 +106,9 @@ const EP_RANGE_THRESHOLD = GM_getValue('ep_range_threshold', 12); // Number of e
 const MPV_PROTOCOL = GM_getValue('MPV_PROTOCOL', 'mpv-handler'); // you can set this to mpv-handler-debug if u want it to show the console~
 const SRC_IN_FN = GM_getValue('include_source_in_filename', true); // Whether the exported playlist filename should include the source name that you chose as well
 const PREFER_JAP_TITLE = GM_getValue('prefer_jap_title', false); // Prefer taking the japenese/romaji titles from sites where relevant like animepahe
+const UNSUPPORTED_DOWNLOAD_URL_PATTERNS = [
+    /^https:\/\/megap.*$/i
+];
 
 /**
  * Represents an anime episode with metadata and streaming links.
@@ -1183,6 +1186,13 @@ const Extractors = {
         const encData = await fetch(url).then(r => r.text()).catch(e => { throw new Error(`Failed to fetch video data: ${e.message || e}`); });
         const data = await GM_fetch(`https://enc-dec.app/api/dec-videasy`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: encData, id }) }).then(r => r.json()).then(d => d.result).catch(e => { throw new Error(`Failed to decrypt video data: ${e.message || e}`); });
         return [...data.sources.map(s => ({ file: s.url, quality: s.quality, type: 'm3u8', tracks: data.subtitles?.map(s => ({ file: s.url, label: s.language, kind: 'captions' })) || [], referer }))];
+    },
+    'vidtube.site': async function (url) {
+        const page = await GM_fetch(url).then(r => r.text());
+        const id = page.match(/<title>File (\d+) - VidTube<\/title>/)?.[1] || url.split('/').pop();
+        const type = page.match(/<title>File \d+ - VidTube<\/title>/)?.[0].includes('hsub') ? 'hsub' : 'hls';
+        const data = await GM_fetch(`https://vidtube.site/stream/getSourcesNew?id=${id}&type=${type}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.json());
+        return { file: data.sources.file, type: data.sources.file.includes('.m3u8') ? 'm3u8' : 'mp4', tracks: data.tracks || [], referer: 'https://vidtube.site/' };
     }
 }
 /**
@@ -1422,7 +1432,7 @@ async function extractEpisodes() {
     const rerunBtn = document.createElement('button');
     rerunBtn.id = 'AniLINK_RerunBtn';
     rerunBtn.title = 'Reset and Rerun Extraction';
-    rerunBtn.textContent = '×';
+    rerunBtn.textContent = '↻';
     rerunBtn.addEventListener('click', () => {
         overlayDiv.remove();
         extractEpisodes();
@@ -1545,6 +1555,7 @@ async function extractEpisodes() {
         console.error('Error during episode extraction:', error);
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
         status = { isExtracting: false, text: `Extraction Failed after ${duration} seconds.`, error: error.message || error.toString() };
+        showToast(`Extraction failed: ${dlUtils?.anlinkEscapeHtml?.(status.error) || status.error}`);
     }
 
     // Renders quality link lists inside a given container element
@@ -1805,37 +1816,40 @@ async function extractEpisodes() {
     }
 
     async function onDownloadEpisodes(episodes, quality, source) {
-        const directorySelected = await anilinkDownloader.setDirectory();
-        if (!directorySelected) return;
-        anilinkDownloaderUI.addEpisodes(episodes, quality, { preferredQuality: quality, show: false });
-        AniLINKUI.animateDrop(source);
-        setTimeout(() => anilinkDownloaderUI.show(), 520);
-        showToast(`${episodes.length} episode${episodes.length === 1 ? '' : 's'} added to downloads.`);
+        try {
+            const directorySelected = await anilinkDownloader.setDirectory();
+            if (!directorySelected) return;
+            anilinkDownloaderUI.addEpisodes(episodes, quality, { show: false });
+            AniLINKUI.animateDrop(source);
+            setTimeout(() => anilinkDownloaderUI.show(), 520);
+            showToast(`${episodes.length} episode${episodes.length === 1 ? '' : 's'} added to downloads.`);
+        } catch (error) { showToast(`Could not start downloads: ${dlUtils?.anlinkEscapeHtml?.(error.message || error) || error}`); }
     }
 
     async function onDownloadSelected(btn) {
-        const directorySelected = await anilinkDownloader.setDirectory();
-        if (!directorySelected) return;
-        let selected = getAllSelectedEpisodes(false);
-        if (!Object.keys(selected).length) {
-            const allEpisodes = window._anilink_episodes || [];
-            if (!allEpisodes.length) return showToast('No episodes available to download');
-            const range = await showEpisodeRangeSelector(allEpisodes.length);
-            const episodes = allEpisodes.slice(range.start - 1, range.end);
-            const quality = anilinkDownloader.settings.preferredQuality && episodes.some(ep => ep.links[anilinkDownloader.settings.preferredQuality])
-                ? anilinkDownloader.settings.preferredQuality : Object.keys(episodes[0]?.links || {})[0];
-            if (!quality) return showToast('No downloadable quality found');
-            return onDownloadEpisodes(episodes, quality, btn);
-        }
-        const tasks = [];
-        for (const [quality, items] of Object.entries(selected)) {
-            const epNums = items.map(item => item.querySelector('[data-epnum]').dataset.epnum);
-            const episodes = (window._anilink_episodes || []).filter(ep => epNums.includes(ep.number) && ep.links[quality]);
-            if (episodes.length) tasks.push(...anilinkDownloaderUI.addEpisodes(episodes, quality, { show: false }));
-        }
-        AniLINKUI.animateDrop(btn);
-        setTimeout(() => anilinkDownloaderUI.show(), 520);
-        showToast(`${tasks.length} episode${tasks.length === 1 ? '' : 's'} added to downloads.`);
+        try {
+            const directorySelected = await anilinkDownloader.setDirectory();
+            if (!directorySelected) return;
+            let selected = getAllSelectedEpisodes(false);
+            if (!Object.keys(selected).length) {
+                const allEpisodes = window._anilink_episodes || [];
+                if (!allEpisodes.length) return showToast('No episodes available to download');
+                const range = await showEpisodeRangeSelector(allEpisodes.length);
+                const episodes = allEpisodes.slice(range.start - 1, range.end);
+                const quality = Object.keys(episodes[0]?.links || {})[0];
+                if (!quality) return showToast('No downloadable source found');
+                return onDownloadEpisodes(episodes, quality, btn);
+            }
+            const tasks = [];
+            for (const [quality, items] of Object.entries(selected)) {
+                const epNums = items.map(item => item.querySelector('[data-epnum]').dataset.epnum);
+                const episodes = (window._anilink_episodes || []).filter(ep => epNums.includes(ep.number) && ep.links[quality]);
+                if (episodes.length) tasks.push(...anilinkDownloaderUI.addEpisodes(episodes, quality, { show: false }));
+            }
+            AniLINKUI.animateDrop(btn);
+            setTimeout(() => anilinkDownloaderUI.show(), 520);
+            showToast(`${tasks.length} episode${tasks.length === 1 ? '' : 's'} added to downloads.`);
+        } catch (error) { showToast(`Could not start downloads: ${dlUtils?.anlinkEscapeHtml?.(error.message || error) || error}`); }
     }
 
     async function onExportAll(btn) {
@@ -2479,11 +2493,20 @@ const dlUtils = {
         return `${stem}${extension}`;
     },
 
+    anlinkSafeDirectoryName: (directoryName) => String(directoryName || '').normalize('NFKC').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/, '').trim().slice(0, 120),
+
     anlinkEscapeHtml: (value) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])),
 
     anlinkNewId: () => {
         return globalThis.crypto?.randomUUID?.() || `anlink-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    }
+    },
+
+    assertSupportedDownloadUrl: (url) => {
+        if (UNSUPPORTED_DOWNLOAD_URL_PATTERNS.some(pattern => pattern.test(String(url)))) {
+            const match = url.match(/^https?:\/\/([^\/]+)\//);
+            throw new Error(`This link (${match ? match[1] : url}) is known to not be supported, try again with another source.`);
+        }
+    },
 }
 
 class DownloadTask {
@@ -2521,6 +2544,10 @@ class DownloadTask {
             speedBps: 0,
             speedLimitBps: options.speedLimitBps,
             rangeSupported: null,
+            phase: 'main',
+            trackIndex: 0,
+            trackTotal: 0,
+            trackLabel: '',
             format: options.format,
             contentType: '',
             startedAt: null,
@@ -2594,6 +2621,7 @@ class DownloadTask {
 class Downloader {
     static formats = new Map();
     #dirHandle = null;
+    #fallbackMode = false;
     #tasks = new Map();
     #keyCache = new Map();
     #queue = [];
@@ -2651,11 +2679,12 @@ class Downloader {
             maxConcurrentTasks: 1,
             defaultThreads: 6,
             defaultSpeedLimitBps: Infinity,
-            preferredQuality: '',
+            preferredResolution: 0,
             notifications: 'completed-and-failed',
             overwrite: true,
             historyLimit: 15,
-            historyCollapsed: true
+            historyCollapsed: true,
+            subtitleDirectory: ''
         };
     }
 
@@ -2665,7 +2694,11 @@ class Downloader {
             const saved = JSON.parse(localStorage.getItem(this.#storageKey) || '{}');
             const history = Array.isArray(saved.history) ? saved.history.map(item => ['queued', 'preparing', 'downloading', 'paused'].includes(item.status) ? { ...item, status: 'interrupted' } : item) : [];
             const settings = { ...defaults, ...(saved.settings || {}) };
+            if (!Object.prototype.hasOwnProperty.call(saved.settings || {}, 'preferredResolution')) settings.preferredResolution = Number(saved.settings?.preferredQuality) || 0;
+            delete settings.preferredQuality;
+            settings.preferredResolution = Math.max(0, Number(settings.preferredResolution) || 0);
             settings.historyLimit = Math.min(100, Math.max(1, Number(settings.historyLimit) || 15));
+            settings.subtitleDirectory = dlUtils.anlinkSafeDirectoryName(settings.subtitleDirectory);
             if (!Number.isFinite(settings.defaultSpeedLimitBps) || settings.defaultSpeedLimitBps <= 0) settings.defaultSpeedLimitBps = Infinity;
             return { settings, history };
         } catch { return { settings: defaults, history: [] }; }
@@ -2683,7 +2716,9 @@ class Downloader {
         next.maxConcurrentTasks = Math.max(1, Math.floor(Number(next.maxConcurrentTasks) || 1));
         next.defaultThreads = Math.max(1, Math.floor(Number(next.defaultThreads) || 6));
         next.defaultSpeedLimitBps = next.defaultSpeedLimitBps === Infinity ? Infinity : Math.max(0, Number(next.defaultSpeedLimitBps) || 0) || Infinity;
+        next.preferredResolution = Math.max(0, Number(next.preferredResolution) || 0);
         next.historyLimit = Math.min(100, Math.max(1, Math.floor(Number(next.historyLimit) || 15)));
+        next.subtitleDirectory = dlUtils.anlinkSafeDirectoryName(next.subtitleDirectory);
         if (!['off', 'completed', 'completed-and-failed', 'all'].includes(next.notifications)) next.notifications = 'completed-and-failed';
         this.#settings = next;
         this.#saveStore();
@@ -2710,7 +2745,8 @@ class Downloader {
         if (!this.#dirHandle && !await this.setDirectory()) return null;
         const task = this.addTask(record.filename, record.anime, record.url, {
             format: record.format, quality: record.quality, threads: record.threads,
-            speedLimitBps: record.speedLimitBps, referer: record.referer
+            speedLimitBps: record.speedLimitBps, referer: record.referer,
+            preferredResolution: record.preferredResolution, subtitleDirectory: record.subtitleDirectory, tracks: record.tracks || []
         });
         task._historyId = record.id;
         this.#history = this.#history.filter(item => item.id !== record.id && item.id !== task.id);
@@ -2748,8 +2784,13 @@ class Downloader {
      */
     setDirectory() {
         if (this.#dirHandle) return Promise.resolve(true);
+        if (this.#fallbackMode) return Promise.resolve(true);
         const picker = window.showDirectoryPicker || unsafeWindow?.showDirectoryPicker;
-        if (!picker) return Promise.reject(new Error('This browser does not support the File System Access API.'));
+        if (!picker) {
+            this.#fallbackMode = true;
+            showToast('Direct folder access is unavailable here. Browser download fallback is enabled.');
+            return Promise.resolve(true);
+        }
         // Execute synchronously to preserve transient user activation before wrapping in Promise chain
         return picker.call(window, { mode: 'readwrite' })
             .then(handle => { this.#dirHandle = handle; return true; })
@@ -2773,7 +2814,10 @@ class Downloader {
             format: String(inferredFormat).toLowerCase().replace(/^\./, '').split('?')[0],
             allowBufferedFallback: options.allowBufferedFallback === true,
             allowLive: options.allowLive === true,
-            quality: options.quality
+            quality: options.quality,
+            preferredResolution: Math.max(0, Number(options.preferredResolution ?? this.#settings.preferredResolution) || 0),
+            subtitleDirectory: dlUtils.anlinkSafeDirectoryName(options.subtitleDirectory ?? this.#settings.subtitleDirectory),
+            tracks: Array.isArray(options.tracks) ? options.tracks.map(track => ({ ...track })) : []
         };
         const task = new DownloadTask(this, filename, anime, url, normalizedOptions);
         this.#tasks.set(task.id, task);
@@ -2877,7 +2921,8 @@ class Downloader {
         task._stats.startedAt = Date.now();
         task._setStatus('preparing');
         try {
-            if (!this.#dirHandle) throw new Error('Select an output directory before starting a download.');
+            if (!this.#dirHandle && !this.#fallbackMode) throw new Error('Select an output directory before starting a download.');
+            dlUtils.assertSupportedDownloadUrl(task.url);
             await this.#openWriter(task);
             task._log(`Writing partial file: ${task._partialFilename}`);
             if (Downloader.formats.has(task.options.format)) await Downloader.formats.get(task.options.format)(task, this.getFormatContext(task));
@@ -2887,6 +2932,7 @@ class Downloader {
             if (task._cancelled) throw Object.assign(new Error('Download cancelled'), { name: 'AbortError' });
             await this.#closeWriter(task);
             await this.#finalizeFile(task);
+            await this.#downloadTracks(task);
             task._stats.finishedAt = Date.now();
             task._setStatus('completed');
             task._emit('complete', task.stats);
@@ -2897,14 +2943,16 @@ class Downloader {
                 task._stats.error = 'Download cancelled';
                 task._stats.finishedAt = Date.now();
                 task._setStatus('cancelled');
-                task._log(`Partial file retained: ${task.filepath}`, 'warning');
+                task._log(task._partialFilename ? `Partial file retained: ${task.filepath}` : 'Download cancelled before a file was finalized.', 'warning');
                 this.#recordHistory(task);
             } else {
                 task._stats.error = error.message || String(error);
                 task._stats.errors.push(task._stats.error);
                 task._stats.finishedAt = Date.now();
                 task._setStatus('failed');
-                task._log(`Partial file retained: ${task.filepath}`, 'error');
+                await this.#closeWriter(task);
+                await this.#discardPartialFile(task);
+                task._log(task._partialFilename ? `Partial file could not be removed: ${task.filepath}` : `Failed download; partial file removed or no file was created: ${task._stats.error}`, 'error');
                 task._emit('error', error);
                 this.#recordHistory(task);
             }
@@ -2940,7 +2988,8 @@ class Downloader {
         const record = {
             id: historyId, filename: task.filename, partialFilename: task._partialFilename || '', anime: task.anime, url: task.url, status: task.status,
             format: task.options.format, quality: task.options.quality || '', threads: task.options.threads,
-            speedLimitBps: task.options.speedLimitBps, referer: task.options.referer || '', logs: task.logs, stats: { ...task._stats }, updatedAt: Date.now()
+            preferredResolution: task.options.preferredResolution, subtitleDirectory: task.options.subtitleDirectory, tracks: task.options.tracks, speedLimitBps: task.options.speedLimitBps,
+            referer: task.options.referer || '', logs: task.logs, stats: { ...task._stats }, updatedAt: Date.now()
         };
         this.#history = this.#history.filter(item => item.id !== historyId);
         if (!['completed', 'failed', 'cancelled'].includes(task.status)) this.#history.push(record);
@@ -2953,7 +3002,8 @@ class Downloader {
         const record = {
             id: task._historyId || task.id, filename: task.filename, partialFilename: task._partialFilename || '', anime: task.anime, url: task.url, status: task.status,
             format: task.options.format, quality: task.options.quality || '', threads: task.options.threads,
-            speedLimitBps: task.options.speedLimitBps, referer: task.options.referer || '', logs: task.logs, stats: { ...task._stats }, updatedAt: Date.now()
+            preferredResolution: task.options.preferredResolution, subtitleDirectory: task.options.subtitleDirectory, tracks: task.options.tracks, speedLimitBps: task.options.speedLimitBps,
+            referer: task.options.referer || '', logs: task.logs, stats: { ...task._stats }, updatedAt: Date.now()
         };
         this.#history = this.#history.filter(item => item.id !== record.id);
         this.#history.push(record);
@@ -2966,8 +3016,9 @@ class Downloader {
     #notifyTask(task) {
         const preference = this.#settings.notifications;
         const shouldNotify = preference === 'all' || preference === 'completed' && task.status === 'completed' || preference === 'completed-and-failed' && ['completed', 'failed'].includes(task.status);
-        if (!shouldNotify) return;
         const message = task.status === 'completed' ? `${task.filename} finished.` : task.status === 'failed' ? `${task.filename} failed: ${task.error || 'unknown error'}` : `${task.filename}: ${task.status}.`;
+        if (task.status === 'failed') showToast(`Download failed: ${dlUtils.anlinkEscapeHtml(task.filename)} — ${dlUtils.anlinkEscapeHtml(task.error || 'unknown error')}`);
+        if (!shouldNotify) return;
         if (typeof GM_notification === 'function') GM_notification({ title: 'AniLINK Downloader', text: message, timeout: 5000 });
         else showToast(message);
     }
@@ -2988,6 +3039,21 @@ class Downloader {
     }
 
     async #openWriter(task) {
+        if (!this.#dirHandle) {
+            const filename = task.filename;
+            task._partialFilename = filename.replace(/(\.[^.]+)?$/, '.partial$1');
+            task._filepath = `browser downloads\\${filename}`;
+            task._memoryParts = new Map();
+            task._writer = {
+                write: async command => {
+                    if (command?.type !== 'write') throw new Error('Unsupported fallback writer command.');
+                    task._memoryParts.set(command.position, command.data instanceof Uint8Array ? command.data : new Uint8Array(command.data));
+                },
+                close: async () => { }
+            };
+            task._log('Using browser download fallback; no local partial file can be retained.', 'warning');
+            return;
+        }
         let filename = task.filename;
         if (!task.options.overwrite) {
             const extension = filename.match(/\.[^.]+$/)?.[0] || '';
@@ -3021,6 +3087,18 @@ class Downloader {
     }
 
     async #finalizeFile(task) {
+        if (!this.#dirHandle) {
+            const parts = [...(task._memoryParts || new Map()).entries()]
+                .sort(([first], [second]) => first - second)
+                .map(([, bytes]) => bytes);
+            const blob = new Blob(parts, { type: task._stats.contentType || 'application/octet-stream' });
+            await this.#saveBlob(task, blob, task.filename);
+            task._memoryParts = null;
+            task._partialFilename = '';
+            task._filepath = `browser downloads\\${task.filename}`;
+            task._log(`Saved ${task.filename} through the browser download manager.`);
+            return;
+        }
         const extension = task.filename.match(/\.[^.]+$/)?.[0] || '';
         const stem = extension ? task.filename.slice(0, -extension.length) : task.filename;
         const finalFilename = `${stem}${extension}`;
@@ -3039,9 +3117,155 @@ class Downloader {
             await writer.close();
         }
         await this.#dirHandle.removeEntry(task._partialFilename);
+        task._partialFilename = '';
         task.filename = finalFilename;
         task._filepath = `${this.#dirHandle.name}\\${finalFilename}`;
-        task._log(`Finalized ${finalFilename}`);
+        task._log(`Finalized ${finalFilename} -> ${task._filepath}`);
+    }
+
+    async #discardPartialFile(task) {
+        if (!this.#dirHandle || !task._partialFilename) {
+            task._partialFilename = '';
+            return;
+        }
+        const partialFilename = task._partialFilename;
+        try {
+            await this.#dirHandle.removeEntry(partialFilename);
+            task._partialFilename = '';
+            task._filepath = `${this.#dirHandle.name}\\${task.filename}`;
+            task._log(`Removed failed partial file: ${partialFilename}`, 'warning');
+        } catch (error) {
+            if (error?.name === 'NotFoundError') {
+                task._partialFilename = '';
+                return;
+            }
+            task._stats.errors.push(`Partial file cleanup failed: ${error.message || error}`);
+            task._log(`Could not remove failed partial file ${partialFilename}: ${error.message || error}`, 'error');
+            showToast(`Could not remove failed partial file: ${dlUtils.anlinkEscapeHtml(error.message || error)}`);
+        }
+    }
+
+    async #saveBlob(task, blob, filename) {
+        const objectUrl = URL.createObjectURL(blob);
+        try {
+            if (typeof GM_download === 'function') {
+                try {
+                    await new Promise((resolve, reject) => {
+                        let settled = false;
+                        const finish = (callback, value) => { if (settled) return; settled = true; callback(value); };
+                        try {
+                            GM_download({
+                                url: objectUrl,
+                                name: filename,
+                                saveAs: false,
+                                onload: () => finish(resolve),
+                                onerror: details => finish(reject, new Error(details?.error || details?.details || 'Browser download failed.'))
+                            });
+                        } catch (error) { finish(reject, error); }
+                    });
+                    return;
+                } catch (error) { task._log(`GM_download fallback failed: ${error.message || error}`, 'warning'); }
+            }
+            {
+                const anchor = Object.assign(document.createElement('a'), { href: objectUrl, download: filename });
+                document.body.appendChild(anchor);
+                anchor.click();
+                anchor.remove();
+            }
+        } finally { setTimeout(() => URL.revokeObjectURL(objectUrl), 1000); }
+    }
+
+    #trackExtension(track, response) {
+        const contentType = response?.contentType || dlUtils.anlinkParseHeaders(response?.responseHeaders || '').get('content-type') || '';
+        const urlExtension = new URL(track.file).pathname.match(/\.([a-z0-9]{1,8})$/i)?.[1]?.toLowerCase();
+        if (/mpegurl/.test(contentType) && /^(caption|subtitle)s?/i.test(track.kind || '')) return '.vtt';
+        if (urlExtension) return `.${urlExtension}`;
+        if (/vtt|webvtt/.test(contentType)) return '.vtt';
+        if (/subrip/.test(contentType)) return '.srt';
+        if (/ttml|mpegtt/.test(contentType)) return '.ttml';
+        if (/ass|ssa/.test(contentType)) return '.ass';
+        if (/audio\/mpeg/.test(contentType)) return '.mp3';
+        if (/audio\/mp4/.test(contentType)) return '.m4a';
+        return /^(audio|music)/i.test(track.kind || '') ? '.bin' : '.vtt';
+    }
+
+    async #fetchTrack(task, track) {
+        if (!/\.m3u8(?:$|\?)/i.test(track.file)) return this.#requestWithRetry(task, track.file, { responseType: 'arraybuffer' });
+        const playlist = await this.#loadHlsPlaylist(task, track.file);
+        const parsed = this.#parseHlsMediaPlaylist(playlist);
+        if (!parsed.jobs.length) throw new Error(`Subtitle playlist has no segments: ${track.file}`);
+        const pieces = [];
+        let previousRangeEnd = 0;
+        for (const job of parsed.jobs) {
+            const byteRange = this.#parseHlsRange(job.range, previousRangeEnd);
+            if (byteRange) previousRangeEnd = byteRange.end + 1;
+            const response = await this.#requestWithRetry(task, new URL(job.uri, playlist.url).href, { headers: byteRange ? { Range: `bytes=${byteRange.start}-${byteRange.end}` } : {} });
+            pieces.push(new Uint8Array(response.response || new ArrayBuffer(0)));
+        }
+        const textPieces = pieces.map(bytes => new TextDecoder().decode(bytes));
+        const merged = textPieces.map((text, index) => index ? text.replace(/^\uFEFF?WEBVTT[^\r\n]*(?:\r?\n[^\r\n]*)*?\r?\n\r?\n/i, '') : text).join('\n');
+        const text = /WEBVTT/i.test(merged) ? merged : `WEBVTT\n\n${merged}`;
+        task._log(`Subtitle HLS details: playlist=${track.file}; segments=${parsed.jobs.length}; outputBytes=${text.length}`);
+        return { response: new TextEncoder().encode(text), responseHeaders: 'Content-Type: text/vtt', contentType: 'text/vtt' };
+    }
+
+    async #downloadTracks(task) {
+        const tracks = (task.options.tracks || []).filter(track => track?.file && (track.kind || 'caption'));
+        if (!tracks.length) return;
+        task._stats.phase = 'tracks';
+        task._stats.trackIndex = 0;
+        task._stats.trackTotal = tracks.length;
+        task._stats.trackLabel = '';
+        task._emit('progress', task.stats);
+        task._log(`Episode tracks: ${tracks.map(track => `${track.kind || 'track'}=${track.label || 'unnamed'} -> ${track.file}`).join(' | ')}`);
+        const extension = task.filename.match(/\.[^.]+$/)?.[0] || '';
+        const stem = extension ? task.filename.slice(0, -extension.length) : task.filename;
+        const usedNames = new Set();
+        let directory;
+        const subtitleDirectory = task.options.subtitleDirectory;
+        if (this.#dirHandle) {
+            try { directory = subtitleDirectory ? await this.#dirHandle.getDirectoryHandle(subtitleDirectory, { create: true }) : this.#dirHandle; }
+            catch (error) {
+                const message = `Could not create the subtitle folder${subtitleDirectory ? ` "${subtitleDirectory}"` : ''}: ${error.message || error}`;
+                task._stats.errors.push(message);
+                task._stats.phase = 'track-error';
+                task._log(message, 'error');
+                task._emit('progress', task.stats);
+                showToast(dlUtils.anlinkEscapeHtml(message));
+                return;
+            }
+        }
+        for (const track of tracks) {
+            task._stats.trackLabel = track.label || track.kind || 'track';
+            task._emit('progress', task.stats);
+            try {
+                const response = await this.#fetchTrack(task, track);
+                const label = dlUtils.anlinkSafeFilename(track.label || track.kind || 'track').replace(/\.[^.]+$/, '') || 'track';
+                const trackExtension = this.#trackExtension(track, response);
+                let trackFilename = `${stem}.${label}${trackExtension}`;
+                for (let suffix = 2; usedNames.has(trackFilename); suffix++) trackFilename = `${stem}.${label} (${suffix})${trackExtension}`;
+                usedNames.add(trackFilename);
+                const bytes = response.response instanceof Uint8Array ? response.response : new Uint8Array(response.response || new ArrayBuffer(0));
+                if (directory) {
+                    const fileHandle = await directory.getFileHandle(trackFilename, { create: true });
+                    const writer = await fileHandle.createWritable({ keepExistingData: false });
+                    await writer.write(bytes);
+                    await writer.close();
+                } else await this.#saveBlob(task, new Blob([bytes], { type: dlUtils.anlinkParseHeaders(response.responseHeaders || '').get('content-type') || 'application/octet-stream' }), `${subtitleDirectory ? `${subtitleDirectory}/` : ''}${trackFilename}`);
+                task._stats.trackIndex++;
+                task._log(`Saved ${track.kind || 'track'} ${track.label || 'unnamed'} as ${subtitleDirectory ? `${subtitleDirectory}/` : ''}${trackFilename}`);
+            } catch (error) {
+                const message = `Track ${track.label || track.file} failed: ${error.message || error}`;
+                task._stats.trackErrors = [...(task._stats.trackErrors || []), message];
+                task._stats.errors.push(message);
+                task._stats.trackIndex++;
+                task._log(message, 'error');
+                showToast(`Subtitle/track failed: ${dlUtils.anlinkEscapeHtml(message)}`);
+            }
+            task._emit('progress', task.stats);
+        }
+        task._stats.trackLabel = '';
+        task._emit('progress', task.stats);
     }
 
     async #closeWriter(task) {
@@ -3061,6 +3285,11 @@ class Downloader {
         if (task.options.referer && !Object.keys(headers).some(key => key.toLowerCase() === 'referer')) headers.Referer = task.options.referer;
         if (task.options.origin && !Object.keys(headers).some(key => key.toLowerCase() === 'origin')) headers.Origin = task.options.origin;
         return { ...headers, ...extra };
+    }
+
+    #headerSummary(headers) {
+        const entries = headers instanceof Headers ? [...headers.entries()] : [...dlUtils.anlinkParseHeaders(headers).entries()];
+        return entries.length ? entries.map(([key, value]) => `${key}: ${value}`).join(' | ') : '(none)';
     }
 
     async #request(task, url, options = {}) {
@@ -3159,11 +3388,18 @@ class Downloader {
 
     async #probeDirect(task) {
         let head;
-        try { head = await this.#requestWithRetry(task, task.url, { method: 'HEAD', responseType: 'text' }); } catch { head = null; }
+        try {
+            head = await this.#requestWithRetry(task, task.url, { method: 'HEAD', responseType: 'text' });
+            task._log(`Initial HEAD probe: status=${head.status}; headers=${this.#headerSummary(head.responseHeaders)}`);
+        } catch (error) {
+            task._log(`Initial HEAD probe unavailable: ${error.message || error}`, 'warning');
+            head = null;
+        }
         const headHeaders = head ? dlUtils.anlinkParseHeaders(head.responseHeaders) : new Headers();
         const headSize = Number(headHeaders.get('content-length')) || 0;
         const probe = await this.#requestWithRetry(task, task.url, { headers: { Range: 'bytes=0-0' } });
         const headers = dlUtils.anlinkParseHeaders(probe.responseHeaders);
+        task._log(`Initial range probe: status=${probe.status}; bytes=${probe.response?.byteLength || 0}; headers=${this.#headerSummary(headers)}`);
         task._stats.contentType = headers.get('content-type') || headHeaders.get('content-type') || '';
         const range = headers.get('content-range')?.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
         if (probe.status === 206 && range) {
@@ -3171,6 +3407,7 @@ class Downloader {
             if (!totalSize) throw new Error('The server returned a range response without a total size.');
             task._stats.totalSize = totalSize;
             task._stats.rangeSupported = true;
+            task._log(`Direct stream details: contentType=${task._stats.contentType || 'unknown'}; totalSize=${totalSize}; rangeSupported=true`);
             return { firstByte: probe.response, totalSize };
         }
         const body = new Uint8Array(probe.response || new ArrayBuffer(0));
@@ -3179,6 +3416,7 @@ class Downloader {
             task._stats.totalSize = body.length;
             task._stats.rangeSupported = false;
             task._stats.bufferedFallback = true;
+            task._log(`Direct stream details: contentType=${task._stats.contentType || 'unknown'}; totalSize=${body.length}; rangeSupported=false; bufferedFallback=true`);
             return { buffered: body, totalSize: body.length };
         }
         throw new Error(`The server does not support byte ranges; direct pause/resume and multi-threading are unavailable for ${task.url}`);
@@ -3218,7 +3456,9 @@ class Downloader {
         await task._waitForResume();
         const response = await GM_fetch(url, { headers: this.#headers(task) });
         if (!response.ok) throw new Error(`HTTP ${response.status} while fetching ${url}`);
-        return { text: await response.text(), url: response.url || url };
+        const text = await response.text();
+        task._log(`Text probe: status=${response.status}; bytes=${text.length}; contentType=${response.headers.get('content-type') || 'unknown'}; url=${response.url || url}`);
+        return { text, url: response.url || url, headers: response.headers };
     }
 
     #parseHlsAttributes(value) {
@@ -3230,16 +3470,35 @@ class Downloader {
         const loaded = await this.#fetchText(task, url);
         const lines = loaded.text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
         const variants = [];
+        const mediaTracks = [];
         for (let i = 0; i < lines.length; i++) if (lines[i].startsWith('#EXT-X-STREAM-INF:')) {
             const uri = lines.slice(i + 1).find(line => !line.startsWith('#'));
             if (uri) variants.push({ uri: new URL(uri, loaded.url).href, ...this.#parseHlsAttributes(lines[i].slice(18)) });
+        } else if (lines[i].startsWith('#EXT-X-MEDIA:')) {
+            const track = this.#parseHlsAttributes(lines[i].slice(13));
+            if (track.URI) track.URI = new URL(track.URI, loaded.url).href;
+            mediaTracks.push(track);
+        }
+        const describeVariant = variant => {
+            const resolution = variant.RESOLUTION || 'unknown';
+            const height = resolution.match(/x(\d+)$/i)?.[1] || variant.NAME?.match(/(\d{3,4})\s*p?/i)?.[1] || '?';
+            return `${variant.NAME || 'unnamed'} ${resolution} (${height}p, ${variant.BANDWIDTH || '?'}bps) -> ${variant.uri}`;
+        };
+        if (variants.length || mediaTracks.length) {
+            task._log(`HLS playlist details: variants=${variants.length}; mediaTracks=${mediaTracks.length}; url=${loaded.url}`);
+            variants.forEach(variant => task._log(`HLS variant: ${describeVariant(variant)}`));
+            mediaTracks.forEach(track => task._log(`HLS media track: type=${track.TYPE || 'unknown'}; group=${track['GROUP-ID'] || 'unknown'}; name=${track.NAME || 'unknown'}; language=${track.LANGUAGE || 'unknown'}; uri=${track.URI || '(in-band)'}`));
         }
         if (variants.length) {
-            const requested = Number(task.options.quality);
-            variants.sort((a, b) => (Number(b.BANDWIDTH) || 0) - (Number(a.BANDWIDTH) || 0));
-            const selected = Number.isFinite(requested) ? variants.find(v => v.RESOLUTION?.endsWith(`x${requested}`) || v.NAME === `${requested}p`) || variants[0] : variants[0];
+            const requested = Number(task.options.preferredResolution);
+            const withHeights = variants.map(variant => ({ ...variant, height: Number(variant.RESOLUTION?.match(/x(\d+)$/i)?.[1] || variant.NAME?.match(/(\d{3,4})\s*p?/i)?.[1]) || 0 }));
+            withHeights.sort((a, b) => (Number(b.height) || 0) - (Number(a.height) || 0) || (Number(b.BANDWIDTH) || 0) - (Number(a.BANDWIDTH) || 0));
+            const selected = requested > 0 ? [...withHeights].sort((a, b) => Math.abs(a.height - requested) - Math.abs(b.height - requested) || a.height - b.height || (Number(b.BANDWIDTH) || 0) - (Number(a.BANDWIDTH) || 0))[0] : withHeights[0];
+            task._stats.probedResolutions = withHeights.map(variant => variant.height).filter(Boolean);
+            task._log(`HLS selection: requested=${requested > 0 ? `${requested}p` : 'auto'}; selected=${selected.height ? `${selected.height}p` : selected.NAME || 'unknown'}; url=${selected.uri}`);
             return this.#loadHlsPlaylist(task, selected.uri, depth + 1);
         }
+        task._log(`HLS media playlist: segments and encryption tags will be parsed from ${loaded.url}`);
         return { url: loaded.url, lines };
     }
 
@@ -3292,6 +3551,7 @@ class Downloader {
     async #runHls(task) {
         const playlist = await this.#loadHlsPlaylist(task, task.url);
         const parsed = this.#parseHlsMediaPlaylist(playlist);
+        task._log(`HLS media details: segments=${parsed.jobs.length}; ended=${parsed.ended}; contentType=application/vnd.apple.mpegurl`);
         if (!parsed.ended && !task.options.allowLive) throw new Error('Live HLS playlists are not supported unless allowLive is enabled.');
         if (!parsed.jobs.length) throw new Error('No HLS segments found.');
         task._stats.contentType = 'application/vnd.apple.mpegurl';
@@ -3345,7 +3605,7 @@ class DownloaderUI {
             .anlink-dl-task-top { display: flex; align-items: flex-start; gap: 10px; } .anlink-dl-task-name { min-width: 0; flex: 1; color: #f2fbfa; font: 600 14px/1.3 system-ui, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .anlink-dl-task-meta { margin-top: 4px; color: #829794; font: 11px/1.3 system-ui, sans-serif; }
             .anlink-dl-status { flex: none; padding: 4px 8px; border-radius: 10px; background: rgba(38,166,154,.14); color: #7ce4d8; font: 700 10px/1 system-ui, sans-serif; text-transform: uppercase; letter-spacing: .05em; } .anlink-dl-status.failed { background: rgba(239,83,80,.16); color: #ff8b89; } .anlink-dl-status.completed { background: rgba(102,187,106,.16); color: #a0e7a3; }
             .anlink-dl-progress { height: 7px; margin: 13px 0 9px; overflow: hidden; border-radius: 5px; background: rgba(0,0,0,.32); } .anlink-dl-progress > span { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, #26a69a, #8be7dc); transition: width .25s ease; } .anlink-dl-progress.indeterminate > span { width: 38%; animation: anlink-progress-slide 1.15s ease-in-out infinite; }
-            .anlink-dl-log { margin-top: 10px; border-top: 1px solid rgba(255,255,255,.07); color: #8ea3a1; font: 11px/1.45 ui-monospace, monospace; } .anlink-dl-log summary { padding-top: 9px; cursor: pointer; color: #82aaa6; font: 11px system-ui, sans-serif; } .anlink-dl-log pre { max-height: 180px; margin: 8px 0 0; overflow: auto; white-space: pre-wrap; color: #b9cbc8; }
+            .anlink-dl-log { margin-top: 10px; border-top: 1px solid rgba(255,255,255,.07); color: #8ea3a1; font: 11px/1.45 ui-monospace, monospace; } .anlink-dl-log summary { padding-top: 9px; cursor: pointer; color: #82aaa6; font: 11px system-ui, sans-serif; } .anlink-dl-log pre { max-height: 180px; margin: 8px 0 0; overflow: auto; white-space: pre; color: #b9cbc8; }
             .anlink-dl-stats { display: flex; flex-wrap: wrap; gap: 8px 16px; color: #9eb4b1; font: 11px/1.3 ui-monospace, monospace; } .anlink-dl-error { margin-top: 8px; color: #ff9997; font: 11px/1.4 system-ui, sans-serif; }
             .anlink-dl-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; } .anlink-dl-actions button, .anlink-dl-settings button { border: 1px solid rgba(255,255,255,.12); border-radius: 7px; padding: 6px 9px; background: rgba(255,255,255,.05); color: #d4e7e4; cursor: pointer; font: 11px system-ui, sans-serif; } .anlink-dl-actions button:hover, .anlink-dl-settings button:hover { border-color: #26a69a; color: #7ce4d8; }
             .anlink-dl-popover { position: absolute; right: 12px; top: 48px; z-index: 5; width: 230px; padding: 12px; border: 1px solid rgba(100,220,207,.24); border-radius: 10px; background: #202a29; box-shadow: 0 12px 30px rgba(0,0,0,.4); } .anlink-dl-popover label, .anlink-dl-settings label { display: block; margin: 8px 0 4px; color: #9eb4b1; font: 11px system-ui, sans-serif; } .anlink-dl-popover input, .anlink-dl-settings input, .anlink-dl-settings select { width: 100%; padding: 7px 8px; border: 1px solid rgba(255,255,255,.12); border-radius: 6px; background: #18211f; color: #ecf7f5; }
@@ -3404,7 +3664,7 @@ class DownloaderUI {
         const filename = `${episode.animeTitle} - ${String(episode.number).padStart(3, '0')}${episode.epTitle ? ` - ${episode.epTitle}` : ''}${extension}`;
         const task = this.downloader.addTask(filename, episode.animeTitle, link.stream, {
             ...options, format: link.type, quality, headers: options.headers, referer: link.referer, threads: options.threads,
-            speedLimitBps: options.speedLimitBps, metadata: { episodeNumber: episode.number, quality, tracks: link.tracks || [] }
+            speedLimitBps: options.speedLimitBps, tracks: link.tracks || [], metadata: { episodeNumber: episode.number, quality }
         });
         task.start().catch(() => { });
         return task;
@@ -3445,13 +3705,14 @@ class DownloaderUI {
         const percent = stats.totalSize > 0 ? Math.min(100, stats.bytesWritten / stats.totalSize * 100) : 0;
         const escape = dlUtils.anlinkEscapeHtml;
         const displayFilename = task.filename;
+        const displayStatus = stats.phase === 'tracks' ? 'tracks' : stats.phase === 'track-error' ? 'track error' : task.status;
         const card = document.createElement('article');
         card.className = 'anlink-dl-task';
         card.dataset.taskId = task.id;
         card.innerHTML = `
-            <div class="anlink-dl-task-top"><div class="anlink-dl-task-name" title="${escape(displayFilename)}">${escape(displayFilename)}<div class="anlink-dl-task-meta">${escape(task.anime || 'Anime')} · ${escape(task.options.quality || task.options.format || 'source')}</div></div><span class="anlink-dl-status ${escape(task.status)}">${escape(task.status)}</span></div>
+            <div class="anlink-dl-task-top"><div class="anlink-dl-task-name" title="${escape(displayFilename)}">${escape(displayFilename)}<div class="anlink-dl-task-meta">${escape(task.anime || 'Anime')} · ${escape(task.options.quality || task.options.format || 'source')}</div></div><span class="anlink-dl-status ${escape(task.status)}">${escape(displayStatus)}</span></div>
             <div class="anlink-dl-progress${stats.totalSize > 0 ? '' : ' indeterminate'}"><span style="width:${percent}%"></span></div>
-            <div class="anlink-dl-stats"><span data-field="size">${stats.filesize} / ${stats.totalsize}</span><span data-field="speed">${stats.speed}</span><span data-field="eta">ETA ${stats.eta}</span><span data-field="parts">Parts ${stats.completedSegments}/${stats.totalSegments || '?'}</span></div>
+            <div class="anlink-dl-stats"><span data-field="size">${stats.filesize} / ${stats.totalsize}</span><span data-field="speed">${stats.speed}</span><span data-field="eta">ETA ${stats.eta}</span><span data-field="parts">Parts ${stats.completedSegments}/${stats.totalSegments || '?'}</span><span data-field="phase" hidden></span></div>
             ${task.error ? `<div class="anlink-dl-error">${escape(task.error)}</div>` : ''}
             <div class="anlink-dl-actions">
                 ${task.status === 'paused' ? '<button data-action="resume">Resume</button>' : ['preparing', 'downloading'].includes(task.status) ? '<button data-action="pause">Pause</button>' : ''}
@@ -3466,15 +3727,20 @@ class DownloaderUI {
 
     updateTaskCard(task, card) {
         const stats = task.stats;
+        const trackPhase = stats.phase === 'tracks';
         const progress = card.querySelector('.anlink-dl-progress');
-        const percent = stats.totalSize > 0 ? Math.min(100, stats.bytesWritten / stats.totalSize * 100) : 0;
-        progress?.classList.toggle('indeterminate', stats.totalSize <= 0);
+        const percent = trackPhase ? 0 : stats.totalSize > 0 ? Math.min(100, stats.bytesWritten / stats.totalSize * 100) : 0;
+        progress?.classList.toggle('track-phase', trackPhase);
+        progress?.classList.toggle('indeterminate', trackPhase || stats.totalSize <= 0);
         const bar = progress?.querySelector('span');
-        if (bar) bar.style.width = `${percent}%`;
+        if (bar) bar.style.width = trackPhase || stats.totalSize <= 0 ? '38%' : `${percent}%`;
         const status = card.querySelector('.anlink-dl-status');
-        if (status) { status.className = `anlink-dl-status ${task.status}`; status.textContent = task.status; }
-        const fields = { size: `${stats.filesize} / ${stats.totalsize}`, speed: stats.speed, eta: `ETA ${stats.eta}`, parts: `Parts ${stats.completedSegments}/${stats.totalSegments || '?'}` };
+        const displayStatus = stats.phase === 'tracks' ? 'tracks' : stats.phase === 'track-error' ? 'track error' : task.status;
+        if (status) { status.className = `anlink-dl-status ${task.status}`; status.textContent = displayStatus; }
+        const fields = { size: `${stats.filesize} / ${stats.totalsize}`, speed: stats.speed, eta: `ETA ${stats.eta}`, parts: trackPhase ? `Tracks ${stats.trackIndex}/${stats.trackTotal}` : `Parts ${stats.completedSegments}/${stats.totalSegments || '?'}` };
         for (const [name, value] of Object.entries(fields)) if (card.querySelector(`[data-field="${name}"]`)) card.querySelector(`[data-field="${name}"]`).textContent = value;
+        const phase = card.querySelector('[data-field="phase"]');
+        if (phase) { phase.hidden = !trackPhase; phase.textContent = stats.trackLabel ? `Downloading ${stats.trackLabel}` : 'Preparing tracks'; }
         const logsHeader = card.querySelector('.anlink-dl-log summary');
         if (logsHeader) logsHeader.textContent = `Logs (${task.logs.length})`;
         const logs = card.querySelector('[data-field="logs"]');
@@ -3516,7 +3782,7 @@ class DownloaderUI {
     showSettingsDialog() {
         const settings = this.downloader.settings;
         const escape = dlUtils.anlinkEscapeHtml;
-        const bodyHTML = `<div class="anlink-dl-settings"><div class="anlink-dl-setting-grid"><div><label>Parallel downloads</label><input name="maxConcurrentTasks" type="number" min="1" max="8" value="${settings.maxConcurrentTasks}"></div><div><label>Default threads</label><input name="defaultThreads" type="number" min="1" max="32" value="${settings.defaultThreads}"></div><div><label>Default speed limit (KB/s, 0 = unlimited)</label><input name="defaultSpeedLimitBps" type="number" min="0" value="${Number.isFinite(settings.defaultSpeedLimitBps) ? Math.round(settings.defaultSpeedLimitBps / 1024) : 0}"></div><div><label>Preferred quality <i>(Experimental feature*)</i></label><input name="preferredQuality" type="text" value="${escape(settings.preferredQuality || '')}" placeholder="Auto"></div><div><label>Notifications</label><select name="notifications"><option value="off" ${settings.notifications === 'off' ? 'selected' : ''}>Off</option><option value="completed" ${settings.notifications === 'completed' ? 'selected' : ''}>Completed only</option><option value="completed-and-failed" ${settings.notifications === 'completed-and-failed' ? 'selected' : ''}>Completed and failed</option><option value="all" ${settings.notifications === 'all' ? 'selected' : ''}>All state changes</option></select></div><div><label>History retention</label><input name="historyLimit" type="number" min="1" max="100" value="${Math.min(100, settings.historyLimit)}"></div></div><div class="anlink-dl-actions"><button type="button" data-action="clear-history">Clear history</button></div><div class="anlink-dl-help">Need help? <a href="https://github.com/jeryjs/Userscripts/issues/new?title=%5BAniLINK%5D%20Downloader%20issue&body=%23%23%20Description%0A%0A%23%23%20Steps%20to%20reproduce%0A1.%20%0A2.%20%0A%0A%23%23%20Expected%20behavior%0A%0A%23%23%20Actual%20behavior%0A%0A%23%23%20Environment%0A-%20Browser%3A%20%0A-%20Userscript%20manager%3A%20" target="_blank" rel="noreferrer">Report an issue on GitHub</a></div></div>`;
+        const bodyHTML = `<div class="anlink-dl-settings"><div class="anlink-dl-setting-grid"><div><label>Parallel downloads</label><input name="maxConcurrentTasks" type="number" min="1" max="8" value="${settings.maxConcurrentTasks}"></div><div><label>Default threads</label><input name="defaultThreads" type="number" min="1" max="32" value="${settings.defaultThreads}"></div><div><label>Default speed limit (KB/s, 0 = unlimited)</label><input name="defaultSpeedLimitBps" type="number" min="0" value="${Number.isFinite(settings.defaultSpeedLimitBps) ? Math.round(settings.defaultSpeedLimitBps / 1024) : 0}"></div><div><label>Preferred stream resolution (eg: 360, 720, 1080, etc)</label><input name="preferredResolution" type="number" min="0" step="1" value="${settings.preferredResolution || ''}" placeholder="Auto"></div><div><label>Subtitle folder (blank = alongside video)</label><input name="subtitleDirectory" type="text" value="${escape(settings.subtitleDirectory || '')}" placeholder="Optional folder name"></div><div><label>Notifications</label><select name="notifications"><option value="off" ${settings.notifications === 'off' ? 'selected' : ''}>Off</option><option value="completed" ${settings.notifications === 'completed' ? 'selected' : ''}>Completed only</option><option value="completed-and-failed" ${settings.notifications === 'completed-and-failed' ? 'selected' : ''}>Completed and failed</option><option value="all" ${settings.notifications === 'all' ? 'selected' : ''}>All state changes</option></select></div><div><label>History retention</label><input name="historyLimit" type="number" min="1" max="100" value="${Math.min(100, settings.historyLimit)}"></div></div><div class="anlink-dl-actions"><button type="button" data-action="clear-history">Clear history</button></div><div class="anlink-dl-help">Need help? <a href="https://github.com/jeryjs/Userscripts/issues/new?title=%5BAniLINK%5D%20Downloader%20issue&body=%23%23%20Description%0A%0A%23%23%20Steps%20to%20reproduce%0A1.%20%0A2.%20%0A%0A%23%23%20Expected%20behavior%0A-%20Browser%3A%20%0A-%20Userscript%20manager%3A%20" target="_blank" rel="noreferrer">Report an issue on GitHub</a></div></div>`;
         const { modal } = createModal({
             title: 'Downloader Settings',
             icon: '⚙',
@@ -3525,7 +3791,7 @@ class DownloaderUI {
             width: '560px',
             onConfirm: dialog => {
                 const value = name => dialog.querySelector(`[name="${name}"]`)?.value;
-                this.downloader.updateSettings({ maxConcurrentTasks: +value('maxConcurrentTasks'), defaultThreads: +value('defaultThreads'), defaultSpeedLimitBps: +(value('defaultSpeedLimitBps') || 0) * 1024 || Infinity, preferredQuality: value('preferredQuality'), notifications: value('notifications'), historyLimit: +value('historyLimit') });
+                this.downloader.updateSettings({ maxConcurrentTasks: +value('maxConcurrentTasks'), defaultThreads: +value('defaultThreads'), defaultSpeedLimitBps: +(value('defaultSpeedLimitBps') || 0) * 1024 || Infinity, preferredResolution: +value('preferredResolution') || 0, subtitleDirectory: value('subtitleDirectory'), notifications: value('notifications'), historyLimit: +value('historyLimit') });
                 this.refresh();
             }
         });
