@@ -2631,7 +2631,7 @@ class DownloadTask {
     cancel() { return this._controller.cancelTask(this.id); }
     setSpeedLimit(speedLimitBps) { return this._controller.setSpeedLimit(this.id, speedLimitBps); }
     setThreads(threads) { return this._controller.setThreads(this.id, threads); }
-    start() { return this._controller.startTask(this.id); }
+    start(force = false) { return this._controller.startTask(this.id, { force }); }
 
     _setStatus(status) {
         this._status = status;
@@ -2921,18 +2921,27 @@ class Downloader {
         return this.#tasks.delete(task.id);
     }
 
-    startTask(taskId) {
+    startTask(taskId, { force = false } = {}) {
         const task = this.#requireTask(taskId);
-        if (task._runPromise) return task._runPromise;
-        task._runPromise = new Promise((resolve, reject) => {
+        if (task._runPromise) {
+            if (force && task.status === 'queued') {
+                this.#forceStart(task);
+            } else if (task.status === 'queued') {
+                this.#queue = [task, ...this.#queue.filter(item => item !== task)];
+                this.#pump();
+            }
+            return task._runPromise;
+        }
+        const runPromise = new Promise((resolve, reject) => {
             task._resolveRun = resolve;
             task._rejectRun = reject;
             if (!this.#queue.includes(task)) this.#queue.push(task);
             this.#persistTask(task);
-            this.#pump();
         });
-        task._runPromise.catch(() => {}); // Suppress console noise if caller ignores the promise
-        return task._runPromise;
+        task._runPromise = runPromise;
+        if (force) this.#forceStart(task); else this.#pump();
+        runPromise.catch(() => {}); // Suppress console noise if caller ignores the promise
+        return runPromise;
     }
 
     pauseTask(taskId) {
@@ -3108,17 +3117,28 @@ class Downloader {
         else showToast(message);
     }
 
+    #launchTask(task) {
+        this.#activeTasks.add(task);
+        this.#run(task).then(task._resolveRun, task._rejectRun).finally(() => {
+            task._resolveRun = task._rejectRun = null;
+            task._runPromise = null;
+            this.#activeTasks.delete(task);
+            this.#pump();
+        });
+    }
+
+    #forceStart(task) {
+        if (task.status !== 'queued' || !task._runPromise) return;
+        this.#queue = this.#queue.filter(item => item !== task);
+        this.#launchTask(task);
+        this.#emit('change', this);
+    }
+
     #pump() {
         while (this.#activeTasks.size < this.#settings.maxConcurrentTasks && this.#queue.length) {
             const task = this.#queue.shift();
             if (task._cancelled) { this.#finishQueuedTask(task, new Error('Download cancelled')); continue; }
-            this.#activeTasks.add(task);
-            this.#run(task).then(task._resolveRun, task._rejectRun).finally(() => {
-                task._resolveRun = task._rejectRun = null;
-                task._runPromise = null;
-                this.#activeTasks.delete(task);
-                this.#pump();
-            });
+            this.#launchTask(task);
         }
         this.#emit('change', this);
     }
@@ -3688,8 +3708,9 @@ class DownloaderUI {
             .anilink-dl-title { flex: 1; } .anilink-dl-title h2 { margin: 0; color: #65d6c8; font: 700 20px/1.2 system-ui, sans-serif; } .anilink-dl-title p { margin: 5px 0 0; color: #8ea3a1; font: 12px/1.3 system-ui, sans-serif; }
             .anilink-dl-icon-btn { width: 34px; height: 34px; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; background: rgba(255,255,255,.05); color: #d9eeeb; cursor: pointer; font-size: 17px; } .anilink-dl-icon-btn:hover { border-color: #26a69a; background: rgba(38,166,154,.18); }
             .anilink-dl-body { padding: 18px 22px 22px; overflow-y: auto; } .anilink-dl-section { margin-bottom: 22px; } .anilink-dl-section:last-child { margin-bottom: 0; }
-            .anilink-dl-section-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: #9adbd3; font: 700 12px/1 system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
-            .anilink-dl-section-head button { margin-left: auto; border: 0; background: transparent; color: #82aaa6; cursor: pointer; font: 12px system-ui, sans-serif; } .anilink-dl-section-head button:hover { color: #65d6c8; }
+            .anilink-dl-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; color: #9adbd3; font: 700 12px/1 system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+            .anilink-dl-section-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+            .anilink-dl-section-head button { border: 0; background: transparent; color: #82aaa6; cursor: pointer; font: 12px system-ui, sans-serif; } .anilink-dl-section-head button:hover { color: #65d6c8; }
             .anilink-dl-task { position: relative; padding: 14px; margin: 9px 0; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: rgba(255,255,255,.035); transition: border-color .2s, background .2s; } .anilink-dl-task:hover { border-color: rgba(38,166,154,.42); background: rgba(38,166,154,.06); }
             .anilink-dl-task-top { display: flex; align-items: flex-start; gap: 10px; } .anilink-dl-task-name { min-width: 0; flex: 1; color: #f2fbfa; font: 600 14px/1.3 system-ui, sans-serif; overflow: auto; text-overflow: clip; white-space: nowrap; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.12) transparent; } .anilink-dl-task-meta { margin-top: 4px; color: #829794; font: 11px/1.3 system-ui, sans-serif; }
             .anilink-dl-task-name::-webkit-scrollbar { height: 2px; } .anilink-dl-task-name::-webkit-scrollbar-track { background: transparent; } .anilink-dl-task-name::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 2px; }
@@ -3744,6 +3765,9 @@ class DownloaderUI {
             });
             existing.forEach((card, id) => !active.some(task => task.id === id) && card.remove());
         }
+        const activeHeader = region.closest('.anilink-dl-section')?.querySelector('.anilink-dl-section-head');
+        activeHeader?.querySelector('.anilink-dl-section-actions')?.remove();
+        if (active.length) activeHeader?.insertAdjacentHTML('beforeend', this.renderActiveActions(active));
         const activeLabel = panel.querySelector('.anilink-dl-title p');
         if (activeLabel) activeLabel.textContent = active.length ? `${active.length} active task${active.length === 1 ? '' : 's'}` : 'Ready for downloads';
         AniLINKUI.updateFab();
@@ -3783,7 +3807,7 @@ class DownloaderUI {
                 <button class="anilink-dl-icon-btn" data-action="close" title="Close">×</button>
             </div>
             <div class="anilink-dl-body">
-                <section class="anilink-dl-section"><div class="anilink-dl-section-head">Active downloads</div><div data-region="active"></div></section>
+                <section class="anilink-dl-section"><div class="anilink-dl-section-head"><span>Active downloads</span>${this.renderActiveActions(active)}</div><div data-region="active"></div></section>
                 <section class="anilink-dl-section"><div class="anilink-dl-section-head">History <button data-action="toggle-history">${this.historyOpen ? 'Collapse' : 'Expand'}</button></div><div data-region="history"></div></section>
             </div>
         `;
@@ -3799,9 +3823,31 @@ class DownloaderUI {
         AniLINKUI.updateFab();
     }
 
+    renderActiveActions(active) {
+        if (!active.length) return '';
+        const hasPausable = active.some(task => ['preparing', 'downloading'].includes(task.status));
+        const hasPaused = active.some(task => task.status === 'paused');
+        const showResume = !hasPausable && hasPaused;
+        return `<div class="anilink-dl-section-actions">${hasPausable ? '<button data-action="pause-all">Pause all</button>' : ''}${showResume ? '<button data-action="resume-all">Resume all</button>' : ''}<button data-action="cancel-all">Cancel all</button></div>`;
+    }
+
+    getProgressState(task, stats) {
+        const trackPhase = stats.phase === 'tracks';
+        const hasTotalSize = !trackPhase && stats.totalSize > 0;
+        const totalParts = trackPhase ? stats.trackTotal : stats.totalSegments;
+        const completedParts = trackPhase ? stats.trackIndex : stats.completedSegments;
+        const hasTotalParts = totalParts > 0;
+        const percent = hasTotalSize
+            ? Math.min(100, stats.bytesWritten / stats.totalSize * 100)
+            : hasTotalParts
+                ? Math.min(100, completedParts / totalParts * 100)
+                : 0;
+        return { trackPhase, percent, indeterminate: task.status === 'downloading' && !hasTotalSize && !hasTotalParts };
+    }
+
     renderTask(task) {
         const stats = task.stats;
-        const percent = stats.totalSize > 0 ? Math.min(100, stats.bytesWritten / stats.totalSize * 100) : 0;
+        const progressState = this.getProgressState(task, stats);
         const escape = dlUtils.anlinkEscapeHtml;
         const displayFilename = task.filename;
         const displayStatus = stats.phase === 'tracks' ? 'tracks' : stats.phase === 'track-error' ? 'track error' : task.status;
@@ -3810,12 +3856,12 @@ class DownloaderUI {
         card.dataset.taskId = task.id;
         card.innerHTML = `
             <div class="anilink-dl-task-top"><div class="anilink-dl-task-name" title="${escape(displayFilename)}">${escape(displayFilename)}<div class="anilink-dl-task-meta">${escape(task.anime || 'Anime')} · ${escape(task.options.quality || task.options.format || 'source')}</div></div><span class="anilink-dl-status ${escape(task.status)}">${escape(displayStatus)}</span></div>
-            <div class="anilink-dl-progress${stats.totalSize > 0 ? '' : ' indeterminate'}"><span style="width:${percent}%"></span></div>
+            <div class="anilink-dl-progress${progressState.indeterminate ? ' indeterminate' : ''}"><span style="width:${progressState.indeterminate ? 38 : progressState.percent}%"></span></div>
             <div class="anilink-dl-stats"><span data-field="size">${stats.filesize} / ${stats.totalsize}</span><span data-field="speed">${stats.speed}</span><span data-field="eta">ETA ${stats.eta}</span><span data-field="parts">Parts ${stats.completedSegments}/${stats.totalSegments || '?'}</span><span data-field="phase" hidden></span></div>
             ${task.error ? `<div class="anilink-dl-error">${escape(task.error)}</div>` : ''}
             <div class="anilink-dl-actions">
-                ${task.status === 'paused' ? '<button data-action="resume">Resume</button>' : ['preparing', 'downloading'].includes(task.status) ? '<button data-action="pause">Pause</button>' : ''}
-                ${['queued', 'preparing', 'downloading', 'paused'].includes(task.status) ? '<button data-action="clear">Clear</button>' : '<button data-action="clear">Clear</button>'}
+                ${task.status === 'queued' ? '<button data-action="start">Start</button>' : task.status === 'paused' ? '<button data-action="resume">Resume</button>' : ['preparing', 'downloading'].includes(task.status) ? '<button data-action="pause">Pause</button>' : ''}
+                ${['queued', 'preparing', 'downloading', 'paused'].includes(task.status) ? '<button data-action="cancel">Cancel</button>' : ''}
                 <button data-action="task-settings">More</button>
             </div>
             <details class="anilink-dl-log"><summary>Logs (${task.logs.length})</summary><pre data-field="logs"></pre></details>
@@ -3826,13 +3872,13 @@ class DownloaderUI {
 
     updateTaskCard(task, card) {
         const stats = task.stats;
-        const trackPhase = stats.phase === 'tracks';
+        const progressState = this.getProgressState(task, stats);
+        const { trackPhase, percent, indeterminate } = progressState;
         const progress = card.querySelector('.anilink-dl-progress');
-        const percent = trackPhase ? 0 : stats.totalSize > 0 ? Math.min(100, stats.bytesWritten / stats.totalSize * 100) : 0;
         progress?.classList.toggle('track-phase', trackPhase);
-        progress?.classList.toggle('indeterminate', trackPhase || stats.totalSize <= 0);
+        progress?.classList.toggle('indeterminate', indeterminate);
         const bar = progress?.querySelector('span');
-        if (bar) bar.style.width = trackPhase || stats.totalSize <= 0 ? '38%' : `${percent}%`;
+        if (bar) bar.style.width = indeterminate ? '38%' : `${percent}%`;
         const status = card.querySelector('.anilink-dl-status');
         const displayStatus = stats.phase === 'tracks' ? 'tracks' : stats.phase === 'track-error' ? 'track error' : task.status;
         if (status) { status.className = `anilink-dl-status ${task.status}`; status.textContent = displayStatus; }
@@ -3848,14 +3894,24 @@ class DownloaderUI {
         if (task.error && error) error.textContent = task.error;
         const actions = card.querySelector('.anilink-dl-actions');
         if (actions) {
-            const btn = actions.querySelector('[data-action="pause"], [data-action="resume"]');
-            const act = task.status === 'paused' ? 'resume' : /preparing|downloading/.test(task.status) ? 'pause' : null;
-            
-            if (act) {
-                const txt = act === 'pause' ? 'Pause' : 'Resume';
-                if (btn) { btn.dataset.action = act; btn.textContent = txt; }
-                else actions.insertAdjacentHTML('afterbegin', `<button data-action="${act}">${txt}</button>`);
-            } else btn?.remove();
+            const pauseButton = actions.querySelector('[data-action="pause"], [data-action="resume"]');
+            const startButton = actions.querySelector('[data-action="start"]');
+            const cancelButton = actions.querySelector('[data-action="cancel"]');
+            if (task.status === 'queued') {
+                pauseButton?.remove();
+                if (!startButton) actions.insertAdjacentHTML('afterbegin', '<button data-action="start">Start</button>');
+            } else {
+                startButton?.remove();
+                const action = task.status === 'paused' ? 'resume' : ['preparing', 'downloading'].includes(task.status) ? 'pause' : null;
+                if (action) {
+                    const text = action === 'pause' ? 'Pause' : 'Resume';
+                    if (pauseButton) { pauseButton.dataset.action = action; pauseButton.textContent = text; }
+                    else actions.insertAdjacentHTML('afterbegin', `<button data-action="${action}">${text}</button>`);
+                } else pauseButton?.remove();
+            }
+            if (['queued', 'preparing', 'downloading', 'paused'].includes(task.status)) {
+                if (!cancelButton) actions.insertAdjacentHTML('beforeend', '<button data-action="cancel">Cancel</button>');
+            } else cancelButton?.remove();
         }
     }
 
@@ -3874,7 +3930,7 @@ class DownloaderUI {
         card.className = 'anilink-dl-task';
         card.dataset.historyId = record.id;
         const displayFilename = record.partialFilename && record.status !== 'completed' ? record.partialFilename : record.filename;
-        card.innerHTML = `<div class="anilink-dl-task-top"><div class="anilink-dl-task-name" title="${escape(displayFilename)}">${escape(displayFilename)}<div class="anilink-dl-task-meta">${escape(record.anime || 'Anime')} · ${new Date(record.updatedAt).toLocaleString()}</div></div><span class="anilink-dl-status ${escape(record.status)}">${escape(record.status)}</span></div><div class="anilink-dl-stats"><span>${dlUtils.anlinkFormatBytes(record.stats?.bytesWritten || 0)}</span><span>${escape(record.stats?.error || '')}</span></div><details class="anilink-dl-log"><summary>Logs (${record.logs?.length || 0})</summary><pre>${escape((record.logs || []).map(item => `[${new Date(item.at).toLocaleTimeString()}] ${String(item.level).toUpperCase()} ${item.message}`).join('\n'))}</pre></details><div class="anilink-dl-actions"><button data-action="retry-history">Retry</button><button data-action="remove-history" data-history-id="${escape(record.id)}">Remove</button></div>`;
+        card.innerHTML = `<div class="anilink-dl-task-top"><div class="anilink-dl-task-name" title="${escape(displayFilename)}">${escape(displayFilename)}<div class="anilink-dl-task-meta">${escape(record.anime || 'Anime')} · ${new Date(record.updatedAt).toLocaleString()}</div></div><span class="anilink-dl-status ${escape(record.status)}">${escape(record.status)}</span></div><div class="anilink-dl-stats"><span>${dlUtils.anlinkFormatBytes(record.stats?.bytesWritten || 0)}</span><span>${escape(record.stats?.error || '')}</span></div><details class="anilink-dl-log"><summary>Logs (${record.logs?.length || 0})</summary><pre>${escape((record.logs || []).map(item => `[${new Date(item.at).toLocaleTimeString()}] ${String(item.level).toUpperCase()} ${item.message}`).join('\n'))}</pre></details><div class="anilink-dl-actions"><button data-action="retry-history">Retry</button><button data-action="remove-history" data-history-id="${escape(record.id)}">Clear</button></div>`;
         return card;
     }
 
@@ -3935,14 +3991,24 @@ class DownloaderUI {
             const button = event.target.closest('button[data-action]');
             if (!button) return;
             const action = button.dataset.action;
-            if (action === 'pause' || action === 'resume') this.downloader.getTask(button.closest('[data-task-id]').dataset.taskId)[action]();
-            else if (action === 'clear') {
+            if (action === 'pause-all') {
+                this.downloader.tasks.filter(task => ['preparing', 'downloading'].includes(task.status)).forEach(task => task.pause());
+            } else if (action === 'resume-all') {
+                this.downloader.tasks.filter(task => task.status === 'paused').forEach(task => task.resume());
+            } else if (action === 'cancel-all') {
+                const active = this.downloader.tasks.filter(task => !['completed', 'failed', 'cancelled'].includes(task.status));
+                if (!confirm(`Cancel ${active.length} active download${active.length === 1 ? '' : 's'}? Partial files will be kept.`)) return;
+                active.forEach(task => task.cancel());
+            } else if (action === 'start' || action === 'pause' || action === 'resume') {
                 const task = this.downloader.getTask(button.closest('[data-task-id]').dataset.taskId);
-                if (!confirm(`Clear ${task.filename} from the downloader? An active task will be cancelled and its partial file will be kept.`)) return;
-                this.downloader.clearTask(task.id);
+                if (task) action === 'start' ? task.start(true) : task[action]();
+            } else if (action === 'cancel') {
+                const task = this.downloader.getTask(button.closest('[data-task-id]').dataset.taskId);
+                if (!task || !confirm(`Cancel ${task.filename}? Its partial file will be kept in the output directory.`)) return;
+                task.cancel();
             } else if (action === 'remove-history') {
+                if (!confirm('Clear this download from history?')) return;
                 this.downloader.removeHistory(button.dataset.historyId);
-                this.render();
             } else if (action === 'retry-history') {
                 this.downloader.retryHistory(button.closest('[data-history-id]').dataset.historyId).catch(error => showToast(`Retry failed: ${error.message || error}`));
             } else if (action === 'task-settings') this.showTaskPopover(button.closest('[data-task-id]'));
