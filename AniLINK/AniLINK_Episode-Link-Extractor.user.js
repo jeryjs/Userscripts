@@ -72,13 +72,13 @@
 // @grant       GM_registerMenuCommand
 // @grant       GM_xmlhttpRequest
 // @grant       GM.xmlHttpRequest
+// @grant       GM.download
 // @require     https://cdn.jsdelivr.net/npm/@trim21/gm-fetch@0.2.1
 // @grant       GM_addStyle
 // @grant       GM_getValue
 // @grant       GM_setValue
 // @grant       GM_listValues
 // @grant       GM_deleteValue
-// @grant       GM_download
 // @grant       GM_setClipboard
 // @grant       GM_notification
 // @grant       unsafeWindow
@@ -1378,7 +1378,7 @@ async function extractEpisodes() {
         #AniLINK_Overlay { position: fixed; inset: 0; background: rgba(0,0,0,.78); backdrop-filter: blur(12px); z-index: 1000; display: flex; align-items: center; justify-content: center; transition: opacity .28s ease, transform .28s ease, visibility .28s; pointer-events: auto; }
         #AniLINK_RerunBtn { position: fixed; top: 22px; right: 26px; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; background: rgba(255,255,255,.05); color: #d9eeeb; font-size: 24px; cursor: pointer; transition: border-color .2s, background .2s, transform .2s; } #AniLINK_RerunBtn:hover { border-color: #26a69a; background: rgba(38,166,154,.18); transform: translateY(-2px); }
         #AniLINK_LinksContainer { width: min(1100px, 92vw); max-height: 86vh; background: linear-gradient(145deg, rgba(25,35,34,.98), rgba(28,28,31,.98)); color: #edf5f4; padding: 22px; border: 1px solid rgba(100,220,207,.18); border-radius: 18px; overflow-y: auto; display: flex; flex-direction: column; box-shadow: 0 24px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.04) inset; }
-        .anlink-status-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; } /* Header for status bar and stop button */
+        .anlink-status-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; background: linear-gradient(145deg, rgba(25,35,34,.98), rgba(28,28,31,.98)); border-bottom: 1px solid rgba(255,255,255,.08); } /* Header for status bar and stop button */
         .anlink-status-bar { color: #9eb4b1; flex-grow: 1; margin-right: 10px; display: block; font: 12px/1.3 system-ui, sans-serif; } /* Status bar takes space */
         .anlink-status-icon { background: transparent; border: none; color: #d9eeeb; cursor: pointer; padding-right: 10px; } /* status icon style */
         .anlink-status-icon i { display: inline-block; font: 700 24px/1 system-ui, sans-serif; transition: transform 0.3s ease-in-out; } /* Icon size and transition */
@@ -1417,7 +1417,17 @@ async function extractEpisodes() {
         .anlink-sub-item a { color: #64b5f6; text-overflow: ellipsis; overflow: hidden; display: inline; user-select: text; }
         .anlink-sub-item a:hover { color: #90caf9; text-decoration: underline; }
         button[data-action] * { pointer-events: none; }
-
+        @media (max-width: 680px) {
+            #AniLINK_Overlay { padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+            #AniLINK_LinksContainer { width: 100%; max-height: 100%; padding: 14px; padding-top: 0; border-radius: 14px; }
+            #AniLINK_RerunBtn { top: max(10px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right)); z-index: 10; }
+            .anlink-status-header { flex-wrap: wrap; gap: 8px; position: sticky; padding-block: 14px; top: 0; border-radius: 8px; z-index: 2; }
+            .anlink-status-bar { order: 0; flex-basis: calc(100% - 36px); margin-right: 0; }
+            .anlink-header-buttons { width: 100%; flex-wrap: wrap; gap: 6px; }
+            .anlink-header-buttons button { flex: 1 1 calc(50% - 6px); min-height: 38px; }
+            .anlink-episode-main { align-items: flex-start; }
+            .anlink-quality-section { padding: 10px; }
+        }
         @keyframes spinning { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } /* Spinning animation */
         @keyframes checkTilt { from { transform: rotate(-20deg); } to { transform: rotate(0deg); } } /* Checkmark tilt animation */
     `);
@@ -1921,6 +1931,15 @@ function createModal({ title, icon, subtitle, bodyHTML, width = '420px', onConfi
             .anlink-quick-btn:hover, .anlink-quick-btn:focus { border-color: #26a69a; color: #26a69a; background: rgba(38,166,154,0.1); outline: none; }
             .anlink-help-text { font-size: 11px; color: #888; text-align: center; margin-top: 12px; }
             kbd { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 3px; padding: 1px 4px; font-size: 10px; margin-right: 4px; }
+            @media (max-width: 680px) {
+                .anlink-modal-backdrop { padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
+                .anlink-modal { width: min(100%, calc(100vw - 20px)) !important; max-height: calc(100svh - 20px); overflow-y: auto; }
+                .anlink-modal-header { padding: 18px 16px 12px; }
+                .anlink-modal-body { padding: 16px; }
+                .anlink-modal-footer { padding: 0 16px 16px; }
+                .anlink-quick-select { flex-wrap: wrap; }
+                .anlink-quick-btn { min-height: 38px; }
+            }
         `);
         createModal.stylesReady = true;
     }
@@ -2197,6 +2216,9 @@ function showToast(message, duration = 5000) {
             .anlink-toast-content a:hover { border-bottom-color: #26a69a; }
             .anlink-toast-close { flex-shrink: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.1); border-radius: 50%; color: #c7d8d5; cursor: pointer; font-size: 16px; line-height: 1; transition: all 0.2s; padding: 0; }
             .anlink-toast-close:hover { background: rgba(255,255,255,.16); color: #fff; transform: scale(1.1); }
+            @media (max-width: 680px) {
+                .anlink-toast { left: max(10px, env(safe-area-inset-left)); right: max(10px, env(safe-area-inset-right)); min-width: 0; max-width: none; width: auto; }
+            }
         `);
         showToast.stylesReady = true;
     }
@@ -2283,7 +2305,7 @@ const _$$ = (s, p=document) => (p || document).querySelectorAll(s);
 const AniLINKUI = (() => {
     let host;
     let root;
-    let activeView = 'extractor';
+    let activeView = 'downloader';
     let extractorOverlay;
     let downloaderOverlay;
     let fab;
@@ -2315,8 +2337,9 @@ const AniLINKUI = (() => {
     const updateFab = () => {
         const downloader = typeof anilinkDownloader === 'undefined' ? null : anilinkDownloader;
         const extractorVisible = extractorOverlay && !extractorOverlay.classList.contains('anlink-view-hidden');
-        const shouldShow = Boolean(downloader?.hasVisibleState?.() || extractorVisible);
-        if (fab) fab.classList.toggle('anlink-fab-hidden', false);
+        const downloaderVisible = downloaderOverlay && !downloaderOverlay.classList.contains('anlink-view-hidden');
+        const shouldShow = downloader?.settings?.fabAlwaysVisible !== false || extractorVisible || downloaderVisible;
+        if (fab) fab.classList.toggle('anlink-fab-hidden', !shouldShow);
         if (fab) {
             const count = downloader?.activeTaskCount?.() || 0;
             fab.dataset.count = count || '';
@@ -2343,8 +2366,8 @@ const AniLINKUI = (() => {
         fab = Object.assign(document.createElement('button'), {
             className: 'anlink-fab anlink-fab-hidden',
             type: 'button',
-            title: 'Open downloads',
-            innerHTML: '<span class="anlink-fab-icon">⇩</span><span class="anlink-fab-count"></span>'
+            title: 'Open AniLINK Extractor',
+            innerHTML: '<span class="anlink-fab-icon">←</span><span class="anlink-fab-count"></span>'
         });
         fab.addEventListener('click', () => {
             if (activeView === 'downloader') switchView('extractor');
@@ -2382,12 +2405,27 @@ const AniLINKUI = (() => {
         const from = source.getBoundingClientRect();
         const to = fab.getBoundingClientRect();
         const chip = Object.assign(document.createElement('span'), { className: 'anlink-fab-drop-chip', textContent: '⇩' });
-        Object.assign(chip.style, { left: `${from.left + from.width / 2 - 12}px`, top: `${from.top + from.height / 2 - 12}px` });
+        const deltaX = to.left + to.width / 2 - from.left - from.width / 2;
+        const deltaY = to.top + to.height / 2 - from.top - from.height / 2;
+        Object.assign(chip.style, { left: `${from.left + from.width / 2 - 12}px`, top: `${from.top + from.height / 2 - 12}px`, opacity: '1', transform: 'translate(0, 0) scale(1)' });
         root.appendChild(chip);
-        chip.animate([
-            { transform: 'translate(0, 0) scale(1)', opacity: 1 },
-            { transform: `translate(${to.left + to.width / 2 - from.left - from.width / 2}px, ${to.top + to.height / 2 - from.top - from.height / 2}px) scale(.25)`, opacity: .1 }
-        ], { duration: 520, easing: 'cubic-bezier(.22,.8,.32,1)' }).finished.finally(() => chip.remove());
+        const finish = () => chip.isConnected && chip.remove();
+        const animate = () => {
+            if (typeof chip.animate === 'function') {
+                const animation = chip.animate([
+                    { transform: 'translate(0, 0) scale(1)', opacity: 1 },
+                    { transform: `translate(${deltaX}px, ${deltaY}px) scale(.25)`, opacity: .1 }
+                ], { duration: 520, easing: 'cubic-bezier(.22,.8,.32,1)', fill: 'forwards' });
+                animation.addEventListener('finish', finish, { once: true });
+                animation.addEventListener('cancel', finish, { once: true });
+            } else {
+                chip.style.transition = 'transform .52s cubic-bezier(.22,.8,.32,1), opacity .52s ease';
+                chip.style.transform = `translate(${deltaX}px, ${deltaY}px) scale(.25)`;
+                chip.style.opacity = '.1';
+                setTimeout(finish, 540);
+            }
+        };
+        requestAnimationFrame(animate);
     };
 
     addStyle(`
@@ -2400,7 +2438,11 @@ const AniLINKUI = (() => {
         .anlink-fab-icon { font: 700 30px/1 system-ui, sans-serif; transform: translateY(-1px); }
         .anlink-fab-count { position: absolute; top: -3px; right: -2px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #ffca28; color: #1c2524; font: 700 11px/20px system-ui, sans-serif; }
         .anlink-fab-count:empty { display: none; }
-        .anlink-fab-drop-chip { position: fixed; z-index: 30; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: #ffca28; color: #26302f; font: 700 15px/1 system-ui, sans-serif; pointer-events: none; box-shadow: 0 5px 16px rgba(0,0,0,.35); }
+        .anlink-fab-drop-chip { position: fixed; z-index: 2147483647; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: #ffca28; color: #26302f; font: 700 15px/1 system-ui, sans-serif; pointer-events: none; box-shadow: 0 5px 16px rgba(0,0,0,.35); will-change: transform, opacity; }
+        @media (max-width: 680px) {
+            .anlink-fab { right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); width: 52px; height: 52px; }
+            .anlink-fab-icon { font-size: 27px; }
+        }
         @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
     `);
 
@@ -2618,6 +2660,9 @@ class DownloadTask {
     }
 }
 
+const DOWNLOADER_SITE_SETTING_KEYS = ['maxConcurrentTasks', 'defaultThreads', 'defaultSpeedLimitBps'];
+const DOWNLOADER_GLOBAL_SETTING_KEYS = ['preferredResolution', 'notifications', 'overwrite', 'historyLimit', 'historyCollapsed', 'subtitleDirectory', 'fabAlwaysVisible'];
+
 class Downloader {
     static formats = new Map();
     #dirHandle = null;
@@ -2628,14 +2673,17 @@ class Downloader {
     #activeTasks = new Set();
     #settings;
     #storageKey;
+    #globalStorageKey;
     #history = [];
     #listeners = new Map();
 
     constructor() {
         // Shared mental context: Keeping this isolated allows seamless UI integration later.
         this.#storageKey = `anilink_downloader_${location.host}`;
-        this.#settings = this.#loadStore().settings;
-        this.#history = this.#loadStore().history;
+        this.#globalStorageKey = 'anilink_downloader_global_settings';
+        const store = this.#loadStore();
+        this.#settings = store.settings;
+        this.#history = store.history;
         this._ready = this.init();
     }
 
@@ -2684,7 +2732,8 @@ class Downloader {
             overwrite: true,
             historyLimit: 15,
             historyCollapsed: true,
-            subtitleDirectory: ''
+            subtitleDirectory: '',
+            fabAlwaysVisible: false
         };
     }
 
@@ -2692,14 +2741,30 @@ class Downloader {
         const defaults = this.#defaultSettings();
         try {
             const saved = JSON.parse(localStorage.getItem(this.#storageKey) || '{}');
-            const history = Array.isArray(saved.history) ? saved.history.map(item => ['queued', 'preparing', 'downloading', 'paused'].includes(item.status) ? { ...item, status: 'interrupted' } : item) : [];
-            const settings = { ...defaults, ...(saved.settings || {}) };
-            if (!Object.prototype.hasOwnProperty.call(saved.settings || {}, 'preferredResolution')) settings.preferredResolution = Number(saved.settings?.preferredQuality) || 0;
-            delete settings.preferredQuality;
+            const localSettings = saved.settings || {};
+            const globalSaved = GM_getValue(this.#globalStorageKey, null);
+            const hasGlobalStore = globalSaved && typeof globalSaved === 'object' && Object.keys(globalSaved).length > 0;
+            const globalSource = hasGlobalStore ? globalSaved : localSettings;
+            const globalSettings = Object.fromEntries(DOWNLOADER_GLOBAL_SETTING_KEYS
+                .filter(key => Object.prototype.hasOwnProperty.call(globalSource, key))
+                .map(key => [key, globalSource[key]]));
+            if (!Object.prototype.hasOwnProperty.call(globalSettings, 'preferredResolution')) {
+                globalSettings.preferredResolution = Number(globalSaved?.preferredQuality ?? localSettings.preferredResolution ?? localSettings.preferredQuality) || 0;
+            }
+            const settings = {
+                ...defaults,
+                ...globalSettings,
+                ...Object.fromEntries(DOWNLOADER_SITE_SETTING_KEYS
+                    .filter(key => Object.prototype.hasOwnProperty.call(localSettings, key))
+                    .map(key => [key, localSettings[key]]))
+            };
             settings.preferredResolution = Math.max(0, Number(settings.preferredResolution) || 0);
             settings.historyLimit = Math.min(100, Math.max(1, Number(settings.historyLimit) || 15));
             settings.subtitleDirectory = dlUtils.anlinkSafeDirectoryName(settings.subtitleDirectory);
+            settings.fabAlwaysVisible = settings.fabAlwaysVisible === true;
             if (!Number.isFinite(settings.defaultSpeedLimitBps) || settings.defaultSpeedLimitBps <= 0) settings.defaultSpeedLimitBps = Infinity;
+            if (!hasGlobalStore) GM_setValue(this.#globalStorageKey, Object.fromEntries(DOWNLOADER_GLOBAL_SETTING_KEYS.map(key => [key, settings[key]])));
+            const history = Array.isArray(saved.history) ? saved.history.map(item => ['queued', 'preparing', 'downloading', 'paused'].includes(item.status) ? { ...item, status: 'interrupted' } : item) : [];
             return { settings, history };
         } catch { return { settings: defaults, history: [] }; }
     }
@@ -2707,7 +2772,11 @@ class Downloader {
     #saveStore(emit = true) {
         const historyLimit = Math.min(100, Math.max(1, Number(this.#settings.historyLimit) || 15));
         this.#history = this.#history.slice(0, historyLimit);
-        localStorage.setItem(this.#storageKey, JSON.stringify({ settings: this.#settings, history: this.#history }));
+        localStorage.setItem(this.#storageKey, JSON.stringify({
+            settings: Object.fromEntries(DOWNLOADER_SITE_SETTING_KEYS.map(key => [key, this.#settings[key]])),
+            history: this.#history
+        }));
+        GM_setValue(this.#globalStorageKey, Object.fromEntries(DOWNLOADER_GLOBAL_SETTING_KEYS.map(key => [key, this.#settings[key]])));
         if (emit) this.#emit('change', this);
     }
 
@@ -2719,6 +2788,7 @@ class Downloader {
         next.preferredResolution = Math.max(0, Number(next.preferredResolution) || 0);
         next.historyLimit = Math.min(100, Math.max(1, Math.floor(Number(next.historyLimit) || 15)));
         next.subtitleDirectory = dlUtils.anlinkSafeDirectoryName(next.subtitleDirectory);
+        next.fabAlwaysVisible = next.fabAlwaysVisible === true;
         if (!['off', 'completed', 'completed-and-failed', 'all'].includes(next.notifications)) next.notifications = 'completed-and-failed';
         this.#settings = next;
         this.#saveStore();
@@ -2791,10 +2861,25 @@ class Downloader {
             showToast('Direct folder access is unavailable here. Browser download fallback is enabled.');
             return Promise.resolve(true);
         }
-        // Execute synchronously to preserve transient user activation before wrapping in Promise chain
-        return picker.call(window, { mode: 'readwrite' })
-            .then(handle => { this.#dirHandle = handle; return true; })
-            .catch(error => { if (error?.name === 'AbortError') return false; throw error; });
+         // Wrap in try/catch because some mobile browsers throw synchronously
+        try {
+            return picker.call(window, { mode: 'readwrite' })
+                .then(handle => { this.#dirHandle = handle; return true; })
+                .catch(error => {
+                    if (error?.name === 'AbortError') {
+                        showToast('Direct folder access is unavailable here. Browser download fallback is enabled.');
+                        this.#fallbackMode = true;
+                        return Promise.resolve(true);
+                    }
+                    throw error;
+                });
+        } catch (error) {
+            // Synchronous failure (common on mobile browsers that expose the API but block it)
+            console.warn('[AniLINK] Directory picker unavailable:', error);
+            this.#fallbackMode = true;
+            showToast('Direct folder access is unavailable here. Browser download fallback is enabled.');
+            return Promise.resolve(true);
+        }
     }
 
     addTask(filename, anime, url, options = {}) {
@@ -3145,16 +3230,17 @@ class Downloader {
         }
     }
 
+    gm_download_failed_toasted = false;
     async #saveBlob(task, blob, filename) {
         const objectUrl = URL.createObjectURL(blob);
         try {
-            if (typeof GM_download === 'function') {
+            if (typeof GM.download === 'function') {    // using GM.download instead of GM_download as some browsers (like Via) have broken ghost GM_download implementation
                 try {
                     await new Promise((resolve, reject) => {
                         let settled = false;
                         const finish = (callback, value) => { if (settled) return; settled = true; callback(value); };
                         try {
-                            GM_download({
+                            GM.download({
                                 url: objectUrl,
                                 name: filename,
                                 saveAs: false,
@@ -3164,15 +3250,18 @@ class Downloader {
                         } catch (error) { finish(reject, error); }
                     });
                     return;
-                } catch (error) { task._log(`GM_download fallback failed: ${error.message || error}`, 'warning'); }
+                } catch (error) { task._log(`GM.download fallback failed: ${error.message || error}`, 'warning'); }
             }
-            {
-                const anchor = Object.assign(document.createElement('a'), { href: objectUrl, download: filename });
-                document.body.appendChild(anchor);
-                anchor.click();
-                anchor.remove();
+
+            if (!this.gm_download_failed_toasted) {
+                showToast('Automatic download not supported in current browser; using browser download fallback.');
+                this.gm_download_failed_toasted = true;
             }
-        } finally { setTimeout(() => URL.revokeObjectURL(objectUrl), 1000); }
+            const anchor = Object.assign(document.createElement('a'), { href: objectUrl, download: filename });
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+        } finally { setTimeout(() => URL.revokeObjectURL(objectUrl), 60000); }
     }
 
     #trackExtension(track, response) {
@@ -3595,24 +3684,34 @@ class DownloaderUI {
         AniLINKUI.addStyle(`
             #AniLINK_DownloaderOverlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 7vh 4vw; background: rgba(0,0,0,.78); backdrop-filter: blur(12px); opacity: 1; transform: translateY(0) scale(1); transition: opacity .28s ease, transform .28s ease, visibility .28s; pointer-events: auto; }
             #AniLINK_DownloaderPanel { width: min(1100px, 92vw); max-height: 86vh; overflow: hidden; display: flex; flex-direction: column; color: #edf5f4; background: linear-gradient(145deg, rgba(25,35,34,.98), rgba(28,28,31,.98)); border: 1px solid rgba(100,220,207,.18); border-radius: 18px; box-shadow: 0 24px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.04) inset; }
-            .anlink-dl-header { display: flex; align-items: center; gap: 14px; padding: 18px 22px; border-bottom: 1px solid rgba(255,255,255,.08); }
-            .anlink-dl-title { flex: 1; } .anlink-dl-title h2 { margin: 0; color: #65d6c8; font: 700 20px/1.2 system-ui, sans-serif; } .anlink-dl-title p { margin: 5px 0 0; color: #8ea3a1; font: 12px/1.3 system-ui, sans-serif; }
-            .anlink-dl-icon-btn { width: 34px; height: 34px; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; background: rgba(255,255,255,.05); color: #d9eeeb; cursor: pointer; font-size: 17px; } .anlink-dl-icon-btn:hover { border-color: #26a69a; background: rgba(38,166,154,.18); }
-            .anlink-dl-body { padding: 18px 22px 22px; overflow-y: auto; } .anlink-dl-section { margin-bottom: 22px; } .anlink-dl-section:last-child { margin-bottom: 0; }
-            .anlink-dl-section-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: #9adbd3; font: 700 12px/1 system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
-            .anlink-dl-section-head button { margin-left: auto; border: 0; background: transparent; color: #82aaa6; cursor: pointer; font: 12px system-ui, sans-serif; } .anlink-dl-section-head button:hover { color: #65d6c8; }
-            .anlink-dl-task { position: relative; padding: 14px; margin: 9px 0; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: rgba(255,255,255,.035); transition: border-color .2s, background .2s; } .anlink-dl-task:hover { border-color: rgba(38,166,154,.42); background: rgba(38,166,154,.06); }
-            .anlink-dl-task-top { display: flex; align-items: flex-start; gap: 10px; } .anlink-dl-task-name { min-width: 0; flex: 1; color: #f2fbfa; font: 600 14px/1.3 system-ui, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .anlink-dl-task-meta { margin-top: 4px; color: #829794; font: 11px/1.3 system-ui, sans-serif; }
-            .anlink-dl-status { flex: none; padding: 4px 8px; border-radius: 10px; background: rgba(38,166,154,.14); color: #7ce4d8; font: 700 10px/1 system-ui, sans-serif; text-transform: uppercase; letter-spacing: .05em; } .anlink-dl-status.failed { background: rgba(239,83,80,.16); color: #ff8b89; } .anlink-dl-status.completed { background: rgba(102,187,106,.16); color: #a0e7a3; }
-            .anlink-dl-progress { height: 7px; margin: 13px 0 9px; overflow: hidden; border-radius: 5px; background: rgba(0,0,0,.32); } .anlink-dl-progress > span { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, #26a69a, #8be7dc); transition: width .25s ease; } .anlink-dl-progress.indeterminate > span { width: 38%; animation: anlink-progress-slide 1.15s ease-in-out infinite; }
-            .anlink-dl-log { margin-top: 10px; border-top: 1px solid rgba(255,255,255,.07); color: #8ea3a1; font: 11px/1.45 ui-monospace, monospace; } .anlink-dl-log summary { padding-top: 9px; cursor: pointer; color: #82aaa6; font: 11px system-ui, sans-serif; } .anlink-dl-log pre { max-height: 180px; margin: 8px 0 0; overflow: auto; white-space: pre; color: #b9cbc8; }
-            .anlink-dl-stats { display: flex; flex-wrap: wrap; gap: 8px 16px; color: #9eb4b1; font: 11px/1.3 ui-monospace, monospace; } .anlink-dl-error { margin-top: 8px; color: #ff9997; font: 11px/1.4 system-ui, sans-serif; }
-            .anlink-dl-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; } .anlink-dl-actions button, .anlink-dl-settings button { border: 1px solid rgba(255,255,255,.12); border-radius: 7px; padding: 6px 9px; background: rgba(255,255,255,.05); color: #d4e7e4; cursor: pointer; font: 11px system-ui, sans-serif; } .anlink-dl-actions button:hover, .anlink-dl-settings button:hover { border-color: #26a69a; color: #7ce4d8; }
-            .anlink-dl-popover { position: absolute; right: 12px; top: 48px; z-index: 5; width: 230px; padding: 12px; border: 1px solid rgba(100,220,207,.24); border-radius: 10px; background: #202a29; box-shadow: 0 12px 30px rgba(0,0,0,.4); } .anlink-dl-popover label, .anlink-dl-settings label { display: block; margin: 8px 0 4px; color: #9eb4b1; font: 11px system-ui, sans-serif; } .anlink-dl-popover input, .anlink-dl-settings input, .anlink-dl-settings select { width: 100%; padding: 7px 8px; border: 1px solid rgba(255,255,255,.12); border-radius: 6px; background: #18211f; color: #ecf7f5; }
-            .anlink-dl-empty { padding: 28px 12px; border: 1px dashed rgba(255,255,255,.12); border-radius: 10px; color: #829794; text-align: center; font: 13px system-ui, sans-serif; }
-            .anlink-dl-settings { padding: 14px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: rgba(255,255,255,.03); } .anlink-dl-setting-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } .anlink-dl-setting-wide { grid-column: 1 / -1; } .anlink-dl-help { margin-top: 12px; color: #829794; font: 11px/1.45 system-ui, sans-serif; } .anlink-dl-help a { color: #75cfc5; }
+            .anilink-dl-header { display: flex; align-items: center; gap: 14px; padding: 18px 22px; border-bottom: 1px solid rgba(255,255,255,.08); }
+            .anilink-dl-title { flex: 1; } .anilink-dl-title h2 { margin: 0; color: #65d6c8; font: 700 20px/1.2 system-ui, sans-serif; } .anilink-dl-title p { margin: 5px 0 0; color: #8ea3a1; font: 12px/1.3 system-ui, sans-serif; }
+            .anilink-dl-icon-btn { width: 34px; height: 34px; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; background: rgba(255,255,255,.05); color: #d9eeeb; cursor: pointer; font-size: 17px; } .anilink-dl-icon-btn:hover { border-color: #26a69a; background: rgba(38,166,154,.18); }
+            .anilink-dl-body { padding: 18px 22px 22px; overflow-y: auto; } .anilink-dl-section { margin-bottom: 22px; } .anilink-dl-section:last-child { margin-bottom: 0; }
+            .anilink-dl-section-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: #9adbd3; font: 700 12px/1 system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+            .anilink-dl-section-head button { margin-left: auto; border: 0; background: transparent; color: #82aaa6; cursor: pointer; font: 12px system-ui, sans-serif; } .anilink-dl-section-head button:hover { color: #65d6c8; }
+            .anilink-dl-task { position: relative; padding: 14px; margin: 9px 0; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: rgba(255,255,255,.035); transition: border-color .2s, background .2s; } .anilink-dl-task:hover { border-color: rgba(38,166,154,.42); background: rgba(38,166,154,.06); }
+            .anilink-dl-task-top { display: flex; align-items: flex-start; gap: 10px; } .anilink-dl-task-name { min-width: 0; flex: 1; color: #f2fbfa; font: 600 14px/1.3 system-ui, sans-serif; overflow: auto; text-overflow: clip; white-space: nowrap; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.12) transparent; } .anilink-dl-task-meta { margin-top: 4px; color: #829794; font: 11px/1.3 system-ui, sans-serif; }
+            .anilink-dl-task-name::-webkit-scrollbar { height: 2px; } .anilink-dl-task-name::-webkit-scrollbar-track { background: transparent; } .anilink-dl-task-name::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 2px; }
+            .anilink-dl-status { flex: none; padding: 4px 8px; border-radius: 10px; background: rgba(38,166,154,.14); color: #7ce4d8; font: 700 10px/1 system-ui, sans-serif; text-transform: uppercase; letter-spacing: .05em; } .anilink-dl-status.failed { background: rgba(239,83,80,.16); color: #ff8b89; } .anilink-dl-status.completed { background: rgba(102,187,106,.16); color: #a0e7a3; }
+            .anilink-dl-progress { height: 7px; margin: 13px 0 9px; overflow: hidden; border-radius: 5px; background: rgba(0,0,0,.32); } .anilink-dl-progress > span { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, #26a69a, #8be7dc); transition: width .25s ease; } .anilink-dl-progress.indeterminate > span { width: 38%; animation: anlink-progress-slide 1.15s ease-in-out infinite; }
+            .anilink-dl-log { margin-top: 10px; border-top: 1px solid rgba(255,255,255,.07); color: #8ea3a1; font: 11px/1.45 ui-monospace, monospace; } .anilink-dl-log summary { padding-top: 9px; cursor: pointer; color: #82aaa6; font: 11px system-ui, sans-serif; } .anilink-dl-log pre { max-height: 180px; margin: 8px 0 0; overflow: auto; white-space: pre; color: #b9cbc8; }
+            .anilink-dl-stats { display: flex; flex-wrap: wrap; gap: 8px 16px; color: #9eb4b1; font: 11px/1.3 ui-monospace, monospace; } .anilink-dl-error { margin-top: 8px; color: #ff9997; font: 11px/1.4 system-ui, sans-serif; }
+            .anilink-dl-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; } .anilink-dl-actions button, .anilink-dl-settings button { border: 1px solid rgba(255,255,255,.12); border-radius: 7px; padding: 6px 9px; background: rgba(255,255,255,.05); color: #d4e7e4; cursor: pointer; font: 11px system-ui, sans-serif; } .anilink-dl-actions button:hover, .anilink-dl-settings button:hover { border-color: #26a69a; color: #7ce4d8; }
+            .anilink-dl-popover { position: absolute; right: 12px; top: 48px; z-index: 5; width: 230px; padding: 12px; border: 1px solid rgba(100,220,207,.24); border-radius: 10px; background: #202a29; box-shadow: 0 12px 30px rgba(0,0,0,.4); } .anilink-dl-popover label, .anilink-dl-settings label { display: block; margin: 8px 0 4px; color: #9eb4b1; font: 11px system-ui, sans-serif; } .anilink-dl-popover input, .anilink-dl-settings input, .anilink-dl-settings select { width: 100%; padding: 7px 8px; border: 1px solid rgba(255,255,255,.12); border-radius: 6px; background: #18211f; color: #ecf7f5; }
+            .anilink-dl-empty { padding: 28px 12px; border: 1px dashed rgba(255,255,255,.12); border-radius: 10px; color: #829794; text-align: center; font: 13px system-ui, sans-serif; }
+            .anilink-dl-settings { padding: 14px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: rgba(255,255,255,.03); } .anilink-dl-setting-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } .anilink-dl-setting-wide { grid-column: 1 / -1; } .anilink-dl-help { margin-top: 12px; color: #829794; font: 11px/1.45 system-ui, sans-serif; } .anilink-dl-help a { color: #75cfc5; }
+            .anilink-dl-settings small { display: block; color: #829794; font: 10px/1.3 system-ui, sans-serif; }
             button[data-action] * { pointer-events: none; }
-            @media (max-width: 680px) { #AniLINK_DownloaderOverlay { padding: 3vh 2vw; } #AniLINK_DownloaderPanel { width: 96vw; max-height: 92vh; } .anlink-dl-header, .anlink-dl-body { padding-left: 14px; padding-right: 14px; } .anlink-dl-setting-grid { grid-template-columns: 1fr; } .anlink-dl-setting-wide { grid-column: auto; } }
+            @media (max-width: 680px) {
+                #AniLINK_DownloaderOverlay { padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
+                #AniLINK_DownloaderPanel { width: 96vw; max-height: 92vh; width: 100%; max-height: 100%; border-radius: 14px; }
+                .anilink-dl-header, .anilink-dl-body { padding-left: 14px; padding-right: 14px; gap: 8px; }
+                .anilink-dl-setting-grid { grid-template-columns: 1fr; }
+                .anilink-dl-setting-wide { grid-column: auto; }
+                .anilink-dl-icon-btn { min-width: 40px; min-height: 40px; }
+                .anilink-dl-actions button { min-height: 36px; }
+            }
             @keyframes anlink-progress-slide { from { transform: translateX(-120%); } to { transform: translateX(280%); } }
         `);
         this.overlay = document.createElement('div');
@@ -3635,9 +3734,9 @@ class DownloaderUI {
         const active = this.downloader.tasks.filter(task => !['completed', 'failed', 'cancelled'].includes(task.status));
         const region = panel.querySelector('[data-region="active"]');
         const existing = new Map([...region.querySelectorAll('[data-task-id]')].map(card => [card.dataset.taskId, card]));
-        if (!active.length) region.innerHTML = '<div class="anlink-dl-empty">No active downloads yet.<br>Choose episodes in the extractor to send them here.</div>';
+        if (!active.length) region.innerHTML = '<div class="anilink-dl-empty">No active downloads yet.<br>Choose episodes in the extractor to send them here.</div>';
         else {
-            region.querySelector('.anlink-dl-empty')?.remove();
+            region.querySelector('.anilink-dl-empty')?.remove();
             active.forEach(task => {
                 const card = existing.get(task.id) || this.renderTask(task);
                 if (!card.isConnected) region.appendChild(card);
@@ -3645,7 +3744,7 @@ class DownloaderUI {
             });
             existing.forEach((card, id) => !active.some(task => task.id === id) && card.remove());
         }
-        const activeLabel = panel.querySelector('.anlink-dl-title p');
+        const activeLabel = panel.querySelector('.anilink-dl-title p');
         if (activeLabel) activeLabel.textContent = active.length ? `${active.length} active task${active.length === 1 ? '' : 's'}` : 'Ready for downloads';
         AniLINKUI.updateFab();
     }
@@ -3677,23 +3776,23 @@ class DownloaderUI {
         const active = tasks.filter(task => !['completed', 'failed', 'cancelled'].includes(task.status));
         const history = this.downloader.history.filter(item => ['completed', 'failed', 'cancelled', 'interrupted'].includes(item.status));
         panel.innerHTML = `
-            <div class="anlink-dl-header">
-                <button class="anlink-dl-icon-btn" data-action="back" title="Back to extractor">←</button>
-                <div class="anlink-dl-title"><h2>Download Center</h2><p>${active.length ? `${active.length} active task${active.length === 1 ? '' : 's'}` : 'Ready for downloads'}</p></div>
-                <button class="anlink-dl-icon-btn" data-action="settings" title="Downloader settings">⚙</button>
-                <button class="anlink-dl-icon-btn" data-action="close" title="Close">×</button>
+            <div class="anilink-dl-header">
+                <button class="anilink-dl-icon-btn" data-action="back" title="Back to extractor">←</button>
+                <div class="anilink-dl-title"><h2>Download Center</h2><p>${active.length ? `${active.length} active task${active.length === 1 ? '' : 's'}` : 'Ready for downloads'}</p></div>
+                <button class="anilink-dl-icon-btn" data-action="settings" title="Downloader settings">⚙</button>
+                <button class="anilink-dl-icon-btn" data-action="close" title="Close">×</button>
             </div>
-            <div class="anlink-dl-body">
-                <section class="anlink-dl-section"><div class="anlink-dl-section-head">Active downloads</div><div data-region="active"></div></section>
-                <section class="anlink-dl-section"><div class="anlink-dl-section-head">History <button data-action="toggle-history">${this.historyOpen ? 'Collapse' : 'Expand'}</button></div><div data-region="history"></div></section>
+            <div class="anilink-dl-body">
+                <section class="anilink-dl-section"><div class="anilink-dl-section-head">Active downloads</div><div data-region="active"></div></section>
+                <section class="anilink-dl-section"><div class="anilink-dl-section-head">History <button data-action="toggle-history">${this.historyOpen ? 'Collapse' : 'Expand'}</button></div><div data-region="history"></div></section>
             </div>
         `;
         const activeRegion = panel.querySelector('[data-region="active"]');
-        if (!active.length) activeRegion.innerHTML = '<div class="anlink-dl-empty">No active downloads yet.<br>Choose episodes in the extractor to send them here.</div>';
+        if (!active.length) activeRegion.innerHTML = '<div class="anilink-dl-empty">No active downloads yet.<br>Choose episodes in the extractor to send them here.</div>';
         else active.forEach(task => activeRegion.appendChild(this.renderTask(task)));
         const historyRegion = panel.querySelector('[data-region="history"]');
         if (this.historyOpen) {
-            if (!history.length) historyRegion.innerHTML = '<div class="anlink-dl-empty">Completed and interrupted downloads will appear here.</div>';
+            if (!history.length) historyRegion.innerHTML = '<div class="anilink-dl-empty">Completed and interrupted downloads will appear here.</div>';
             else history.forEach(record => historyRegion.appendChild(this.renderHistory(record)));
         }
         this.bindActions(panel);
@@ -3707,19 +3806,19 @@ class DownloaderUI {
         const displayFilename = task.filename;
         const displayStatus = stats.phase === 'tracks' ? 'tracks' : stats.phase === 'track-error' ? 'track error' : task.status;
         const card = document.createElement('article');
-        card.className = 'anlink-dl-task';
+        card.className = 'anilink-dl-task';
         card.dataset.taskId = task.id;
         card.innerHTML = `
-            <div class="anlink-dl-task-top"><div class="anlink-dl-task-name" title="${escape(displayFilename)}">${escape(displayFilename)}<div class="anlink-dl-task-meta">${escape(task.anime || 'Anime')} · ${escape(task.options.quality || task.options.format || 'source')}</div></div><span class="anlink-dl-status ${escape(task.status)}">${escape(displayStatus)}</span></div>
-            <div class="anlink-dl-progress${stats.totalSize > 0 ? '' : ' indeterminate'}"><span style="width:${percent}%"></span></div>
-            <div class="anlink-dl-stats"><span data-field="size">${stats.filesize} / ${stats.totalsize}</span><span data-field="speed">${stats.speed}</span><span data-field="eta">ETA ${stats.eta}</span><span data-field="parts">Parts ${stats.completedSegments}/${stats.totalSegments || '?'}</span><span data-field="phase" hidden></span></div>
-            ${task.error ? `<div class="anlink-dl-error">${escape(task.error)}</div>` : ''}
-            <div class="anlink-dl-actions">
+            <div class="anilink-dl-task-top"><div class="anilink-dl-task-name" title="${escape(displayFilename)}">${escape(displayFilename)}<div class="anilink-dl-task-meta">${escape(task.anime || 'Anime')} · ${escape(task.options.quality || task.options.format || 'source')}</div></div><span class="anilink-dl-status ${escape(task.status)}">${escape(displayStatus)}</span></div>
+            <div class="anilink-dl-progress${stats.totalSize > 0 ? '' : ' indeterminate'}"><span style="width:${percent}%"></span></div>
+            <div class="anilink-dl-stats"><span data-field="size">${stats.filesize} / ${stats.totalsize}</span><span data-field="speed">${stats.speed}</span><span data-field="eta">ETA ${stats.eta}</span><span data-field="parts">Parts ${stats.completedSegments}/${stats.totalSegments || '?'}</span><span data-field="phase" hidden></span></div>
+            ${task.error ? `<div class="anilink-dl-error">${escape(task.error)}</div>` : ''}
+            <div class="anilink-dl-actions">
                 ${task.status === 'paused' ? '<button data-action="resume">Resume</button>' : ['preparing', 'downloading'].includes(task.status) ? '<button data-action="pause">Pause</button>' : ''}
                 ${['queued', 'preparing', 'downloading', 'paused'].includes(task.status) ? '<button data-action="clear">Clear</button>' : '<button data-action="clear">Clear</button>'}
                 <button data-action="task-settings">More</button>
             </div>
-            <details class="anlink-dl-log"><summary>Logs (${task.logs.length})</summary><pre data-field="logs"></pre></details>
+            <details class="anilink-dl-log"><summary>Logs (${task.logs.length})</summary><pre data-field="logs"></pre></details>
         `;
         this.updateTaskCard(task, card);
         return card;
@@ -3728,26 +3827,26 @@ class DownloaderUI {
     updateTaskCard(task, card) {
         const stats = task.stats;
         const trackPhase = stats.phase === 'tracks';
-        const progress = card.querySelector('.anlink-dl-progress');
+        const progress = card.querySelector('.anilink-dl-progress');
         const percent = trackPhase ? 0 : stats.totalSize > 0 ? Math.min(100, stats.bytesWritten / stats.totalSize * 100) : 0;
         progress?.classList.toggle('track-phase', trackPhase);
         progress?.classList.toggle('indeterminate', trackPhase || stats.totalSize <= 0);
         const bar = progress?.querySelector('span');
         if (bar) bar.style.width = trackPhase || stats.totalSize <= 0 ? '38%' : `${percent}%`;
-        const status = card.querySelector('.anlink-dl-status');
+        const status = card.querySelector('.anilink-dl-status');
         const displayStatus = stats.phase === 'tracks' ? 'tracks' : stats.phase === 'track-error' ? 'track error' : task.status;
-        if (status) { status.className = `anlink-dl-status ${task.status}`; status.textContent = displayStatus; }
+        if (status) { status.className = `anilink-dl-status ${task.status}`; status.textContent = displayStatus; }
         const fields = { size: `${stats.filesize} / ${stats.totalsize}`, speed: stats.speed, eta: `ETA ${stats.eta}`, parts: trackPhase ? `Tracks ${stats.trackIndex}/${stats.trackTotal}` : `Parts ${stats.completedSegments}/${stats.totalSegments || '?'}` };
         for (const [name, value] of Object.entries(fields)) if (card.querySelector(`[data-field="${name}"]`)) card.querySelector(`[data-field="${name}"]`).textContent = value;
         const phase = card.querySelector('[data-field="phase"]');
         if (phase) { phase.hidden = !trackPhase; phase.textContent = stats.trackLabel ? `Downloading ${stats.trackLabel}` : 'Preparing tracks'; }
-        const logsHeader = card.querySelector('.anlink-dl-log summary');
+        const logsHeader = card.querySelector('.anilink-dl-log summary');
         if (logsHeader) logsHeader.textContent = `Logs (${task.logs.length})`;
         const logs = card.querySelector('[data-field="logs"]');
         if (logs) logs.textContent = task.logs.map(item => `[${new Date(item.at).toLocaleTimeString()}] ${item.level.toUpperCase()} ${item.message}`).join('\n');
-        const error = card.querySelector('.anlink-dl-error');
+        const error = card.querySelector('.anilink-dl-error');
         if (task.error && error) error.textContent = task.error;
-        const actions = card.querySelector('.anlink-dl-actions');
+        const actions = card.querySelector('.anilink-dl-actions');
         if (actions) {
             const btn = actions.querySelector('[data-action="pause"], [data-action="resume"]');
             const act = task.status === 'paused' ? 'resume' : /preparing|downloading/.test(task.status) ? 'pause' : null;
@@ -3766,32 +3865,52 @@ class DownloaderUI {
         const history = this.downloader.history.filter(item => ['completed', 'failed', 'cancelled', 'interrupted'].includes(item.status));
         historyRegion.replaceChildren(...(history.length
             ? history.map(record => this.renderHistory(record))
-            : [Object.assign(document.createElement('div'), { className: 'anlink-dl-empty', textContent: 'Completed and interrupted downloads will appear here.' })]));
+            : [Object.assign(document.createElement('div'), { className: 'anilink-dl-empty', textContent: 'Completed and interrupted downloads will appear here.' })]));
     }
 
     renderHistory(record) {
         const escape = dlUtils.anlinkEscapeHtml;
         const card = document.createElement('article');
-        card.className = 'anlink-dl-task';
+        card.className = 'anilink-dl-task';
         card.dataset.historyId = record.id;
         const displayFilename = record.partialFilename && record.status !== 'completed' ? record.partialFilename : record.filename;
-        card.innerHTML = `<div class="anlink-dl-task-top"><div class="anlink-dl-task-name" title="${escape(displayFilename)}">${escape(displayFilename)}<div class="anlink-dl-task-meta">${escape(record.anime || 'Anime')} · ${new Date(record.updatedAt).toLocaleString()}</div></div><span class="anlink-dl-status ${escape(record.status)}">${escape(record.status)}</span></div><div class="anlink-dl-stats"><span>${dlUtils.anlinkFormatBytes(record.stats?.bytesWritten || 0)}</span><span>${escape(record.stats?.error || '')}</span></div><details class="anlink-dl-log"><summary>Logs (${record.logs?.length || 0})</summary><pre>${escape((record.logs || []).map(item => `[${new Date(item.at).toLocaleTimeString()}] ${String(item.level).toUpperCase()} ${item.message}`).join('\n'))}</pre></details><div class="anlink-dl-actions"><button data-action="retry-history">Retry</button><button data-action="remove-history" data-history-id="${escape(record.id)}">Remove</button></div>`;
+        card.innerHTML = `<div class="anilink-dl-task-top"><div class="anilink-dl-task-name" title="${escape(displayFilename)}">${escape(displayFilename)}<div class="anilink-dl-task-meta">${escape(record.anime || 'Anime')} · ${new Date(record.updatedAt).toLocaleString()}</div></div><span class="anilink-dl-status ${escape(record.status)}">${escape(record.status)}</span></div><div class="anilink-dl-stats"><span>${dlUtils.anlinkFormatBytes(record.stats?.bytesWritten || 0)}</span><span>${escape(record.stats?.error || '')}</span></div><details class="anilink-dl-log"><summary>Logs (${record.logs?.length || 0})</summary><pre>${escape((record.logs || []).map(item => `[${new Date(item.at).toLocaleTimeString()}] ${String(item.level).toUpperCase()} ${item.message}`).join('\n'))}</pre></details><div class="anilink-dl-actions"><button data-action="retry-history">Retry</button><button data-action="remove-history" data-history-id="${escape(record.id)}">Remove</button></div>`;
         return card;
     }
 
     showSettingsDialog() {
         const settings = this.downloader.settings;
         const escape = dlUtils.anlinkEscapeHtml;
-        const bodyHTML = `<div class="anlink-dl-settings"><div class="anlink-dl-setting-grid"><div><label>Parallel downloads</label><input name="maxConcurrentTasks" type="number" min="1" max="8" value="${settings.maxConcurrentTasks}"></div><div><label>Default threads</label><input name="defaultThreads" type="number" min="1" max="32" value="${settings.defaultThreads}"></div><div><label>Default speed limit (KB/s, 0 = unlimited)</label><input name="defaultSpeedLimitBps" type="number" min="0" value="${Number.isFinite(settings.defaultSpeedLimitBps) ? Math.round(settings.defaultSpeedLimitBps / 1024) : 0}"></div><div><label>Preferred stream resolution (eg: 360, 720, 1080, etc)</label><input name="preferredResolution" type="number" min="0" step="1" value="${settings.preferredResolution || ''}" placeholder="Auto"></div><div><label>Subtitle folder (blank = alongside video)</label><input name="subtitleDirectory" type="text" value="${escape(settings.subtitleDirectory || '')}" placeholder="Optional folder name"></div><div><label>Notifications</label><select name="notifications"><option value="off" ${settings.notifications === 'off' ? 'selected' : ''}>Off</option><option value="completed" ${settings.notifications === 'completed' ? 'selected' : ''}>Completed only</option><option value="completed-and-failed" ${settings.notifications === 'completed-and-failed' ? 'selected' : ''}>Completed and failed</option><option value="all" ${settings.notifications === 'all' ? 'selected' : ''}>All state changes</option></select></div><div><label>History retention</label><input name="historyLimit" type="number" min="1" max="100" value="${Math.min(100, settings.historyLimit)}"></div></div><div class="anlink-dl-actions"><button type="button" data-action="clear-history">Clear history</button></div><div class="anlink-dl-help">Need help? <a href="https://github.com/jeryjs/Userscripts/issues/new?title=%5BAniLINK%5D%20Downloader%20issue&body=%23%23%20Description%0A%0A%23%23%20Steps%20to%20reproduce%0A1.%20%0A2.%20%0A%0A%23%23%20Expected%20behavior%0A-%20Browser%3A%20%0A-%20Userscript%20manager%3A%20" target="_blank" rel="noreferrer">Report an issue on GitHub</a></div></div>`;
+        const bodyHTML = `<div class="anilink-dl-settings">
+            <div class="anilink-dl-setting-grid">
+                <div><label>Parallel downloads</label><input name="maxConcurrentTasks" type="number" min="1" max="8" placeholder="1" value="${settings.maxConcurrentTasks}"></div>
+                <div><label>Default threads</label><input name="defaultThreads" type="number" min="1" max="32" placeholder="6" value="${settings.defaultThreads}"></div>
+                <div><label>Default speed limit (KB/s, 0 = unlimited)</label><input name="defaultSpeedLimitBps" type="number" min="0" placeholder="0" value="${Number.isFinite(settings.defaultSpeedLimitBps) ? Math.round(settings.defaultSpeedLimitBps / 1024) : 0}"></div>
+                <div><label>Preferred stream resolution (360, 720, 1080, etc)</label><input name="preferredResolution" type="number" min="0" step="1" value="${settings.preferredResolution || ''}" placeholder="Auto"></div>
+                <div><label>Subtitle folder (blank = alongside video)</label><input name="subtitleDirectory" type="text" value="${escape(settings.subtitleDirectory || '')}" placeholder="Optional folder name">${window.showDirectoryPicker ? '<small>This feature might not be supported in your browser. See <a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/showDirectoryPicker#browser_compatibility" target="_blank" rel="noreferrer">MDN</a> for more information.</small>' : ''}</div>
+                <div style="display: flex; flex-direction: column;"><label style="margin-bottom: -4px;">Always show floating button</label><label style="display: flex; align-items: center; gap: 12px; background-color: #18211f; border: 1px solid #343c3a; border-radius: 6px; padding: 6px 10px; cursor: pointer;"><input name="fabAlwaysVisible" type="checkbox" ${settings.fabAlwaysVisible === true ? 'checked' : ''} onchange="this.nextElementSibling.textContent = this.checked ? 'True' : 'False'" style="accent-color: #3f51b5; width: 14px; height: 14px; margin: 0; cursor: pointer;"><span style="font-size: 14px; font-family: sans-serif; opacity: 0.85;">${settings.fabAlwaysVisible === true ? 'True' : 'False'}</span></label></div>
+                <div><label>Notifications</label><select name="notifications">
+                    <option value="off" ${settings.notifications==='off' ? 'selected' : '' }>Off</option>
+                    <option value="completed" ${settings.notifications==='completed' ? 'selected' : '' }>Completed only</option>
+                    <option value="completed-and-failed" ${settings.notifications==='completed-and-failed' ? 'selected' : ''}>Completed and failed</option>
+                    <option value="all" ${settings.notifications==='all' ? 'selected' : '' }>All state changes</option>
+                </select></div>
+                <div><label>History retention</label><input name="historyLimit" type="number" min="1" max="100" placeholder="15" value="${Math.min(100, settings.historyLimit)}"></div>
+            </div>
+            <div class="anilink-dl-actions"><button type="button" data-action="clear-history">Clear history</button></div>
+            <div class="anilink-dl-help">Need help? <a href="https://github.com/jeryjs/Userscripts/issues/new?title=%5BAniLINK%5D%20Downloader%20issue&body=%23%23%20Description%0A%0A%23%23%20Steps%20to%20reproduce%0A1.%20%0A2.%20%0A%0A%23%23%20Expected%20behavior%0A-%20Browser%3A%20%0A-%20Userscript%20manager%3A%20" target="_blank" rel="noreferrer">Report an issue on GitHub</a></div>
+        </div>`;
         const { modal } = createModal({
             title: 'Downloader Settings',
             icon: '⚙',
             subtitle: 'Defaults apply to newly added tasks',
-            bodyHTML,
+            bodyHTML: bodyHTML,
             width: '560px',
             onConfirm: dialog => {
                 const value = name => dialog.querySelector(`[name="${name}"]`)?.value;
-                this.downloader.updateSettings({ maxConcurrentTasks: +value('maxConcurrentTasks'), defaultThreads: +value('defaultThreads'), defaultSpeedLimitBps: +(value('defaultSpeedLimitBps') || 0) * 1024 || Infinity, preferredResolution: +value('preferredResolution') || 0, subtitleDirectory: value('subtitleDirectory'), notifications: value('notifications'), historyLimit: +value('historyLimit') });
+                const checked = name => dialog.querySelector(`[name="${name}"]`)?.checked;
+                this.downloader.updateSettings({ maxConcurrentTasks: +value('maxConcurrentTasks'), defaultThreads: +value('defaultThreads'), defaultSpeedLimitBps: +(value('defaultSpeedLimitBps') || 0) * 1024 || Infinity, preferredResolution: +value('preferredResolution') || 0, subtitleDirectory: value('subtitleDirectory'), fabAlwaysVisible: checked('fabAlwaysVisible'), notifications: value('notifications'), historyLimit: +value('historyLimit') });
+                AniLINKUI.updateFab();
                 this.refresh();
             }
         });
@@ -3831,12 +3950,12 @@ class DownloaderUI {
     }
 
     showTaskPopover(card) {
-        card.querySelector('.anlink-dl-popover')?.remove();
+        card.querySelector('.anilink-dl-popover')?.remove();
         const task = this.downloader.getTask(card.dataset.taskId);
         if (!task) return;
         const popover = document.createElement('div');
-        popover.className = 'anlink-dl-popover';
-        popover.innerHTML = `<label>Speed limit (KB/s, 0 = unlimited)</label><input name="speed" type="number" min="0" value="${Number.isFinite(task.options.speedLimitBps) ? Math.round(task.options.speedLimitBps / 1024) : 0}">${task.status === 'queued' ? '<label>Request threads</label><input name="threads" type="number" min="1" max="32" value="' + task.options.threads + '">' : ''}<div class="anlink-dl-actions"><button data-action="apply-task-settings">Apply</button></div>`;
+        popover.className = 'anilink-dl-popover';
+        popover.innerHTML = `<label>Speed limit (KB/s, 0 = unlimited)</label><input name="speed" type="number" min="0" value="${Number.isFinite(task.options.speedLimitBps) ? Math.round(task.options.speedLimitBps / 1024) : 0}">${task.status === 'queued' ? '<label>Request threads</label><input name="threads" type="number" min="1" max="32" value="' + task.options.threads + '">' : ''}<div class="anilink-dl-actions"><button data-action="apply-task-settings">Apply</button></div>`;
         popover.querySelector('[data-action="apply-task-settings"]').addEventListener('click', () => {
             task.setSpeedLimit(+(popover.querySelector('[name="speed"]').value || 0) * 1024 || Infinity);
             if (task.status === 'queued') task.setThreads(+(popover.querySelector('[name="threads"]').value || task.options.threads));
