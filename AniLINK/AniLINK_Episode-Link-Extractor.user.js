@@ -8,12 +8,6 @@
 // @license     MIT
 // @match       https://anitaku.tld/*
 // @match       https://anitaku.io/*
-// @match       https://gogoanime.tld/*
-// @match       https://gogoanime3.cc/*
-// @match       https://gogoanime3.tld/*
-// @match       https://yugenanime.tld/*/anime/*/*/watch/
-// @match       https://yugenanime.tv/anime/*/*/watch/
-// @match       https://yugenanime.sx/anime/*/*/watch/
 // @match       https://hianime.tld/watch/*
 // @match       https://hianime.to/watch/*
 // @match       https://hianime.nz/watch/*
@@ -192,53 +186,10 @@ class Episode {
  */
 const Websites = [
     {
-        name: 'GoGoAnime',
-        url: ['anitaku.to/', 'gogoanime3.co/', 'gogoanime3', 'anitaku.bz', 'gogoanime'],
-        epLinks: '#episode_related > li > a',
-        epTitle: '.title_name > h2',
-        linkElems: '.cf-download > a',
-        thumbnail: '.headnav_left > a > img',
-        addStartButton: function () {
-            const button = Object.assign(document.createElement('a'), {
-                id: "AniLINK_startBtn",
-                style: "cursor: pointer; background-color: #145132;",
-                innerHTML: document.querySelector("div.user_auth a[href='/login.html']")
-                    ? `<b style="color:#FFC119;">AniLINK:</b> Please <a href="/login.html"><u>log in</u></a> to download`
-                    : '<i class="icongec-dowload"></i> Generate Download Links'
-            });
-            const target = location.href.includes('/category/') ? '#episode_page' : '.cf-download';
-            document.querySelector(target)?.appendChild(button);
-            return button;
-        },
-        extractEpisodes: async function* (status) {
-            const throttleLimit = 12; // Number of episodes to extract in parallel
-            const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
-            const epLinks = await applyEpisodeRangeFilter(allEpLinks);
-            for (let i = 0; i < epLinks.length; i += throttleLimit) {
-                const chunk = epLinks.slice(i, i + throttleLimit);
-                const episodePromises = chunk.map(async epLink => {
-                    try {
-                        const page = await fetchPage(epLink.href);
-
-                        const [, epTitle, epNumber] = page.querySelector(this.epTitle).textContent.match(/(.+?) Episode (\d+(?:\.\d+)?)/);
-                        const thumbnail = page.querySelector(this.thumbnail).src;
-                        status.text = `Extracting ${epTitle} - ${epNumber.padStart(3, '0')}...`;
-                        const links = [...page.querySelectorAll(this.linkElems)].reduce((obj, elem) => ({ ...obj, [elem.textContent.trim()]: { stream: elem.href, type: 'mp4' } }), {});
-                        status.text = `Extracted ${epTitle} - ${epNumber.padStart(3, '0')}`;
-
-                        return new Episode(epNumber, epTitle, links, thumbnail); // Return Episode object
-                    } catch (e) { showToast(e); return null; }
-                }); // Handle errors and return null
-
-                yield* yieldEpisodesFromPromises(episodePromises); // Use helper function
-            }
-        }
-    },
-    {
-        name: "Anitaku",
+        name: "Anitaku (clone)",
         url: ['anitaku.io'],
         extractEpisodes: async function* (status) {
-            const epLinks = document.querySelectorAll('.episodelist li > a');
+            const epLinks = Array.from(document.querySelectorAll('.episodelist li > a'));
             for (let i = 0, l = [...await applyEpisodeRangeFilter(epLinks)]; i < l.length; i += 12)
                 yield* yieldEpisodesFromPromises(l.slice(i, i + 12).map(async a => {
                     const pg = await fetchPage(a.href);
@@ -256,63 +207,6 @@ const Websites = [
                     }
                     return new Episode(epNum, pg.querySelector('.det > h2 > a').textContent.trim(), links, pg.querySelector('img').src);
                 }));
-        }
-    },
-    {
-        name: 'YugenAnime',
-        url: ['yugenanime.tv', 'yugenanime.sx'],
-        epLinks: '.ep-card > a.ep-thumbnail',
-        animeTitle: '.ani-info-ep .link h1',
-        epTitle: 'div.col.col-w-65 > div.box > h1',
-        thumbnail: 'a.ep-thumbnail img',
-        addStartButton: function () {
-            return document.querySelector(".content .navigation").appendChild(Object.assign(document.createElement('a'), { id: "AniLINK_startBtn", className: "link p-15", textContent: "Generate Download Links" }));
-        },
-        extractEpisodes: async function* (status) {
-            status.text = 'Getting list of episodes...';
-            const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
-            const epLinks = await applyEpisodeRangeFilter(allEpLinks);
-
-            const throttleLimit = 6;    // Number of episodes to extract in parallel
-
-            for (let i = 0; i < epLinks.length; i += throttleLimit) {
-                const chunk = epLinks.slice(i, i + throttleLimit);
-                const episodePromises = chunk.map(async (epLink, index) => {
-                    try {
-                        status.text = `Loading ${epLink.pathname}`;
-                        const page = await fetchPage(epLink.href);
-
-                        const animeTitle = page.querySelector(this.animeTitle).textContent;
-                        const epNumber = epLink.href.match(/(\d+)\/?$/)[1];
-                        const epTitle = page.querySelector(this.epTitle).textContent.match(/^${epNumber} : (.+)$/) || animeTitle;
-                        const thumbnail = document.querySelectorAll(this.thumbnail)[index].src;
-                        status.text = `Extracting ${`${epNumber.padStart(3, '0')} - ${animeTitle}` + (epTitle != animeTitle ? `- ${epTitle}` : '')}...`;
-                        const rawLinks = await this._getVideoLinks(page, status, epTitle);
-                        const links = Object.entries(rawLinks).reduce((acc, [quality, url]) => ({ ...acc, [quality]: { stream: url, type: 'm3u8' } }), {});
-
-                        return new Episode(epNumber, epTitle, links, thumbnail);
-                    } catch (e) { showToast(e); return null; }
-                });
-                yield* yieldEpisodesFromPromises(episodePromises);
-            }
-        },
-        _getVideoLinks: async function (page, status, episodeTitle) {
-            const embedLinkId = page.body.innerHTML.match(new RegExp(`src="//${page.domain}/e/(.*?)/"`))[1];
-            const embedApiResponse = await fetch(`https://${page.domain}/api/embed/`, { method: 'POST', headers: { "X-Requested-With": "XMLHttpRequest" }, body: new URLSearchParams({ id: embedLinkId, ac: "0" }) });
-            const json = await embedApiResponse.json();
-            const m3u8GeneralLink = json.hls[0];
-            status.text = `Parsing ${episodeTitle}...`;
-            // Fetch the m3u8 file content
-            const m3u8Response = await fetch(m3u8GeneralLink);
-            const m3u8Text = await m3u8Response.text();
-            // Parse the m3u8 file to extract different qualities
-            const qualityMatches = m3u8Text.matchAll(/#EXT-X-STREAM-INF:.*RESOLUTION=\d+x\d+.*NAME="(\d+p)"\n(.*\.m3u8)/g);
-            const links = {};
-            for (const match of qualityMatches) {
-                const [_, quality, m3u8File] = match;
-                links[quality] = `${m3u8GeneralLink.slice(0, m3u8GeneralLink.lastIndexOf('/') + 1)}${m3u8File}`;
-            }
-            return links;
         }
     },
     {
@@ -342,8 +236,7 @@ const Websites = [
                 await new Promise(r => { const c = () => firstEp() !== firstEpNum ? r() : setTimeout(c, 500); c(); });
                 firstEpNum = firstEp();
             }
-            // TODO: properly implement support for source selector
-			const quality = await prompt("Quality: (1080, 720, 360, etc)", 1080)
+            const srcCfg = await showSourceSelector(await fetchPage(epLinks[0].href).then(p => [..._$$('#resolutionMenu > button[data-resolution]', p)].map(b => b.textContent.trim()).filter(Boolean)), 'animepahe', { mode: 'single' });
             for (let i = 0; i < epLinks.length; i += this._chunkSize) {
                 yield* yieldEpisodesFromPromises(epLinks.slice(i, i + this._chunkSize).map(async epLink => {
                     const page = await fetchPage(epLink.href);
@@ -351,10 +244,10 @@ const Websites = [
                     const epNumber = (epNum - firstEpNum + 1).toString();
                     const thumbnail = page.querySelector(this.thumbnail).src;
                     status.text = `Extracting episodes ${epNumber - Math.min(epNumber, this._chunkSize) + 1} - ${epNumber}...`;
-                    const links = Object.fromEntries(await Promise.all([...page.querySelectorAll(this.linkElems+`[data-resolution="${quality}"]`)].map(async elm => [elm.textContent, { stream: await Extractors.use(elm.getAttribute('data-src')), type: 'm3u8', referer: 'https://kwik.cx/' }])));
+                    const links = Object.fromEntries(await Promise.all([...page.querySelectorAll('#resolutionMenu > button[data-resolution]')].filter(b => (srcCfg.mode === 'single' ? [srcCfg.sources[0]] : srcCfg.sources).includes(b.textContent.trim())).map(async elm => [elm.textContent, { stream: await Extractors.use(elm.getAttribute('data-src')), type: 'm3u8', referer: 'https://kwik.cx/' }])));
                     return new Episode(epNumber, PREFER_JAP_TITLE ? ($('h2.japanese').text() || animeTitle) : animeTitle, links, thumbnail, epLink.parentNode?.parentNode?.querySelector('.episode-title')?.textContent);
                 }));
-				await sleep(2500);  // for prevent rate limit
+				if (i < epLinks.length - this._chunkSize) await sleep(2500);  // for prevent rate limit
 			}
         },
         styles: `div#AniLINK_LinksContainer { font-size: 10px; } #Quality > b > div > ul {font-size: 16px;}`
