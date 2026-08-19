@@ -6,16 +6,16 @@
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
 // @license     MIT
-// @match       https://anitaku.tld/*
 // @match       https://anitaku.io/*
-// @match       https://hianime.tld/watch/*
-// @match       https://hianime.to/watch/*
-// @match       https://hianime.nz/watch/*
-// @match       https://hianime.sz/watch/*
+// @match       https://animepahe.pw/*/*
 // @match       https://otaku-streamers.com/*
 // @match       https://animeheaven.me/anime.php?*
 // @match       https://animez.org/*/*
 // @match       https://animeyy.com/*/*
+// @match       https://hianime.tld/watch/*
+// @match       https://hianime.to/watch/*
+// @match       https://hianime.nz/watch/*
+// @match       https://hianime.sz/watch/*
 // @match       https://*.miruro.to/*
 // @match       https://*.miruro.tv/*
 // @match       https://*.miruro.ru/*
@@ -35,7 +35,6 @@
 // @match       https://animetsu.live/*
 // @match       https://animekai.tld/*/*
 // @match       https://anikai.to/*
-// @match       https://animepahe.pw/*/*
 // @match       https://yflix.to/watch/*
 // @match       https://anime.uniquestream.net/*/*/*
 // @match       https://www.fmovies.gd/*/*
@@ -61,11 +60,11 @@
 // @match       https://av1please.com/anime/*
 // @match       https://av1please.com/episodes/*/*
 // @match       https://anidb.app/anime/*
-// @grant       GM_registerMenuCommand
-// @grant       GM_xmlhttpRequest
+// @require     https://cdn.jsdelivr.net/npm/@trim21/gm-fetch@0.3.0
 // @grant       GM.xmlHttpRequest
 // @grant       GM.download
-// @require     https://cdn.jsdelivr.net/npm/@trim21/gm-fetch@0.2.1
+// @grant       GM_xmlhttpRequest
+// @grant       GM_registerMenuCommand
 // @grant       GM_addStyle
 // @grant       GM_getValue
 // @grant       GM_setValue
@@ -293,9 +292,9 @@ const Websites = [
     {
         name: 'AnimeHeaven',
         url: ['animeheaven.me'],
-        epLinks: 'a.ac3',
+        epLinks: '.linetitle2 > a',
         epTitle: 'a.c2.ac2',
-        epNumber: '.boxitem.bc2.c1.mar0',
+        epNumber: '.boxitem.bc2.c1.mar0[onclick="dwn()"]',
         thumbnail: 'img.posterimg',
         addStartButton: function () {
             const button = document.createElement('a');
@@ -306,21 +305,22 @@ const Websites = [
             return button;
         },
         extractEpisodes: async function* (status) {
-            const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
+            const allEpLinks = Array.from(document.querySelectorAll(this.epLinks)).reverse();
             const epLinks = await applyEpisodeRangeFilter(allEpLinks);
-            const throttleLimit = 12; // Number of episodes to extract in parallel
+            const throttleLimit = 1; // Number of episodes to extract in parallel
 
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
                 const chunk = epLinks.slice(i, i + throttleLimit);
                 const episodePromises = chunk.map(async epLink => {
                     try {
-                        const page = await fetchPage(epLink.href);
+                        document.cookie = "key=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";   // Delete the current cookie to prevent it from being used in the below fetch
+                        const page = await fetchPage(epLink.href, { headers: { 'Cookie': 'key=' + epLink.id } }, GM_fetch);
                         const epTitle = page.querySelector(this.epTitle).textContent;
-                        const epNumber = page.querySelector(this.epNumber).textContent.replace("Episode ", '');
+                        const epNumber = page.querySelector(this.epNumber).textContent.replace("Download Episode ", '');
                         const thumbnail = document.querySelector(this.thumbnail).src;
 
                         status.text = `Extracting ${epTitle} - ${epNumber}...`;
-                        const links = [...page.querySelectorAll('#vid > source')].reduce((acc, source) => ({ ...acc, [source.src.match(/\/\/(\w+)\./)[1]]: { stream: source.src, type: 'mp4' } }), {});
+                        const links = [...page.querySelectorAll('#vid > source')].reduce((acc, source, index) => ({ ...acc, ['server '+ ++index]: { stream: source.src.replace(/&error\d?$/,''), type: 'mp4' } }), {});
 
                         return new Episode(epNumber, epTitle, links, thumbnail); // Return Episode object
                     } catch (e) { showToast(e); return null; }
@@ -1057,8 +1057,8 @@ const Extractors = {
  * @returns {Promise<Document>} A promise that resolves to a DOM Document object.
  * @throws {Error} If the fetch operation fails.
  */
-async function fetchPage(url, options = {}) {
-    const response = await fetch(url, options);
+async function fetchPage(url, options = {}, fetchFn = fetch) {
+    const response = await fetchFn(url, options);
     if (response.ok) {
         const page = (new DOMParser()).parseFromString(await response.text(), 'text/html');
         return page;
