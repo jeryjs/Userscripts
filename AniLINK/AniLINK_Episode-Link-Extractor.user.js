@@ -12,9 +12,7 @@
 // @match       https://hianime.to/watch/*
 // @match       https://hianime.nz/watch/*
 // @match       https://hianime.sz/watch/*
-// @match       https://otaku-streamers.com/info/*/*
-// @match       https://beta.otaku-streamers.com/watch/*/*
-// @match       https://beta.otaku-streamers.com/title/*/*
+// @match       https://otaku-streamers.com/*
 // @match       https://animeheaven.me/anime.php?*
 // @match       https://animez.org/*/*
 // @match       https://animeyy.com/*/*
@@ -253,17 +251,19 @@ const Websites = [
         styles: `div#AniLINK_LinksContainer { font-size: 10px; } #Quality > b > div > ul {font-size: 16px;}`
     },
     {
-        name: 'Beta-Otaku-Streamers',
-        url: ['beta.otaku-streamers.com'],
-        epLinks: (document.location.pathname.startsWith('/title/')) ? '.item-title a' : '.video-container .clearfix > a',
-        epTitle: '.title > a',
-        epNum: '.watch_curep',
+        name: 'Otaku-Streamers',
+        url: ['otaku-streamers.com'],
+        animeTitle: '.wp-breadcrumb > a',
+        epLinks: '.wp-ep-item, .tp-ep-row',
+        epTitle: '.wp-ep-info-title',
+        epNum: '.current.watch_curep',
         thumbnail: 'video',
         addStartButton: function () {
-            (document.location.pathname.startsWith('/title/')
-                ? document.querySelector(".album-top-box") : document.querySelector('.video-container .title-box'))
-                .innerHTML += `<a id="AniLINK_startBtn" class="btn btn-outline rounded-btn">Generate Download Links</a>`;
-            return document.getElementById("AniLINK_startBtn");
+            setInterval(() => {
+                const container = _$('.tp-ep-sort, .wp-ep-panel-header');
+                if(!container || container?.querySelector("#AniLINK_startBtn")) return;
+                container.appendChild(Object.assign(document.createElement('button'), { id: "AniLINK_startBtn", className: "btn-outline os-genre-tag", innerHTML: "Generate Download Links", onclick: extractEpisodes }));
+            }, 500);
         },
         extractEpisodes: async function* (status) {
             const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
@@ -275,56 +275,18 @@ const Websites = [
                 const episodePromises = chunk.map(async epLink => {
                     try {
                         const page = await fetchPage(epLink.href);
-                        const epTitle = page.querySelector(this.epTitle).textContent.trim();
+                        const animeTitle = page.querySelector(this.animeTitle).textContent;
+                        const epTitle = page.querySelector(this.epTitle)?.textContent;
                         const epNumber = page.querySelector(this.epNum).textContent.replace("Episode ", '');
                         const thumbnail = page.querySelector(this.thumbnail).poster;
 
-                        status.text = `Extracting ${epTitle} - ${epNumber}...`;
+                        status.text = `Extracting episodes ${epNumber - Math.min(epNumber, this._chunkSize) + 1} - ${epNumber}...`;
                         const links = { 'Video Links': { stream: page.querySelector('video > source').src, type: 'mp4' } };
 
-                        return new Episode(epNumber, epTitle, links, thumbnail);
+                        return new Episode(epNumber, animeTitle, links, thumbnail, epTitle);
                     } catch (e) { showToast(e); return null; }
                 });
                 yield* yieldEpisodesFromPromises(episodePromises);
-            }
-        }
-    },
-    {
-        name: 'Otaku-Streamers',
-        url: ['otaku-streamers.com'],
-        epLinks: 'table > tbody > tr > td:nth-child(2) > a',
-        epTitle: '#strw_player > table > tbody > tr:nth-child(1) > td > span:nth-child(1) > a',
-        epNum: '#video_episode',
-        thumbnail: 'otaku-streamers.com/images/os.jpg',
-        addStartButton: function () {
-            const button = document.createElement('a');
-            button.id = "AniLINK_startBtn";
-            button.style.cssText = `cursor: pointer; background-color: #145132; float: right;`;
-            button.innerHTML = 'Generate Download Links';
-            document.querySelector('table > tbody > tr:nth-child(2) > td > div > table > tbody > tr > td > h2').appendChild(button);
-            return button;
-        },
-        extractEpisodes: async function* (status) {
-            const allEpLinks = Array.from(document.querySelectorAll(this.epLinks));
-            const epLinks = await applyEpisodeRangeFilter(allEpLinks);
-            const throttleLimit = 12;    // Number of episodes to extract in parallel
-
-            for (let i = 0; i < epLinks.length; i += throttleLimit) {
-                const chunk = epLinks.slice(i, i + throttleLimit);
-                const episodePromises = chunk.map(async epLink => {
-                    try {
-                        const page = await fetchPage(epLink.href);
-                        const epTitle = page.querySelector(this.epTitle).textContent;
-                        const epNumber = page.querySelector(this.epNum).textContent.replace("Episode ", '')
-
-                        status.text = `Extracting ${epTitle} - ${epNumber}...`;
-                        const links = { 'mp4': { stream: page.querySelector('video > source').src, type: 'mp4' } };
-
-                        return new Episode(epNumber, epTitle, links, this.thumbnail); // Return Episode object
-                    } catch (e) { showToast(e); return null; }
-                }); // Handle errors and return null
-
-                yield* yieldEpisodesFromPromises(episodePromises); // Use helper function
             }
         }
     },
