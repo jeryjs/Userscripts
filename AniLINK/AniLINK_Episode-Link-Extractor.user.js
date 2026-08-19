@@ -10,19 +10,14 @@
 // @match       https://animepahe.pw/*/*
 // @match       https://otaku-streamers.com/*
 // @match       https://animeheaven.me/anime.php?*
-// @match       https://animez.org/*/*
-// @match       https://animeyy.com/*/*
-// @match       https://hianime.tld/watch/*
-// @match       https://hianime.to/watch/*
-// @match       https://hianime.nz/watch/*
-// @match       https://hianime.sz/watch/*
-// @match       https://*.miruro.to/*
-// @match       https://*.miruro.tv/*
-// @match       https://*.miruro.ru/*
-// @match       https://*.miruro.bz/*
-// @match       https://anizone.to/anime/*
+// @match       https://www.miruro.to/*
+// @match       https://www.miruro.tv/*
+// @match       https://www.miruro.ru/*
+// @match       https://www.miruro.bz/*
+// @match       https://anizone.to/*
 // @match       https://anixl.to/title/*
 // @match       https://sudatchi.com/watch/*/*
+// @match       https://hianime.sz/watch/*
 // @match       https://hianime.tld/watch/*
 // @match       https://hianime.to/watch/*
 // @match       https://hianime.nz/watch/*
@@ -307,7 +302,7 @@ const Websites = [
         extractEpisodes: async function* (status) {
             const allEpLinks = Array.from(document.querySelectorAll(this.epLinks)).reverse();
             const epLinks = await applyEpisodeRangeFilter(allEpLinks);
-            const throttleLimit = 1; // Number of episodes to extract in parallel
+            const throttleLimit = 12; // Number of episodes to extract in parallel
 
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
                 const chunk = epLinks.slice(i, i + throttleLimit);
@@ -327,60 +322,6 @@ const Websites = [
                 }); // Handle errors and return null
 
                 yield* yieldEpisodesFromPromises(episodePromises); // Use helper function
-            }
-        }
-    },
-    {
-        name: 'AnimeZ',
-        url: ['animez.org', 'animeyy.com'],
-        epLinks: 'li.wp-manga-chapter a',
-        epTitle: '#title-detail-manga',
-        epNum: '.wp-manga-chapter.active',
-        thumbnail: '.Image > figure > img',
-        addStartButton: function () {
-            (document.querySelector(".MovieTabNav.ControlPlayer") || document.querySelector(".mb-3:has(#keyword_chapter)"))
-                .innerHTML += `<div class="Lnk AAIco-link" id="AniLINK_startBtn">Extract Episode Links</div>`;
-            return document.getElementById("AniLINK_startBtn");
-        },
-        extractEpisodes: async function* (status) {
-            /// work in progress- stopped when animes.org started redirecting to some random manhwa site
-            status.text = 'Fetching Episodes List...';
-            const mangaId = (window.location.pathname.match(/-(\d+)(?:\/|$)/) || [])[1] || document.querySelector('[data-manga-id]')?.getAttribute('data-manga-id');
-            if (!mangaId) return showToast('Could not determine manga_id for episode list.');
-            const nav = [...document.querySelectorAll('#nav_list_chapter_id_detail li > :not(a.next)')];
-            const maxPage = Math.max(1, ...Array.from(nav).map(a => +(a.getAttribute('onclick')?.match(/load_list_chapter\((\d+)\)/)?.[1] || 0)).filter(Boolean));
-            // Parse all episode links from all pages in parallel
-            status.text = `Loading all ${maxPage} episode pages...`;
-            let allEpLinks = [];
-            try {
-                await Promise.all(Array.from({ length: maxPage }, (_, i) => fetch(`/?act=ajax&code=load_list_chapter&manga_id=${mangaId}&page_num=${i + 1}&chap_id=0&keyword=`).then(r => r.text()).then(t => {
-                    let html = JSON.parse(t).list_chap;
-                    const doc = document.implementation.createHTMLDocument('eps');
-                    doc.body.innerHTML = html;
-                    allEpLinks.push(...doc.querySelectorAll(this.epLinks));
-                })));
-            } catch (e) { showToast('Failed to load Episodes List: ' + e); return null; }
-            // Remove duplicates
-            allEpLinks = allEpLinks.filter((el, idx, self) => self.findIndex(e => e.href === el.href && e.textContent.trim() === el.textContent.trim()) === idx);
-            const epLinks = await applyEpisodeRangeFilter(allEpLinks);
-            const throttleLimit = 12;
-            for (let i = 0; i < epLinks.length; i += throttleLimit) {
-                const chunk = epLinks.slice(i, i + throttleLimit);
-                const episodePromises = chunk.map(async epLink => {
-                    try {
-                        const page = await fetchPage(epLink.href);
-                        const epTitle = page.querySelector(this.epTitle).textContent;
-                        const isDub = page.querySelector(this.epNum).textContent.includes('-Dub');
-                        const epNumber = page.querySelector(this.epNum).textContent.replace(/-Dub/, '').trim();
-                        const thumbnail = document.querySelector(this.thumbnail).src;
-
-                        status.text = `Extracting ${epTitle} - ${epNumber}...`;
-                        const links = { [isDub ? "Dub" : "Sub"]: { stream: page.querySelector('iframe').src.replace('/embed/', '/anime/'), type: 'm3u8' } };
-
-                        return new Episode(epNumber, epTitle, links, thumbnail); // Return Episode object
-                    } catch (e) { showToast(e); return null; }
-                });
-                yield* yieldEpisodesFromPromises(episodePromises);
             }
         }
     },
@@ -462,39 +403,39 @@ const Websites = [
     {
         name: 'AniZone',
         url: ['anizone.to/'],
-        animeTitle: 'nav > span',
-        epTitle: 'div.space-y-2 > div.text-center',
+        animeTitle: 'h1, nav > span',
+        epTitle: '[x-text*="displayEpisodeTitle"], div.space-y-2 > div.text-center',
         epNumber: 'a[x-ref="activeEps"] > div > div',
         thumbnail: 'media-poster',
-        epLinks: () => [...new Set(Array.from(document.querySelectorAll('a[wire\\:key][href^="https://anizone.to/anime/"]')).map(a => a.href))],
-        addStartButton: function () {
-            const target = document.querySelector('button > span.truncate')?.parentElement || document.querySelector('.grow + div select');
-            const button = Object.assign(document.createElement('button'), {
-                id: "AniLINK_startBtn",
-                className: target.className,
-                style: "display: flex; justify-content: center; align-items: center; width: 100%;",
-                innerHTML: `<svg xmlns="http://www.w3.org/2000/svg" style="margin-right: 4px;" height="1em" viewBox="3 3 18 18"><path fill="currentColor" d="M5 21q-.825 0-1.413-.588T3 19V5q0-.825.588-1.413T5 3h14q.825 0 1.413.588T21 5v14q0 .825-.588 1.413T19 21H5Zm0-2h14V5H5v14Zm3-4.5h2.5v-6H8v6Zm5.25 0h2.5v-6h-2.5v6Zm5.25 0h2.5v-6h-2.5v6Z"/></svg><span class="truncate">Extract Episode Links</span>`
-            });
-            target.parentElement.appendChild(button);
-            return button;
-        },
+        epLinks: () => [...new Set(Array.from(document.querySelectorAll('a[wire\\:key][href^="https://anizone.to/anime/"], li[wire\\:key]>a')))],
+        addStartButton: function () {setInterval(() => {
+            const target = document.querySelector('button > span.truncate, div.lg\\:ml-0>button')?.parentElement;
+            if (!target || document.getElementById("AniLINK_startBtn")) return;
+            target.parentElement.appendChild(Object.assign(document.createElement('button'), {
+                    id: "AniLINK_startBtn",
+                    className: target.className,
+                    style: "display: flex; justify-content: center; align-items: center; height: stretch;",
+                    innerHTML: `<svg xmlns="http://www.w3.org/2000/svg" style="margin-right: 4px;" height="1em" viewBox="3 3 18 18"><path fill="currentColor" d="M5 21q-.825 0-1.413-.588T3 19V5q0-.825.588-1.413T5 3h14q.825 0 1.413.588T21 5v14q0 .825-.588 1.413T19 21H5Zm0-2h14V5H5v14Zm3-4.5h2.5v-6H8v6Zm5.25 0h2.5v-6h-2.5v6Zm5.25 0h2.5v-6h-2.5v6Z"/></svg><span class="truncate">Extract Episode Links</span>`,
+                    onclick: extractEpisodes
+                }));
+        }, 500)},
         extractEpisodes: async function* (status) {
             const epLinks = await applyEpisodeRangeFilter(this.epLinks());
             const throttleLimit = 12; // Limit concurrent requests
             for (let i = 0; i < epLinks.length; i += throttleLimit) {
                 const chunk = epLinks.slice(i, i + throttleLimit);
-                const episodePromises = chunk.map(async epLink => {
+                const episodePromises = chunk.map(async epElm => {
                     try {
-                        const page = await fetchPage(epLink);
-                        const animeTitle = page.querySelector(this.animeTitle)?.textContent.trim();
-                        const epNum = page.querySelector(this.epNumber)?.textContent.trim();
-                        const epTitle = page.querySelector(this.epTitle)?.textContent.trim();
-                        const thumbnail = page.querySelectorAll('media-poster')[0].outerHTML.match(/src="([^"]*)"/)[1]; // using outerHTML as workaround for a weird bug
+                        const page = await fetchPage(epElm.href);
+                        const animeTitle = _$(this.animeTitle)?.textContent.trim();
+                        const epNum = epElm.href.split('/').pop();
+                        const epTitle = epElm.querySelector(this.epTitle)?.textContent?.replace(/^\s:\s/, '');
 
-                        status.text = `Extracting ${epNum} - ${epTitle}...`;
-                        const links = { [page.querySelector('button > span.truncate').textContent]: { stream: page.querySelector("media-player").getAttribute("src"), type: "m3u8", tracks: [...page.querySelectorAll("media-provider>track")].map(t => ({ file: t.src, kind: t.kind, label: t.label })) } };
+                        status.text = `Extracting episodes ${epNum - Math.min(epNum, throttleLimit) + 1} - ${epNum}...`;
+                        const mediaObject = eval(page.body.querySelector('[x-data*="vidstackPlayer"]').outerHTML.match(/(JSON.parse.*'\)).*/)[1]); 
+                        const links = { [page.querySelector('button > span.truncate').textContent]: { stream: mediaObject.src, type: "m3u8", tracks: mediaObject.subtitles.map(t => ({ file: t.file, kind: 'captions', label: `${t.language} | ${t.title}` })).concat(mediaObject.chapter ? [{ file: mediaObject.chapter, kind: 'chapters', label: 'Chapters' }] : []) } };
 
-                        return new Episode(epNum, animeTitle, links, thumbnail, epTitle);
+                        return new Episode(epNum, animeTitle, links, mediaObject.snapshot, epTitle);
                     } catch (e) { showToast(e); return null; }
                 });
                 yield* yieldEpisodesFromPromises(episodePromises);
@@ -2167,13 +2108,21 @@ const AniLINKUI = (() => {
     let styleNode;
 
     const ensure = () => {
-        if (root) return root;
-        host = Object.assign(document.createElement('div'), { id: 'AniLINK_UIHost' });
-        host.style.cssText = 'position: fixed; inset: 0; z-index: 2147483000; pointer-events: none;';
-        root = host.attachShadow({ mode: 'open' });
-        styleNode = document.createElement('style');
-        root.appendChild(styleNode);
-        document.body.appendChild(host);
+        // If host was removed from DOM (e.g., SPA navigation), recreate everything
+        if (!host?.isConnected || !root) {
+            const preservedStyles = styleNode?.textContent || '';
+            host = Object.assign(document.createElement('div'), { id: 'AniLINK_UIHost' });
+            host.style.cssText = 'position: fixed; inset: 0; z-index: 2147483000; pointer-events: none;';
+            root = host.attachShadow({ mode: 'open' });
+            styleNode = document.createElement('style');
+            if (preservedStyles) styleNode.textContent = preservedStyles;
+            root.appendChild(styleNode);
+            document.body.appendChild(host);
+            // Reset overlay references since old ones are now detached
+            extractorOverlay = null;
+            downloaderOverlay = null;
+            fab = null;
+        }
         return root;
     };
 
