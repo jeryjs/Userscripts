@@ -15,21 +15,9 @@
 // @match       https://www.miruro.ru/*
 // @match       https://www.miruro.bz/*
 // @match       https://anizone.to/*
-// @match       https://anixl.to/title/*
-// @match       https://sudatchi.com/watch/*/*
-// @match       https://hianime.sz/watch/*
-// @match       https://hianime.tld/watch/*
-// @match       https://hianime.to/watch/*
-// @match       https://hianime.nz/watch/*
-// @match       https://hianimeZ.tld/watch/*
-// @match       https://aninow.tv/w/*
 // @match       https://www.animegg.org/*
 // @match       https://www.animeonsen.xyz/watch/*
-// @match       https://kaido.to/watch/*
-// @match       https://animetsu.cc/*
-// @match       https://animetsu.live/*
-// @match       https://animekai.tld/*/*
-// @match       https://anikai.to/*
+// @match       https://animekai.ro/*
 // @match       https://yflix.to/watch/*
 // @match       https://anime.uniquestream.net/*/*/*
 // @match       https://www.fmovies.gd/*/*
@@ -45,7 +33,6 @@
 // @match       https://anikoto.net/watch/*/*
 // @match       https://anikototv.to/watch/*/*
 // @match       https://anikototv.se/watch/*/*
-// @match       https://animekai.org.in/*
 // @match       https://anixtv.tld/watch/*/*
 // @match       https://anixtv.me/watch/*/*
 // @match       https://animixplay.cz/watch/*/*
@@ -93,7 +80,7 @@ const MPV_PROTOCOL = GM_getValue('MPV_PROTOCOL', 'mpv-handler'); // you can set 
 const SRC_IN_FN = GM_getValue('include_source_in_filename', true); // Whether the exported playlist filename should include the source name that you chose as well
 const PREFER_JAP_TITLE = GM_getValue('prefer_jap_title', false); // Prefer taking the japenese/romaji titles from sites where relevant like animepahe
 const UNSUPPORTED_DOWNLOAD_URL_PATTERNS = [
-    /^https:\/\/megap.*$/i
+    /^https:\/\/megap\.*$/i
 ];
 
 /**
@@ -443,103 +430,9 @@ const Websites = [
         }
     },
     {
-        name: 'AniXL',
-        url: ['anixl.to/'],
-        animeTitle: () => document.querySelector('a.link[href^="/title/"]').textContent,
-        epLinks: () => [...document.querySelectorAll('div[q\\:key^="F0_"] a')].map(e => e.href),
-        addStartButton: () => document.querySelector('div.join')?.prepend(Object.assign(document.createElement('button'), { id: "AniLINK_startBtn", className: "btn btn-xs", textContent: "Generate Download Links" })),
-        extractEpisodes: async function* (status) {
-            const epLinks = await applyEpisodeRangeFilter(this.epLinks());
-            const throttleLimit = 12; // Limit concurrent requests
-            for (let i = 0; i < epLinks.length; i += throttleLimit) {
-                const chunk = epLinks.slice(i, i + throttleLimit);
-                const episodePromises = chunk.map(async epLink => {
-                    return await fetchPage(epLink).then(page => {
-                        const [, epNum, epTitle] = page.querySelector('a[q\\:id="1s"]').textContent.match(/Ep (\d+) : (.*)/d)
-                        status.text = `Extracting ${epNum} - ${epTitle}...`;
-                        const links = page.querySelector('script[type="qwik/json"]').textContent.match(/"[ds]ub","https:\/\/[^"]+\/media\/[^"]+\/[^"]+\.m3u8"/g)?.map(s => s.split(',').map(JSON.parse)).reduce((acc, [type, url]) => ({ ...acc, [type]: { stream: url, type: 'm3u8', tracks: [] } }), {});
-                        return new Episode(epNum, this.animeTitle(), links, null, epTitle);
-                    }).catch(e => { showToast(e); return null; });
-                });
-                yield* yieldEpisodesFromPromises(episodePromises);
-            }
-        }
-    },
-    {
-        name: 'Sudatchi',
-        url: ['sudatchi.com/'],
-        epLinks: () => [...document.querySelectorAll('.text-sm.rounded-lg')].map(e => `${location.href}/../${e.textContent}`),
-        extractEpisodes: async function* (status) {
-            for (let i = 0, l = await applyEpisodeRangeFilter(this.epLinks()); i < l.length; i += 6)
-                yield* yieldEpisodesFromPromises(l.slice(i, i + 6).map(async link =>
-                    await fetchPage(link).then(p => {
-                        status.text = `Extracting ${link.split('/').pop().padStart(3, '0')}...`;
-                        const tracks = JSON.parse([...p.scripts].flatMap(s => s.textContent.match(/\[{.*"}/)).filter(Boolean)[0].replaceAll('\\', '') + ']').map(i => ({ file: i.file.replace('/ipfs/', 'https://sudatchi.com/api/proxy/'), label: i.label, kind: i.kind }));
-                        const links = { 'Sudatchi': { stream: p.querySelector('meta[property="og:video"]').content.replace(/http.*:8888/, location.origin), type: 'm3u8', tracks } };
-                        return new Episode(link.split('/').pop(), p.querySelector('p').textContent, links, p.querySelector('video').poster);
-                    }).catch(e => { showToast(e); return null; })
-                ));
-        }
-    },
-    {
-        name: 'HiAnime',
-        url: ['hianime.to/', 'hianimez.is/', 'hianimez.to/', 'hianime.nz/', 'hianime.bz/', 'hianime.pe/', 'hianime.cx/', 'hianime.gs/'],
-        _chunkSize: 1, // Number of episodes to extract in parallel
-        extractEpisodes: async function* (status) {
-            const epList = await applyEpisodeRangeFilter($('.ss-list > a').get());
-            if (!epList || !epList.length) return; // User cancelled or no episodes
-
-            // Get source preferences (show modal using first episode's sources)
-            const sourceConfig = await (async () => {
-                const servers = await $((await $.get(`/ajax/v2/episode/servers?episodeId=${$(epList[0]).data('id')}`, r => $(r).responseJSON)).html)
-                    .find('.server-item').map((_, i) => `${$(i).text().trim()}-${$(i).data('type')}`).get();
-                return await showSourceSelector(servers, 'hianime', { sources: servers.filter(s => !s.match(/^HD-[13]-/)), mode: 'single' });   // Exclude HD-1/HD-3 from default sources (CORS issues)
-            })();
-
-            for (let i = 0; i < epList.length; i += this._chunkSize) {
-                yield* yieldEpisodesFromPromises(epList.slice(i, i + this._chunkSize).map(async e => {
-                    const [epId, epNum, epTitle] = [$(e).data('id'), $(e).data('number'), $(e).find('.ep-name').text()]; let thumbnail = '';
-                    status.text = `Extracting Episode ${epNum - Math.min(this._chunkSize, epNum) + 1}...`;
-                    const servers = await $((await $.get(`/ajax/v2/episode/servers?episodeId=${epId}`, r => $(r).responseJSON)).html).find('.server-item').map((_, i) => [[$(i).text().trim(), { id: $(i).data('id'), type: $(i).data('type') }]]).get();
-                    const links = {}, fetchSource = async ([server, { id, type }]) => { const key = `${server}-${type}`; try { const data = await fetch(`/ajax/v2/episode/sources?id=${id}`).then(r => r.json()); const src = await Extractors.use(data.link, location.href); links[key] = { stream: src.file, type: 'm3u8', tracks: src.tracks, referer: src.referer || location.href }; } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${key}: ${e.message || e}`); } };
-                    if (sourceConfig?.mode === 'single') {
-                        for (const key of sourceConfig.sources) { const s = servers.find(([srv, { type }]) => `${srv}-${type}` === key);
-                        if (s) { await fetchSource(s); if (Object.keys(links).length) break; } }
-                    } else await Promise.all(sourceConfig.sources.map(key => {
-                        const s = servers.find(([srv, { type }]) => `${srv}-${type}` === key);
-                        return s ? fetchSource(s) : Promise.resolve();
-                    }));
-                    return new Episode(epNum, ($('.film-name > a').first().text()), links, thumbnail, epTitle);
-                }))
-            }
-        }
-    },
-    {
-        name: 'AniNow',
-        url: ['aninow.tv/'],
-        _chunkSize: 6, // Number of episodes to extract in parallel
-        _decryptUrl: async (encryptedUrl) => (new TextDecoder()).decode(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: (encryptedBytes => encryptedBytes.slice(0, 16))(Uint8Array.from(atob(encryptedUrl), c => c.charCodeAt(0))) }, await crypto.subtle.importKey('raw', (new TextEncoder()).encode('superaninowq8hgl1'.padEnd(32, '\0').slice(0, 32)), { name: 'AES-CBC' }, false, ['decrypt']), (encryptedBytes => encryptedBytes.slice(16))(Uint8Array.from(atob(encryptedUrl), c => c.charCodeAt(0))))),
-        extractEpisodes: async function* (status) {
-            for (let i = 0, l = await applyEpisodeRangeFilter([...document.querySelectorAll('a[data-episode]')]); i < l.length; i += this._chunkSize)
-                yield* yieldEpisodesFromPromises(l.slice(i, i + this._chunkSize).map(async a => {
-                    const epNum = a.innerText;
-                    status.text = `Extracting Episodes ${(epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
-                    const data = await fetchPage(a.href).then(p => JSON.parse(p.querySelector("#media-sources-data").dataset.mediaSources)).then(d => d.filter(l => !!l.url));
-                    const links = Object.fromEntries(await Promise.all(data.map(async m => [
-                        `${m.providerdisplayname}-${m.language}-${m.quality}`,
-                        {
-                            stream: !m.url.startsWith('videos/') ? m.url : await this._decryptUrl((await fetch('https://aninow.tv/api/presigned/media/' + m.url).then(r => r.json())).url),
-                            type: m.url.endsWith('mp4') ? 'mp4' : 'm3u8',
-                            tracks: m.subtitles.map(s => ({ file: s.filename.startsWith('subtitles/') ? 'https://aninow.tv/api/subtitles/C:/Users/GraceAshby/OneDrive/aninow-copy/subzzzzzz/' + s.filename : s.filename, label: s.displayname, kind: 'caption' }))
-                        }
-                    ])));
-                    return new Episode(epNum.padStart(3, '0'), document.querySelector('h1').innerText, links, document.querySelector('a>img').src);
-                }));
-        },
-    },
-    {
         name: "Animegg",
         url: ['animegg.org/'],
+        addStartButton: () => $('#recentTabs, .nap').css({ display: 'flex', justifyContent: 'space-between', ...($('#recentTabs').get(0) ? { width: '102%' } : {})}).append(Object.assign(document.createElement('button'), { id: "AniLINK_startBtn", className: "btn-primary", innerHTML: "Generate Download Links", onclick: extractEpisodes })),
         extractEpisodes: async function* (status) {
             const epLinks = $((!!$('.anm_det_pop').length) ? document : $(await fetchPage($('.nap > a[href^="/series/"]').get(0).href))).find('.newmanga > li > div').get().reverse();
             const l = await applyEpisodeRangeFilter(epLinks); if (!l?.length) return;
@@ -570,71 +463,12 @@ const Websites = [
         }
     },
     {
-        name: "Kaido",
-        url: ["kaido.to"],
-        extractEpisodes: async function* (status) {
-            const epLinks = await applyEpisodeRangeFilter([..._$$('a.ep-item')]); if (!epLinks?.length) return;
-            const srcCfg = await (async () => {
-                const servers = await fetch(`/ajax/episode/servers?episodeId=${epLinks[0].dataset.id}`).then(async r => (await r.json()).html).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(h => [...h.querySelectorAll('[data-server-id]')].map(e => `${e.textContent.trim()}-${e.dataset.type}`));
-                return await showSourceSelector(servers, 'kaido', { mode: 'single' });
-            })();
-            for (let i = 0; i < epLinks.length; i += 12)
-                yield* yieldEpisodesFromPromises(epLinks.slice(i, i + 12).map(async epLink => {
-                    const epNum = epLink.dataset.number; status.text = `Extracting Episodes ${(epNum - Math.min(12, epNum) + 1)} - ${epNum}...`;
-                    const servers = await fetch(`/ajax/episode/servers?episodeId=${epLink.dataset.id}`).then(async r => (await r.json()).html).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(h => [...h.querySelectorAll('[data-server-id]')].map(e => ({ id: e.dataset.id, type: e.dataset.type, name: e.textContent.trim() })));
-                    const links = {}, fetchSource = async s => { try {
-                        const d = await fetch(`/ajax/episode/sources?id=${s.id}`).then(r => r.json());
-                        const src = await GM_fetch(d.link.replace('/e-1/', '/e-1/getSources?id=').replace('?z=', '')).then(r => r.json());
-                        if (!src.encrypted) links[`${s.name}-${s.type}`] = { stream: src.sources[0].file, tracks: src.tracks, type: 'm3u8', referer: src.server == 4 ? 'https://megacloud.blog/' : undefined };
-                    } catch (e) { showToast(`Failed to fetch ep ${epNum} from ${s.name}-${s.type}: ${e}`); } };
-                    if (srcCfg?.mode === 'single') { for (const key of srcCfg.sources) { const s = servers.find(srv => `${srv.name}-${srv.type}` === key); if (s) { await fetchSource(s); if (Object.keys(links).length) break; } } }
-                    else await Promise.all(srcCfg.sources.map(key => { const s = servers.find(srv => `${srv.name}-${srv.type}` === key); return s ? fetchSource(s) : Promise.resolve(); }));
-                    return new Episode(epNum, _$('h2.film-name > a').textContent, links, _$('.film-poster > img').src, epLink.querySelector('.ep-name').textContent);
-                }));
-        }
-    },
-    {
-        name: "Gojo",
-        url: ["animetsu.cc", "animetsu.tv", "animetsu.live"],
-        _chunkSize: 12,
-        _baseApi: 'https://b.animetsu.live/api/anime',
-        addStartButton: function (id) {
-            // Use same logic as Miruro, but target gojo layout
-            let last_known_location = location.href;
-            setInterval(() => {
-                if (last_known_location !== location.href) { last_known_location = location.href; AniLINKUI.removeExtractor(); };
-                const target = document.querySelector('div.ring-1, div.justify-between > span')
-                if (target && !document.getElementById(id)) target.after(Object.assign(document.createElement('button'), { id, className: "flex-center justify-center gap-1.5 flex-nowrap whitespace-nowrap ring ring-green-400/20 bg-green-400/10 text-xs h-8 px-3 radius-xl -mt-5 nowrap overflow-hidden text-ellipsis flex", innerHTML: `<svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="3 3 18 18" style="margin-right:6px;"><path fill="currentColor" d="M5 21q-.825 0-1.413-.588T3 19V5q0-.825.588-1.413T5 3h14q.825 0 1.413.588T21 5v14q0 .825-.588 1.413T19 21H5Zm0-2h14V5H5v14Zm3-4.5h2.5v-6H8v6Zm5.25 0h2.5v-6h-2.5v6Zm5.25 0h2.5v-6h-2.5v6Z"/></svg>Extract Episode Links`, onclick: extractEpisodes }));
-            }, 500);
-        },
-        extractEpisodes: async function* (status) {
-            status.text = 'Fetching episode list...';
-            const animeId = location.href.split('/').pop(), eps = await applyEpisodeRangeFilter(await fetch(`${this._baseApi}/eps/${animeId}`).then(r => r.json()));
-            const srcCfg = await (async () => {
-                const servers = (await fetch(`${this._baseApi}/servers/${animeId}/${eps[0].ep_num}`).then(r => r.json())).flatMap(s => [`${s.id}-sub`, `${s.id}-dub`]);
-                return await showSourceSelector(servers, 'animetsu', { sources: servers.filter(s => s.startsWith('pahe-') || s.startsWith('default-')), mode: 'single' });
-            })();
-            for (let i = 0; i < eps.length; i += this._chunkSize)
-                yield* yieldEpisodesFromPromises(eps.slice(i, i + this._chunkSize).map(async ep => {
-                    const epNum = ep.ep_num; status.text = `Extracting Episodes ${Math.max(1, epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
-                    const links = {};
-                    for (const serverFull of srcCfg?.sources || ['pahe-sub']) { try {
-                        const [server, type] = serverFull.split('-'), data = await fetch(`${this._baseApi}/oppai/${animeId}/${epNum}?server=${server}&source_type=${type}`).then(r => r.json());
-                        const tracks = (data.subs || []).map(s => ({ file: s.url, label: s.lang, kind: 'caption' }));
-                        for (const src of data.sources || []) links[`${data.server || server}-${type}-${src.quality}`] = { stream: src.url.startsWith('/') ? `https://ani.metsu.site/proxy${src.url}` : src.url, type: 'm3u8', tracks };
-                        if (srcCfg?.mode === 'single' && Object.keys(links).length) break;
-                    } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${serverFull}: ${e.message || e}`); } }
-                    return new Episode(epNum, _$('a[href^="/anime"] > div.w-full, .text-xl')?.textContent || '', links, ep.img ? `${location.origin}${ep.img}` : '', ep.name || undefined);
-                }))
-        }
-    },
-    {
-        name: 'AnimeKai',
-        url: ['animekai.to/', 'animekai.fi/', 'animekai.fo/', 'anikai.to/'],
+        name: 'AnimeKai (clone)',
+        url: ['animekai.ro/'],
         _chunkSize: 12,
         addStartButton: function (id) {
             setInterval(() => {
-                if ($('#' + id).get(0)) return; try {
+                if (_$('#' + id)) return; try {
                     const button = Object.assign(document.createElement('button'), { id, className: "btn btn-primary", textContent: "Extract Episode Links" });
                     const target = document.querySelector('.episode-section .head-bot');
                     if (target) target.after(button);
@@ -645,23 +479,19 @@ const Websites = [
         },
         extractEpisodes: async function* (status) {
             status.text = 'Fetching episode list...';
-            const epElms = await applyEpisodeRangeFilter($('a[num]').get()); if (!epElms?.length) return;
-            const srcCfg = await (async () => {
-                const servers = await fetch(`/ajax/links/list?token=${epElms[0].getAttribute('token')}&_=${await this._encdec(epElms[0].getAttribute('token'))}`).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => $(doc).find('.server').map((i, e) => `${this._typeSuffix(e.closest('div').dataset.id)} - ${e.textContent}`).get());
-                return await showSourceSelector(servers, 'animekai', { mode: 'single' });
-            })();
+            const epElms = await applyEpisodeRangeFilter([..._$$('a[data-episode]')]); if (!epElms?.length) return;
+            const srcCfg = await showSourceSelector((await fetchPage(epElms[0].href).then(page => [..._$$('.server', page)].map(e => `${this._typeSuffix(e.closest('div').dataset.id)} - ${e.textContent}`))), 'animekai', { mode: 'single' });
             for (let i = 0; i < epElms.length; i += this._chunkSize)
                 yield* yieldEpisodesFromPromises(epElms.slice(i, i + this._chunkSize).map(async ep => {
-                    const epNum = ep.getAttribute('num'); status.text = `Extracting Episodes ${(epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
-                    const servers = await fetch(`/ajax/links/list?token=${ep.getAttribute('token')}&_=${await this._encdec(ep.getAttribute('token'))}`).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => $(doc).find('.server').map((i, e) => ({ lid: e.dataset.lid, name: `${this._typeSuffix(e.closest('div').dataset.id)} - ${e.textContent}` })).get()).catch(e => showToast(`Failed to fetch servers for Ep ${epNum}`));
-                    const links = {}, fetchSource = async s => { try { links[s.name] = await fetch(`/ajax/links/view?id=${s.lid}&_=${await this._encdec(s.lid)}`).then(r => r.json().then(d => d.result)).then(val => this._encdec(val, 'd').then(async d => await Extractors.use(d.url))); } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${s.name}: ${e.message || e}`); } };
+                    const epNum = ep.getAttribute('data-episode'); status.text = `Extracting Episodes ${(epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
+                    const servers = await fetchPage(ep.href).then(doc => [..._$$('.server', doc)].map(e => ({ url: e.dataset.url, name: `${this._typeSuffix(e.closest('div').dataset.id)} - ${e.textContent}` }))).catch(e => showToast(`Failed to fetch servers for Ep ${epNum}`));
+                    const links = {}, fetchSource = async s => { try { links[s.name] = await Extractors.use(s.url); } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${s.name}: ${e.message || e}`); } };
                     if (srcCfg?.mode === 'single') { for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) { await fetchSource(s); if (Object.keys(links).length) break; } } }
                     else for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) await fetchSource(s); }
-                    return new Episode(epNum, $('h1').text(), links, $('.poster-wrap-bg').attr('style').match(/https?.*\.[a-z]+/g)[0], ep.querySelector('span').textContent);
+                    return new Episode(epNum, _$('h1').textContent, links, _$('.poster-wrap-bg').getAttribute('style').match(/https?.*\.[a-z]+/g)[0], ep.querySelector('span').textContent);
                 }))
         },
-        _encdec: async (s, t = 'e') => await GM_fetch(`https://enc-dec.app/api/${t == 'e' ? 'enc' : 'dec'}-kai?text=` + s).then(r => r.json()).then(d => d.result),
-        _typeSuffix: type => ({ sub: "Hard Sub", softsub: "Soft Sub", dub: "Dub & S-Sub" }[type] || type)
+        _typeSuffix: type => ({ sub: "Soft Sub", dub: "Dub & S-Sub" }[type] || type)
     },
     {
         name: "YFlix",
@@ -989,6 +819,69 @@ const Extractors = {
         const type = page.match(/<title>File \d+ - VidTube<\/title>/)?.[0].includes('hsub') ? 'hsub' : 'hls';
         const data = await GM_fetch(`https://vidtube.site/stream/getSourcesNew?id=${id}&type=${type}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.json());
         return { file: data.sources.file, type: data.sources.file.includes('.m3u8') ? 'm3u8' : 'mp4', tracks: data.tracks || [], referer: 'https://vidtube.site/' };
+    },
+    'animekai.ro': async function (url) {
+        const html = await fetch(url).then(r => r.text());
+        const videoUrl = html.match(/fileUrl = "(.*?)";/)?.[1];
+        if (!videoUrl) throw new Error('Video URL not found');
+        return { file: videoUrl, type: 'mp4', tracks: [], referer: location.origin+'/' };
+    },
+    'megavid.buzz': async function (url) {
+        const data = await GM_fetchJSON(url+'/source', { headers: { referer: url } });
+        if (!data || !data.source) throw new Error('No sources found');
+        return { file: data.source, type: 'm3u8', tracks: data.tracks || [], referer: 'https://megavid.buzz/' };
+    },
+    'megaplay.su': async function (url) {
+        const data = await GM_fetch(url).then(r => r.text()).then(t => Function("return " + t.match(/setup\(({.*?})\)/s)[1])()).catch(() => { throw new Error('Failed to extract video URL from page'); });
+        return { file: data.file, type: 'm3u8', tracks: data.tracks || [], referer: 'https://megaplay.su/' };
+    },
+    'vidnest.fun': async function (url, r = 'https://vidnest.fun/') {
+        // adapted from https://github.com/Nyumat/NyumatFlix/blob/8766c2b403b5d97be0a8d4541c2a0d96ca44da2a/lib/scrape/vidnest-shared.ts
+        const a = 'RB0fpH8ZEyVLkv7c2i6MAJ5u3IKFDxlS1NTsnGaqmXYdUrtzjwObCgQP94hoeW+/=';
+        let t, s, e, m;
+        const u = new URL(url), p = u.pathname, x = p.match(/^\/([^\/]+)\/(movie|tv)\/(\d+)(?:\/(\d+)\/(\d+))?/);
+        if (x) { m = x[2]; t = x[3]; s = x[4] || '1'; e = x[5] || '1'; } else {
+            const i = url.match(/tmdb[=\/](\d+)/)?.[1] || url.match(/(\d{6,})/)?.[1];
+            if (!i) throw new Error('Invalid VidNest URL');
+            t = i; m = p.includes('tv') ? 'tv' : 'movie'; s = '1'; e = '1';
+        }
+        const d = data => {
+            const l = {}; for (let i = 0; i < a.length; i++) l[a[i]] = i;
+            let o = [];
+            for (let i = 0; i < data.length; i += 4) {
+                let c = data.slice(i, i + 4); while (c.length < 4) c += '=';
+                const v = [0, 0, 0, 0];
+                for (let j = 0; j < 4; j++) v[j] = l[c[j]] ?? 64;
+                o.push((v[0] << 2) | (v[1] >> 4));
+                if (v[2] !== 64) o.push(((v[1] & 15) << 4) | (v[2] >> 2));
+                if (v[3] !== 64) o.push(((v[2] & 3) << 6) | v[3]);
+            }
+            return new TextDecoder().decode(new Uint8Array(o));
+        };
+        for (const b of ['moviesapi', 'hollymoviehd', 'allmovies', 'vidlink', 'klikxxi', 'movies4f']) {
+            try {
+                const api = m === 'tv' ? `https://new.vidnest.fun/${b}/tv/${t}/${s}/${e}` : `https://new.vidnest.fun/${b}/movie/${t}`;
+                const res = await GM_fetch(api, { headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/121.0', Accept: 'application/json, */*', Origin: 'https://vidnest.fun', Referer: r } });
+                if (!res.ok) continue;
+                const w = await res.json(), data = w.encrypted ? d(w.data) : w.data;
+                const j = JSON.parse(data);
+                if (j.sources?.[0]?.url) return { file: j.sources[0].url, type: j.sources[0].type === 'hls' ? 'm3u8' : 'mp4', tracks: [], referer: 'https://vidnest.fun/' };
+                if (j.streams?.[0]?.url) return { file: j.streams[0].url, type: 'mp4', tracks: [], referer: 'https://vidnest.fun/' };
+                if (j.data?.downloads?.[0]?.url) {
+                    let best = j.data.downloads[0];
+                    for (const x of j.data.downloads.slice(1)) if (x.resolution > best.resolution) best = x;
+                    return { file: best.url, type: 'mp4', tracks: [], referer: 'https://vidnest.fun/' };
+                }
+            } catch (err) { continue; }
+        }
+        throw new Error('All VidNest backends failed');
+    },
+    'tryembed.us.cc': async function (url) {
+        throw new Error('tryembed.us.cc extractor is not implemented yet. Please use a different source.'); // TODO: Implement the extractor *one day*
+        const nonce = await GM_fetch(url).then(r => r.text()).then(t => t.match(/EMBED_NONCE="(.*?)";/)[1]).catch(() => { throw new Error('Failed to extract nonce from page'); });
+        const [id, ep, aud] = location.href.split('/').slice(-3);
+        const data = await GM_fetchJSON(`https://tryembed.us.cc/api/stream_data?id=${id}&episode=${ep}&audio=${aud}&nonce=${nonce}`).catch(() => { throw new Error('Failed to fetch stream data'); });
+        // retturn 
     }
 }
 /**
