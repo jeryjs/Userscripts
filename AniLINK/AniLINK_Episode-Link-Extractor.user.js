@@ -18,27 +18,43 @@
 // @match       https://www.animegg.org/*
 // @match       https://www.animeonsen.xyz/watch/*
 // @match       https://animekai.ro/*
-// @match       https://yflix.to/watch/*
-// @match       https://anime.uniquestream.net/*/*/*
-// @match       https://www.fmovies.gd/*/*
-// @match       https://*fmovies.tld/*
-// @match       https://www.fmovies.gd/*
-// @match       https://www.cineby.tld/*/*
-// @match       https://www.cineby.sc/*/*
-// @match       https://www.bitcine.tld/*/*
-// @match       https://www.bitcine.net/*/*
+// @match       https://anime.uniquestream.net/*
 // @match       https://luciferdonghua.in/*/*
-// @match       https://anikoto.tld/watch/*/*
-// @match       https://anikototv.tld/watch/*/*
-// @match       https://anikoto.net/watch/*/*
-// @match       https://anikototv.to/watch/*/*
-// @match       https://anikototv.se/watch/*/*
-// @match       https://anixtv.tld/watch/*/*
-// @match       https://anixtv.me/watch/*/*
-// @match       https://animixplay.cz/watch/*/*
-// @match       https://animewave.to/watch/*/*
-// @match       https://anix.best/watch/*/*
-// @match       https://animesogo.to/watch/*/*
+// @match       https://anikoto.tld/*
+// @match       https://anikototv.tld/*
+// @match       https://anikoto.net/*
+// @match       https://anikototv.to/*
+// @match       https://anikototv.se/*
+// @match       https://anixtv.tld/*
+// @match       https://anixtv.me/*
+// @match       https://animixplay.cz/*
+// @match       https://animewave.to/*
+// @match       https://anix.best/*
+// @match       https://animesogo.to/*
+// @match       https://anikoto.site/*
+// @match       https://animesugez.tv/*
+// @match       https://animixplay.tube/*
+// @match       https://aniwave.id/*
+// @match       https://animekai.se/*
+// @match       https://gogoanime.com.by/*
+// @match       https://animekaitv.to/*
+// @match       https://anikai.se/*
+// @match       https://anikoto.bz/*
+// @match       https://animesugetv.bz/*
+// @match       https://anikaitv.to/*
+// @match       https://hianimez.org/*
+// @match       https://anisuge.tv/*
+// @match       https://anisuge.se/*
+// @match       https://zorotv.cz/*
+// @match       https://hianimes.re/*
+// @match       https://animesalt.cz/*
+// @match       https://animesalt.to/*
+// @match       https://aniwave.cz/*
+// @match       https://animesuge.re/*
+// @match       https://hianimetv.si/*
+// @match       https://aniwatch.ch/*
+// @match       https://anichi.to/*
+// @match       https://av1please.com/anime/*
 // @match       https://av1please.com/anime/*
 // @match       https://av1please.com/episodes/*/*
 // @match       https://anidb.app/anime/*
@@ -190,7 +206,7 @@ const Websites = [
     },
     {
         name: 'AnimePahe',
-        url: ['animepahe.pw', 'animepahe'],
+        url: ['animepahe.pw', 'animepahe.'],
         epLinks: (location.pathname.startsWith('/anime/')) ? 'a.play' : '.dropup.episode-menu a.dropdown-item',
         epTitle: '.theatre-info > h1',
         linkElems: '#resolutionMenu > button',
@@ -494,105 +510,33 @@ const Websites = [
         _typeSuffix: type => ({ sub: "Soft Sub", dub: "Dub & S-Sub" }[type] || type)
     },
     {
-        name: "YFlix",
-        url: ["yflix.to/"],
-        _chunkSize: 12,
+        name: 'UniqueStream',
+        url: ['anime.uniquestream.net/'],
         addStartButton: function (id) {
             setInterval(() => {
-                if ($('#' + id).get(0)) return; try {
-                    const button = Object.assign(document.createElement('li'), { id, className: "btn btn-primary", textContent: "Extract Stream Links", style: "height: fit-content; margin-left: 10px;" });
-                    document.querySelector('#filmServer > ul')?.appendChild(button);
-                    button.addEventListener('click', extractEpisodes);
-                } catch (e) { /* ignore */ }
+                if (_$('#' + id) || !_$$('.mp-ep-title').length) return;
+                _$('.mp-sr-season,.mp-wel-title').after(Object.assign(document.createElement('button'), { id, textContent: "Extract Episode Links", style: "border: 2px solid var(--mp-ink); cursor: pointer; font-family: Bebas Neue, sans-serif; letter-spacing: .04em; padding: 9px 14px; margin-right: auto;", onclick: extractEpisodes }));
             }, 500);
         },
         extractEpisodes: async function* (status) {
-            status.text = 'Fetching episode list...';
-            const contentId = _$('div.rating[data-id]')?.dataset.id; if (!contentId) return;
-            const epElms = [...document.querySelectorAll('ul.episodes:not([style*="display: none"]) li a')];
-            const filteredEps = await applyEpisodeRangeFilter(epElms); if (!filteredEps?.length) return;
-            const srcCfg = await (async () => {
-                const servers = await fetch(`/ajax/links/list?eid=${filteredEps[0].getAttribute('eid')}&_=${await this._enc(filteredEps[0].getAttribute('eid'))}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => [...doc.querySelectorAll('li.server span')].map(s => s.textContent.trim()));
-                return await showSourceSelector(servers, 'yflix', { mode: 'single' });
-            })();
-            for (let i = 0; i < filteredEps.length; i += this._chunkSize)
-                yield* yieldEpisodesFromPromises(filteredEps.slice(i, i + this._chunkSize).map(async ep => {
-                    const epNum = ep.getAttribute('num') || ep.querySelector('.num')?.textContent || '1';
-                    status.text = `Extracting Episodes ${(epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
-                    const servers = await fetch(`/ajax/links/list?eid=${ep.getAttribute('eid')}&_=${await this._enc(ep.getAttribute('eid'))}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => [...doc.querySelectorAll('li.server')].map(s => ({ lid: s.dataset.lid, name: s.querySelector('span')?.textContent.trim() }))).catch(() => []);
-                    const links = {}, fetchSource = async s => { try { const encUrl = await fetch(`/ajax/links/view?id=${s.lid}&_=${await this._enc(s.lid)}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.json().then(d => d.result)); const iframe = await this._dec(encUrl); links[s.name] = await Extractors.use(iframe, (new URL(iframe)).origin+'/'); } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${s.name}: ${e.message || e}`); } };
-                    if (srcCfg?.mode === 'single') { for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) { await fetchSource(s); if (Object.keys(links).length) break; } } }
-                    else for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) await fetchSource(s); }
-                    return new Episode(epNum, _$('h1.title')?.textContent || '', links, _$('.poster img')?.src || '', ep.querySelector('span:not(.num)')?.textContent || '');
-                }))
-        },
-        _enc: async s => await GM_fetch(`https://enc-dec.app/api/enc-movies-flix?text=${s}`).then(r => r.json()).then(d => d.result),
-        _dec: async s => await GM_fetch(`https://enc-dec.app/api/dec-movies-flix?text=${s}`).then(r => r.json()).then(d => d.result.url),
-    },
-    {
-        name: 'UniqueStream',
-        url: ['anime.uniquestream.net/series', 'anime.uniquestream.net/watch'],
-        extractEpisodes: async function* (status) {
-            if (location.href.includes('/watch/')) { _$('.episode-series-link').click(); await new Promise(resolve => setTimeout(resolve, 2000)); window.scrollBy(0, 1000); await new Promise(resolve => setTimeout(resolve, 2000)); }; // Navigate to episode list if on watch page
-            for (const epElm of await applyEpisodeRangeFilter([..._$$('a[href*="/watch/"]')].slice(1)))
+            if (location.href.includes('/watch/')) { _$('.mp-wel-grid>div').href = location.href }; // change the current ep item into a link for easy extraction
+            const epElms = [..._$$('.mp-sr-epgrid>a, .mp-wel-grid>a, .mp-wel-grid>div')]; if (!epElms?.length) return showToast('No episodes found. Please wait for the episode list to load or refresh the page.');
+            for (const epElm of await applyEpisodeRangeFilter(epElms))
                 yield* yieldEpisodesFromPromises([epElm].map(async epElm => { try {
-                    const [, epNum, epTitle] = epElm.querySelector('.episode-title').textContent.match(/(?:S\d+.+)?E-?(\d+|\w+) - (.+)/);
-                    status.text = `Extracting Episodes ${epNum}...`;
-                    const d = await fetch(`https://anime.uniquestream.net/api/v1/episode/${epElm.href.split('/')[4]}/media/dash/ja-JP`).then(r => r.json());
+                    const epTitle = epElm.querySelector('.mp-ep-title').textContent; 
+                    let epNum = epElm.querySelector('.mp-ep-stamp').textContent.slice(1); if (epNum.includes('Now Playing')) epNum = _$('.mp-watch-title').textContent.match(/^E(\d+)\s/)?.[1];
+                    status.text = `Extracting Episode ${epNum}...`;
+                    const d = await fetch(`${location.origin}/api/v1/episode/${epElm.href.split('/')[4]}/media/dash/ja-JP`).then(r => r.json());
                     const links = Object.fromEntries([d.dash, d.hls, ...(d.versions?.dash || []), ...(d.versions?.hls || [])].filter(Boolean).map(s => [`${s.playlist.includes('.mpd') ? 'dash' : 'hls'}-${s.locale}`, { stream: s.playlist, type: s.playlist.includes('.mpd') ? 'mpd' : 'm3u8', tracks: (s.hard_subs || []).map(h => ({ file: h.playlist, label: h.locale, kind: 'caption' })) }]));
-                    return !Object.keys(links).length ? null : new Episode(epNum, _$('.series-title').textContent, links, epElm.querySelector('img')?.src || '', epTitle);
+                    return !Object.keys(links).length ? null : new Episode(epNum, _$('#series-title, .mp-watch-series').textContent, links, epElm.querySelector('img')?.src || '', epTitle);
                 } catch (e) { showToast(`error ${e.status}: ${e.message}`); return null; } }));
         }
-    },
-    {
-        name: 'Cineby',
-        url: ['cineby.sc', 'cineby.', 'fmovies.gd', 'fmovies.to', 'fmovies.', 'bitcine.net', 'bitcine.'],
-        _chunkSize: 12,
-        addStartButton: function (id) {
-            setInterval(() => {
-                if (_$('#' + id)) return; try {
-                    const target = _$$('.flex-wrap > button')[1];
-                    if (target) target.parentElement.appendChild(Object.assign(target.cloneNode(true), { id, innerHTML: '<img src="https://cdn-icons-png.flaticon.com/512/6935/6935657.png" width="16px" style="filter: invert(1);"><span class="truncate">AniLINK: Extract</span>', onclick: extractEpisodes }));
-                } catch (e) { /* ignore errors */ }
-            }, 500);
-        },
-        extractEpisodes: async function* (status) {
-            if (location.pathname.split('/').length > 3) {
-                // if on episode page, navigate to main TV page to fetch episode list
-                location.href = '/tv/' + location.pathname.split('/')[2];
-                alert('You can extract episodes only from the series\' main page.')
-                await new Promise(resolve => setTimeout(resolve, 3000)); // wait for navigation
-            }
-            const epElms = await applyEpisodeRangeFilter(location.pathname.includes('/tv/') ? [..._$$('#episodes-section > .flex-col > div')] : [_$('link[rel="canonical"]')]);
-            if (epElms.length > 12) this._chunkSize = 2; // if there are too many episodes, extract them one by one to avoid overwhelming the server and triggering anti-bot measures
-            showToast("Avoid selecting 'multi' mode... Causes too much load on the server.", 2000)  // Warn users against setting multi mode
-            const srcCfg = await showSourceSelector(Object.keys(this._sources), 'cineby', { mode: 'single' });
-            for (let i = 0; i < epElms.length; i += this._chunkSize) {
-                yield* yieldEpisodesFromPromises(epElms.slice(i, i + this._chunkSize).map(async epElm => {
-                    try {
-                        let [_, mediaType, mediaId, season, epNum] = new URL(epElm.querySelector('a')?.href || epElm.href).pathname.split('/');
-                        season = season ?? '1', epNum = epNum ?? '1';   // if season or episode number is missing, default to 1 (for movies)
-                        status.text = `Extracting Ep ${epNum - epNum + 1} - ${epNum}...`;
-
-                        const links = {};
-                        for (const [srcName, srcKey] of (srcCfg?.sources?.length ? srcCfg.sources : Object.keys(this._sources)).map(k => [k, this._sources[k]]).filter(([, v]) => v)) try {
-                            const data = await Extractors.use(`https://api.videasy.net/${srcKey}/sources-with-title?mediaType=${mediaType}&episodeId=${epNum}&seasonId=${season}&tmdbId=${mediaId}`);
-                            for (const d of data || []) links[`${srcName} - ${d.quality.toLowerCase() || 'auto'}`] = { stream: d.file, type: d.type, tracks: d.tracks, referer: d.referer };
-                            if (srcCfg?.mode === 'single' && Object.keys(links).length) break;
-                        } catch (e) { showToast(`${srcName} ep ${epNum}: ${e}`); }
-
-                        if (!Object.keys(links).length) throw new Error('no sources');
-                        return new Episode(epNum, _$('title').textContent + (season > 1 ? ` S${season.padStart(2, '0')}` : ''), links, epElm.querySelector('img')?.src || _$('meta[itemprop="image"]').content, epElm.querySelector('h4')?.textContent);
-                    } catch (e) { return showToast(`: ${e}`); }
-                }));
-            }
-        },
-        _sources: { Neon: 'mb-flix', Yoru: 'cdn', Cypher: 'downloader2', Sage: '1movies', Breach: 'm4uhd', Vyse: 'hdmovie', Killjoy: 'meine', Fade: 'hdmovie', Omen: 'lamovie', Raze: 'superflix' },
     },
     {
         name: 'Lucifer Donghua',
         url: ['luciferdonghua.in/'],
         _cs: 12,
+        addStartButton: (id) => $('<button>', { id, class: "btn btn-primary", html: "Generate Download Links", click: extractEpisodes }).insertAfter('.mirror'),
         extractEpisodes: async function* (status) {
             const e = await applyEpisodeRangeFilter([..._$$('.episodelist li > a')]); if (!e?.length) return;
             const s = await showSourceSelector(['Download-MP4','Rumble','Vid Hide'],'luciferdonghua');
@@ -617,25 +561,31 @@ const Websites = [
     },
     {
         name: "Anikoto (and clones)",
-        url: ["anikototv.to/", 'anikoto.cz/', 'anikoto.me/', 'anikoto.net/', 'anikototv.se/', 'anikoto.', 'animekai.org.in/', 'anixtv.me/', 'animixplay.cz/', 'animewave.to/', 'anix.best/', 'animesogo.to/'],
+        url: ["anikototv.", 'anikoto.', 'animekai.org.in/', 'anixtv.me/', 'animixplay.cz/', 'animewave.to/', 'anix.best/', 'animesogo.to/', 'animesugez.tv/', 'animixplay.tube/', 'aniwave.id/', 'animekai.se/', 'gogoanime.com.by/', 'animekaitv.to/', 'anikai.se/', 'anikoto.bz/', 'animesugetv.bz/', 'anikaitv.to/', 'hianimez.org/', 'anisuge.tv/', 'anisuge.se/', 'zorotv.cz/', 'hianimes.re/', 'animesalt.cz/', 'animesalt.to/', 'aniwave.cz/', 'animesuge.re/', 'hianimetv.si/', 'aniwatch.ch/', 'anichi.to/'],
         _chunkSize: 12,
+        addStartButton: (id) => setInterval(() => {
+            const target = _$('.d-flex.flex-row, .d-flex.head-left, .filter.name, .ep-view-tools, #w-episodes:not(.ep-mode-name)>.head, .ss-choice, .episode-list-search-box');
+            if (!target || document.getElementById(id)) return;
+            target.after(Object.assign(document.createElement('button'), { id, className: "btn btn-sm", textContent: "Extract Episode Links", style: "margin-inline: 10px;", onclick: extractEpisodes }))
+        }, 500),
         extractEpisodes: async function* (status) {
             status.text = 'Fetching episode list...';
-            const epElms = await applyEpisodeRangeFilter($('a[data-num]').get()); if (!epElms?.length) return;
+            const epElms = await applyEpisodeRangeFilter([..._$$('a[data-num]')]); if (!epElms?.length) throw new Error('No episodes found. Please wait for the episode list to load or refresh the page.');
             const srcCfg = await (async () => {
-                const servers = await fetch(`/ajax/server/list?servers=${epElms[0].dataset.ids}`, { "headers": { "x-requested-with": "XMLHttpRequest" } }).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => $(doc).find('li, .server').map((i, e) => `${$(e).closest('.type').find('label, .name').text().trim()} - ${e.textContent.trim()}`).get());
+                const servers = await fetch(`/ajax/server/list?servers=${epElms[0].dataset.ids}`, { "headers": { "x-requested-with": "XMLHttpRequest" } }).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => [..._$$('li, .server, .btn[data-type]', doc)].map(e => `${e.closest('.type, .ps_-block').querySelector('label, .name, span[title]').textContent.trim()} - ${e.textContent.trim()}`));
                 return await showSourceSelector(servers, location.host, { mode: 'single' });
             })();
             for (let i = 0; i < epElms.length; i += this._chunkSize)
                 yield* yieldEpisodesFromPromises(epElms.slice(i, i + this._chunkSize).map(async ep => {
                     const epNum = ep.dataset.num; status.text = `Extracting Episodes ${(epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
-                    const servers = await fetch(`/ajax/server/list?servers=${ep.dataset.ids}`, { "headers": { "x-requested-with": "XMLHttpRequest" } }).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => $(doc).find('li, .server').map((i, e) => ({ lid: e.dataset.linkId, name: `${$(e).closest('.type').find('label, .name').text().trim()} - ${e.textContent.trim()}` })).get()).catch(e => showToast(`Failed to fetch servers for Ep ${epNum}`));
+                    const servers = await fetch(`/ajax/server/list?servers=${ep.dataset.ids}`, { "headers": { "x-requested-with": "XMLHttpRequest" } }).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => [..._$$('li, .server, .btn', doc)].map(e => ({ lid: e.dataset.linkId, name: `${e.closest('.type, .ps_-block').querySelector('label, .name, span[title]').textContent.trim()} - ${e.textContent.trim()}` }))).catch(e => showToast(`Failed to fetch servers for Ep ${epNum}`));
                     const links = {}, fetchSource = async s => { try { links[s.name] = await fetch(`/ajax/server?get=${s.lid}`, { "headers": { "x-requested-with": "XMLHttpRequest" } }).then(r => r.json().then(d => d.result)).then(async d => await Extractors.use(d.url)) } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${s.name}: ${e.message || e}`); } };
                     if (srcCfg?.mode === 'single') { for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) { await fetchSource(s); if (Object.keys(links).length) break; } } }
                     else for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) await fetchSource(s); }
-                    return new Episode(epNum, $('h1').text(), links, $('.binfo img, .poster img').attr('src'), ep.querySelector('span')?.textContent);
+                    return new Episode(epNum, _$('h1, .film-name')?.textContent, links, _$('.binfo img, .poster img, .film-poster img')?.getAttribute('src'), ep.querySelector('span')?.textContent);
                 }))
         },
+        styles: '.ep-range.ss-list.ss-list-min {top: 100px;}'   // prevent ep list from hiding the start button on sites like aniwatch
     },
     {
         name: "AV1 EnCodes",
@@ -1031,8 +981,9 @@ const _analyzedMediaCache = new Map();  // Cache to store analyzed media results
 
 // initialize
 if (window.top !== window.self) throw new Error('[AniLINK] Skipping embedded frame.');
-console.log('Initializing AniLINK...');
+console.log('[AniLINK] Initializing...');
 const site = Websites.find(site => site.url.some(url => window.location.href.includes(url)));
+if (!site) throw new Error(`[AniLINK] No extractor found for ${window.location.href}`);
 
 // register menu command to start script
 GM_registerMenuCommand('Extract Episodes', extractEpisodes);
@@ -1042,11 +993,11 @@ try {
     const startBtnId = "AniLINK_startBtn";
     (site.addStartButton(startBtnId) || document.getElementById(startBtnId))?.addEventListener('click', extractEpisodes);
 } catch (e) {
-    console.warn('Could not add start button to site. This might be due to the function not being implemented for this site.');
+    console.warn('[AniLINK] Could not add start button to site. This might be due to the function not being implemented for this site.');
 }
 
 // append site specific css styles
-document.body.style.cssText += (site.styles || '');
+GM_addStyle(site.styles || '');
 
 /***************************************************************
  * This function creates an overlay on the page and displays a list of episodes extracted from a website
@@ -1157,7 +1108,11 @@ async function extractEpisodes() {
     statusBarHeader.appendChild(statusIconElement);
 
     statusIconElement.addEventListener('click', () => {
-        if (status.stopped) return; // TODO: add retry functionality with continuing with past links
+        if (status.stopped || status.error) {
+            status = { isExtracting: true, text: 'Restarting Extraction...', stopped: false, error: null };
+            AniLINKUI.removeExtractor();
+            extractEpisodes();
+        }
         status = { isExtracting: false, text: "Extraction Stopped by User.", stopped: true };
     });
 
@@ -1186,10 +1141,12 @@ async function extractEpisodes() {
             statusBar.textContent = status.text;
             if (status.isExtracting) {
                 statusIconElement.querySelector('i').classList.add('extracting'); // Start spinner animation
+                statusIconElement.title = 'Stop Extracting';
+                statusIconElement.querySelector('i').textContent = statusIconElement.matches(':hover') ? '⏹' : '⟳'; // Show spinner icon
             } else {
                 statusIconElement.title = 'Restart Extraction.';
                 statusIconElement.querySelector('i').classList.remove('extracting'); // Stop spinner animation
-                statusIconElement.querySelector('i').textContent = status.stopped ? '↻' : status.error ? '!' : '✓';
+                statusIconElement.querySelector('i').textContent = (statusIconElement.matches(':hover') || status.stopped) ? '↻' : status.error ? '!' : '✓';
                 if (status.error) {
                     statusIconElement.querySelector('i').classList.add('error'); // Show error icon
                     statusBar.textContent += ` : ${status.error}`; // Update status bar with error
@@ -2149,6 +2106,7 @@ const AniLINKUI = (() => {
 
 
 // =============== DOWNLOADER ================= \\
+// TODO: Improve download progress bar for non m3u8 downloads (mp4 has very less parts, and due to that progressbar jumps in big steps with slow updates, which is not a good UX)
 const dlUtils = {
     anlinkGMRequest: (url, options = {}) => {
         const requestFn = typeof GM_xmlhttpRequest === 'function'
