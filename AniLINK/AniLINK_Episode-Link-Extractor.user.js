@@ -1086,13 +1086,19 @@ async function extractEpisodes() {
     }
     // Flag to control extraction process
     let status = { isExtracting: true, text: 'Initializing...', stopped: false, error: null };
+    const viewStorageKey = 'anilink_episode_view_mode';
+    let layoutMode = GM_getValue(viewStorageKey, 'sources') === 'episodes' ? 'episodes' : 'sources';
 
     // --- Materialize CSS Initialization ---
     AniLINKUI.addStyle(`
         #AniLINK_Overlay { position: fixed; inset: 0; background: var(--anlink-modal-overlay); backdrop-filter: blur(8px) saturate(140%); -webkit-backdrop-filter: blur(8px) saturate(140%); z-index: 1000; display: flex; align-items: center; justify-content: center; transition: opacity .28s ease, transform .28s ease, visibility .28s; pointer-events: auto; }
         #AniLINK_RerunBtn, #AniLINK_InfoBtn { position: fixed; top: 22px; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; background: rgba(255,255,255,.05); color: #d9eeeb; font-size: 20px; cursor: pointer; transition: border-color .2s, background .2s, transform .2s; } #AniLINK_InfoBtn:hover, #AniLINK_RerunBtn:hover { border-color: #26a69a; background: rgba(38,166,154,.18); transform: translateY(-2px); }
         #AniLINK_InfoBtn { right: 70px; } #AniLINK_RerunBtn { right: 26px; font-size: 24px; }
+        #AniLINK_ViewToggle { position: fixed; top: 22px; right: 114px; width: 36px; height: 36px; padding: 5px; border: 1px solid rgba(255,255,255,.1); border-radius: 18px; background: rgba(255,255,255,.05); color: #d9eeeb; cursor: pointer; transition: border-color .2s, background .2s, transform .2s, box-shadow .2s; } #AniLINK_ViewToggle:hover, #AniLINK_ViewToggle[aria-pressed="true"] { border-color: #26a69a; background: rgba(38,166,154,.18); color: #7ce4d8; box-shadow: 0 0 0 3px rgba(38,166,154,.1); transform: translateY(-2px); }
+        #AniLINK_ViewToggle::before { display: block; width: 24px; height: 24px; border: 2px solid currentColor; border-radius: 50%; content: ''; transition: border-color .2s, transform .25s; } #AniLINK_ViewToggle::after { position: absolute; top: 9px; left: 9px; width: 8px; height: 8px; border-radius: 50%; background: currentColor; content: ''; transition: transform .25s, background .2s; }
+        #AniLINK_ViewToggle[aria-pressed="true"]::before { transform: scale(.72); } #AniLINK_ViewToggle[aria-pressed="true"]::after { transform: translate(10px, 0); } #AniLINK_ViewToggle:focus-visible { outline: 2px solid #26a69a; outline-offset: 3px; }
         #AniLINK_LinksContainer { width: min(1100px, 92vw); max-height: 86vh; background: var(--anlink-glass-bg); color: #edf5f4; padding: 22px; border: 1.5px solid var(--anlink-glass-border); border-radius: 24px; overflow-y: auto; display: flex; flex-direction: column; box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); }
+        #AniLINK_QualitiesContainer { overflow-y: auto; } #AniLINK_QualitiesContainer::-webkit-scrollbar { width: 6px; } #AniLINK_QualitiesContainer::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 3px; } #AniLINK_QualitiesContainer::-webkit-scrollbar-track { background: transparent; }
         .anlink-status-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; background: linear-gradient(180deg, var(--anlink-glass-surface), transparent); border-bottom: 1px solid var(--anlink-glass-border-soft); } /* Header for status bar and stop button */
         .anlink-status-bar { color: #9eb4b1; flex-grow: 1; margin-right: 10px; display: block; font: 12px/1.3 system-ui, sans-serif; } /* Status bar takes space */
         .anlink-status-icon { background: transparent; border: none; color: #d9eeeb; cursor: pointer; padding-right: 10px; } /* status icon style */
@@ -1137,6 +1143,7 @@ async function extractEpisodes() {
             #AniLINK_LinksContainer { width: 100%; max-height: 100%; padding: 14px; padding-top: 0; border-radius: 20px; }
             #AniLINK_InfoBtn, #AniLINK_RerunBtn { top: max(10px, env(safe-area-inset-top)); z-index: 10; }
             #AniLINK_InfoBtn { right: max(54px, calc(env(safe-area-inset-right) + 44px)); } #AniLINK_RerunBtn { right: max(10px, env(safe-area-inset-right)); }
+            #AniLINK_ViewToggle { top: max(10px, env(safe-area-inset-top)); right: max(98px, calc(env(safe-area-inset-right) + 88px)); z-index: 10; }
             .anlink-status-header { flex-wrap: wrap; gap: 8px; position: sticky; padding-block: 14px; top: 0; border-radius: 8px; z-index: 2; }
             .anlink-status-bar { order: 0; flex-basis: calc(100% - 36px); margin-right: 0; }
             .anlink-header-buttons { width: 100%; flex-wrap: wrap; gap: 6px; }
@@ -1147,12 +1154,104 @@ async function extractEpisodes() {
         @keyframes spinning { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } /* Spinning animation */
         @keyframes checkTilt { from { transform: rotate(-20deg); } to { transform: rotate(0deg); } } /* Checkmark tilt animation */
     `);
+    // Inject the Episode view styles separately
+    AniLINKUI.addStyle(`
+        .anlink-episode-view[hidden] { display: none; }
+        .anlink-episode-view { animation: anlink-episode-view-in .28s ease-out; overflow-y: auto; } .anlink-episode-view::-webkit-scrollbar { width: 6px; } .anlink-episode-view::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 3px; } .anlink-episode-view::-webkit-scrollbar-track { background: transparent; }
+        .anlink-episode-toolbar { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; margin-bottom: 10px; }
+        .anlink-episode-source-button { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 8px; background: rgba(255,255,255,.04); color: #9eb4b1; cursor: pointer; font: 11px system-ui, sans-serif; transition: border-color .2s, background .2s, color .2s, transform .2s; }
+        .anlink-episode-source-button:hover, .anlink-episode-source-button:focus-visible { border-color: #26a69a; background: rgba(38,166,154,.13); color: #9ff1e6; outline: none; transform: translateY(-1px); }
+        .anlink-episode-source-button:disabled { cursor: not-allowed; opacity: .42; }
+        .anlink-episode-source-popover { position: absolute; top: calc(100% + 7px); right: 0; z-index: 6; width: min(290px, calc(100vw - 36px)); padding: 13px; border: 1px solid var(--anlink-glass-border); border-radius: 12px; background: var(--anlink-glass-bg); box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); animation: anlink-episode-popover-in .18s ease-out; }
+        .anlink-episode-source-heading { margin-bottom: 10px; color: #dffaf6; font: 600 12px/1.3 system-ui, sans-serif; }
+        .anlink-episode-source-help { margin-top: 4px; color: #829794; font: 10px/1.35 system-ui, sans-serif; }
+        .anlink-episode-source-list { display: grid; gap: 6px; max-height: 260px; overflow-y: auto; }
+        .anlink-episode-source-item { display: flex; align-items: center; gap: 7px; padding: 7px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 8px; background: var(--anlink-glass-surface); }
+        .anlink-episode-source-position { min-width: 18px; color: #65d6c8; font: 700 11px system-ui, sans-serif; }
+        .anlink-episode-source-name { min-width: 0; flex: 1; overflow: hidden; color: #d4e7e4; font: 11px system-ui, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+        .anlink-episode-source-item button { width: 24px; height: 24px; padding: 0; border: 1px solid rgba(255,255,255,.1); border-radius: 5px; background: rgba(255,255,255,.05); color: #c3d8d4; cursor: pointer; font: 13px/1 system-ui, sans-serif; }
+        .anlink-episode-source-item button:hover:not(:disabled) { border-color: #26a69a; color: #7ce4d8; }
+        .anlink-episode-source-item button:disabled { cursor: not-allowed; opacity: .3; }
+        .anlink-episode-source-reset { display: block; margin: 10px 0 0 auto; padding: 5px 8px; border: 1px solid rgba(255,255,255,.1); border-radius: 6px; background: rgba(255,255,255,.05); color: #9eb4b1; cursor: pointer; font: 10px system-ui, sans-serif; }
+        .anlink-episode-source-reset:hover { border-color: #26a69a; color: #7ce4d8; }
+        .anlink-episode-grid-shell { display: block; }
+        .anlink-episode-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+        .anlink-episode-card { position: relative; min-height: 172px; overflow: hidden; border: 1px solid rgba(255,255,255,.11); border-radius: 14px; background-color: #1a2423; background-position: center; background-size: cover; box-shadow: 0 10px 25px rgba(0,0,0,.16); isolation: isolate; transition: border-color .2s, transform .2s, box-shadow .2s; }
+        .anlink-episode-preview { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; pointer-events: none; transition: opacity .3s ease; }
+        .anlink-episode-card::before { position: absolute; inset: 0; z-index: 1; content: ''; background: linear-gradient(155deg, rgba(12,20,19,.16), rgba(12,17,17,.93) 88%); transition: background .25s; }
+        .anlink-episode-card:hover, .anlink-episode-card:focus-within { border-color: rgba(38,166,154,.72); transform: translateY(-3px); box-shadow: 0 15px 30px rgba(0,0,0,.28); }
+        .anlink-episode-card:hover::before, .anlink-episode-card:focus-within::before { background: linear-gradient(155deg, rgba(12,20,19,.04), rgba(12,17,17,.88) 88%); }
+        .anlink-episode-card.is-previewing .anlink-episode-preview { opacity: 1; }
+        .anlink-episode-card.is-previewing::before { background: linear-gradient(155deg, rgba(12,20,19,.02), rgba(12,17,17,.78) 88%); }
+        .anlink-episode-card-content { position: relative; z-index: 2; display: flex; min-height: 172px; flex-direction: column; justify-content: flex-end; padding: 12px; }
+        .anlink-episode-card-select { position: absolute; top: 10px; left: 10px; z-index: 3; display: inline-flex; align-items: center; gap: 7px; padding: 4px 7px 4px 4px; border: 1px solid rgba(255,255,255,.15); border-radius: 8px; background: rgba(12,20,19,.66); color: #effbf8; cursor: pointer; font: 600 12px/1 system-ui, sans-serif; backdrop-filter: blur(5px); transition: border-color .2s, background .2s; }
+        .anlink-episode-card-select:hover { border-color: #26a69a; background: rgba(12,30,28,.82); }
+        .anlink-episode-card-select .anlink-episode-checkbox { display: none; width: 18px; height: 18px; margin: 0; }
+        .anlink-episode-card:hover .anlink-episode-card-select .anlink-episode-checkbox, .anlink-episode-card:focus-within .anlink-episode-card-select .anlink-episode-checkbox, .anlink-episode-card-select .anlink-episode-checkbox:checked { display: block; }
+        .anlink-episode-card-select .anlink-card-episode-number { color: #9ff1e6; }
+        .anlink-card-episode-number { opacity: .48; transition: opacity .18s; }
+        .anlink-episode-card:hover .anlink-card-episode-number, .anlink-episode-card:focus-within .anlink-card-episode-number { opacity: 1; }
+        .anlink-episode-card-actions { position: absolute; top: 10px; right: 10px; z-index: 3; display: flex; gap: 6px; opacity: 0; pointer-events: none; transform: translateY(-7px); transition: opacity .2s, transform .2s; }
+        .anlink-episode-card:hover .anlink-episode-card-actions, .anlink-episode-card:focus-within .anlink-episode-card-actions { opacity: 1; pointer-events: auto; transform: translateY(0); }
+        .anlink-episode-card-action, .anlink-episode-copy { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid rgba(255,255,255,.16); border-radius: 8px; background: rgba(12,20,19,.72); color: #dffaf6; cursor: pointer; font: 700 15px/1 system-ui, sans-serif; backdrop-filter: blur(5px); transition: border-color .2s, background .2s, color .2s, transform .2s; }
+        .anlink-episode-card-action:hover, .anlink-episode-copy:hover { border-color: #26a69a; background: rgba(38,166,154,.3); color: #fff; transform: scale(1.08); }
+        .anlink-episode-card-action img { width: 18px; height: 18px; object-fit: contain; }
+        .anlink-episode-card-title { display: block; max-width: 100%; margin-bottom: 6px; overflow: hidden; color: #f1fffc; font: 600 13px/1.3 system-ui, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+        .anlink-episode-card-title:empty { display: none; }
+        .anlink-episode-card-source { display: flex; align-items: center; gap: 6px; max-width: calc(100% - 38px); min-width: 0; color: #9fe8df; font: 11px/1.3 system-ui, sans-serif; }
+        .anlink-episode-source-count { display: inline-grid; flex: none; min-width: 20px; height: 18px; padding: 0 5px; place-items: center; border: 1px solid rgba(126,239,225,.2); border-radius: 999px; background: rgba(38,166,154,.14); color: #b8fff5; cursor: help; font-size: 10px; font-weight: 700; line-height: 1; transition: border-color .2s, background .2s, transform .2s; }
+        .anlink-episode-source-count:hover { border-color: rgba(126,239,225,.52); background: rgba(38,166,154,.28); transform: translateY(-1px); }
+        .anlink-episode-source-name { min-width: 0; flex: 1; overflow: hidden; cursor: help; }
+        .anlink-episode-source-value, .anlink-episode-card-referrer { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .anlink-episode-card-referrer { display: none; color: #b5c9c5; }
+        .anlink-episode-source-name:hover .anlink-episode-source-value { display: none; }
+        .anlink-episode-source-name:hover .anlink-episode-card-referrer { display: block; }
+        .anlink-episode-card-link { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+        .anlink-episode-copy { position: absolute; right: 12px; bottom: 12px; z-index: 3; }
+        .anlink-episode-preview-seek { position: absolute; left: 12px; bottom: 5px; z-index: 4; width: calc(100% - 24px); height: 4px; margin: 0; opacity: 0; appearance: none; background: transparent; cursor: pointer; pointer-events: none; transition: opacity .2s; }
+        .anlink-episode-card.is-previewing .anlink-episode-preview-seek { opacity: .48; pointer-events: auto; }
+        .anlink-episode-preview-seek:hover, .anlink-episode-preview-seek:focus-visible { opacity: .82; outline: none; }
+        .anlink-episode-preview-seek::-webkit-slider-runnable-track { height: 2px; border-radius: 2px; background: rgba(236,255,251,.58); }
+        .anlink-episode-preview-seek::-webkit-slider-thumb { width: 6px; height: 6px; margin-top: -2px; appearance: none; border: 0; border-radius: 50%; background: #9ff1e6; }
+        .anlink-episode-preview-seek::-moz-range-track { height: 2px; border-radius: 2px; background: rgba(236,255,251,.58); }
+        .anlink-episode-preview-seek::-moz-range-thumb { width: 6px; height: 6px; border: 0; border-radius: 50%; background: #9ff1e6; }
+        .anlink-episode-copy.is-copied { border-color: #66bb6a; background: rgba(102,187,106,.28); color: #b8f5bb; animation: anlink-copy-pop .36s ease-out; }
+        .anlink-episode-card.is-unavailable { opacity: .62; }
+        .anlink-episode-card.is-unavailable:hover, .anlink-episode-card.is-unavailable:focus-within { transform: none; }
+        .anlink-episode-card.is-unavailable .anlink-episode-copy { cursor: not-allowed; }
+        .anlink-episode-note { min-width: 0; flex: 1 1 auto; max-width: 560px; display: flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid rgba(126,239,225,.12); border-left: 3px solid rgba(38,166,154,.52); border-radius: 9px; background: rgba(38,166,154,.05); color: #9eb4b1; opacity: .72; font: 11px/1.35 system-ui, sans-serif; transition: opacity .2s, border-color .2s, transform .2s; }
+        .anlink-episode-note:hover { border-color: rgba(38,166,154,.36); opacity: 1; transform: translateY(-1px); }
+        .anlink-episode-note > span { flex: none; font-size: 15px; line-height: 1; }
+        .anlink-episode-note p { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        @media (max-width: 680px) {
+            .anlink-episode-toolbar { align-items: flex-start; }
+            .anlink-episode-note { max-width: none; }
+            .anlink-episode-note p { white-space: normal; }
+            .anlink-episode-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+            .anlink-episode-card, .anlink-episode-card-content { min-height: 150px; }
+            .anlink-episode-card-content { padding: 10px; }
+            .anlink-episode-card-action, .anlink-episode-copy { width: 28px; height: 28px; }
+        }
+        @media (min-width: 768px) { .anlink-episode-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); } .anlink-episode-card, .anlink-episode-card-content { min-height: 0; aspect-ratio: 16 / 9; } }
+        @media (max-width: 420px) { .anlink-episode-grid { grid-template-columns: 1fr; } }
+        @keyframes anlink-episode-view-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes anlink-episode-popover-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @keyframes anlink-copy-pop { 0% { transform: scale(1); } 45% { transform: scale(1.18) rotate(-4deg); } 100% { transform: scale(1) rotate(0); } }
+    `);
 
     // Create an overlay to cover the page
     const overlayDiv = document.createElement("div");
     overlayDiv.id = "AniLINK_Overlay";
-    overlayDiv.onclick = e => !linksContainer.contains(e.target) && !rerunBtn.contains(e.target) && !infoBtn.contains(e.target) &&
+    const viewToggle = document.createElement('button');
+    viewToggle.id = 'AniLINK_ViewToggle';
+    viewToggle.type = 'button';
+    viewToggle.title = layoutMode === 'episodes' ? 'Switch to source view' : 'Switch to episode view';
+    viewToggle.setAttribute('aria-label', viewToggle.title);
+    viewToggle.setAttribute('aria-pressed', String(layoutMode === 'episodes'));
+    viewToggle.addEventListener('click', () => setLayoutMode(layoutMode === 'sources' ? 'episodes' : 'sources'));
+    overlayDiv.onclick = e => !linksContainer.contains(e.target) && !rerunBtn.contains(e.target) && !infoBtn.contains(e.target) && !viewToggle.contains(e.target) &&
         (status.text.startsWith("Cancelled") ? AniLINKUI.removeExtractor() : AniLINKUI.close());
+    overlayDiv.appendChild(viewToggle);
 
     const infoBtn = document.createElement('button');
     infoBtn.id = 'AniLINK_InfoBtn';
@@ -1247,6 +1346,37 @@ async function extractEpisodes() {
     qualitiesContainer.id = "AniLINK_QualitiesContainer";
     linksContainer.appendChild(qualitiesContainer);
 
+    const episodeViewContainer = document.createElement('div');
+    episodeViewContainer.className = 'anlink-episode-view';
+    episodeViewContainer.hidden = layoutMode !== 'episodes';
+    episodeViewContainer.innerHTML = `
+        <div class="anlink-episode-toolbar">
+            <aside class="anlink-episode-note" role="note"><span aria-hidden="true">🤔</span><p>Why did I add an episode list when the website already has one? Well... even I would like to know that!!</p></aside>
+            <button type="button" class="anlink-episode-source-button" title="Adjust source preference"><span aria-hidden="true">⇅</span><span>Source order</span></button>
+        </div>
+        <div class="anlink-episode-grid-shell">
+            <div class="anlink-episode-grid"></div>
+        </div>
+    `;
+    linksContainer.appendChild(episodeViewContainer);
+    qualitiesContainer.hidden = layoutMode === 'episodes';
+    const episodeToolbar = episodeViewContainer.querySelector('.anlink-episode-toolbar');
+    const episodeSourceButton = episodeViewContainer.querySelector('.anlink-episode-source-button');
+    episodeToolbar.hidden = true;
+    episodeSourceButton.hidden = true;
+    let episodeSourcePopover = null;
+    const episodeSourceOrderKey = 'anilink_episode_source_order';
+    const savedEpisodeSourceOrders = GM_getValue(episodeSourceOrderKey, {});
+    let episodeSourceOrder = Array.isArray(savedEpisodeSourceOrders?.[location.host]) ? [...new Set(savedEpisodeSourceOrders[location.host])] : [];
+    let discoveredEpisodeSources = [];
+    let episodeRenderFrame = 0;
+
+    episodeSourceButton.addEventListener('click', event => {
+        event.stopPropagation();
+        toggleEpisodeSourcePopover();
+    });
+    updateEpisodeViewControls();
+
     // Update counts on checkbox change (event delegation)
     qualitiesContainer.addEventListener('change', e => {
         if (e.target.classList.contains('anlink-episode-checkbox')) {
@@ -1260,6 +1390,7 @@ async function extractEpisodes() {
 
     // --- Process Episodes using Generator ---
     window._anilink_episodes = [];
+    observeEpisodeStore();
     let startTime = Date.now();
     try {
         const episodeGenerator = site.extractEpisodes(status);
@@ -1296,6 +1427,342 @@ async function extractEpisodes() {
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
         status = { isExtracting: false, text: `Extraction Failed after ${duration} seconds.`, error: error.message || error.toString() };
         showToast(`Extraction failed: ${dlUtils?.anlinkEscapeHtml?.(status.error) || status.error}`);
+    }
+
+    function updateEpisodeViewControls() {
+        const episodeView = layoutMode === 'episodes';
+        viewToggle.setAttribute('aria-pressed', String(episodeView));
+        viewToggle.title = episodeView ? 'Switch to source view' : 'Switch to episode view';
+        viewToggle.setAttribute('aria-label', viewToggle.title);
+    }
+
+    function setLayoutMode(mode) {
+        if (layoutMode === mode) return;
+        const scrollTop = linksContainer.scrollTop;
+        layoutMode = mode;
+        if (mode !== 'episodes') episodeViewContainer.querySelectorAll('.anlink-episode-card').forEach(stopEpisodePreview);
+        qualitiesContainer.hidden = mode === 'episodes';
+        episodeViewContainer.hidden = mode !== 'episodes';
+        if (mode !== 'episodes') episodeSourcePopover?._close?.();
+        GM_setValue(viewStorageKey, layoutMode);
+        updateEpisodeViewControls();
+        linksContainer.scrollTop = scrollTop;
+        requestAnimationFrame(() => linksContainer.scrollTop = scrollTop);
+    }
+
+    function observeEpisodeStore() {
+        const store = window._anilink_episodes;
+        if (!Array.isArray(store)) return;
+        const mutators = new Set(['copyWithin', 'fill', 'pop', 'push', 'reverse', 'shift', 'sort', 'splice', 'unshift']);
+        window._anilink_episodes = new Proxy(store, {
+            get(target, property, receiver) {
+                if (!mutators.has(property)) return Reflect.get(target, property, receiver);
+                return (...args) => {
+                    const result = Array.prototype[property].apply(target, args);
+                    queueEpisodeRender();
+                    return result;
+                };
+            }
+        });
+        queueEpisodeRender();
+    }
+
+    function queueEpisodeRender() {
+        if (episodeRenderFrame) return;
+        episodeRenderFrame = requestAnimationFrame(() => {
+            episodeRenderFrame = 0;
+            renderEpisodeView(window._anilink_episodes || []);
+        });
+    }
+
+    function syncEpisodeSourceOrder(episodes) {
+        const availableSources = [];
+        episodes.forEach(episode => Object.entries(episode.links || {}).forEach(([source, link]) => link?.stream && !availableSources.includes(source) && availableSources.push(source)));
+        discoveredEpisodeSources = [...new Set([...discoveredEpisodeSources, ...availableSources])];
+        episodeSourceOrder = [...new Set([...episodeSourceOrder, ...discoveredEpisodeSources, ...availableSources])];
+        episodeToolbar.hidden = !episodes.length;
+        episodeSourceButton.hidden = availableSources.length < 2;
+        if (episodeSourceButton.hidden) episodeSourcePopover?._close?.();
+        episodeSourcePopover?._refresh?.();
+        return availableSources;
+    }
+
+    function getPreferredEpisodeLink(episode) {
+        const sources = [...new Set([...episodeSourceOrder, ...Object.keys(episode.links || {})])];
+        for (const source of sources) if (episode.links?.[source]?.stream) return { source, link: episode.links[source] };
+        return { source: '', link: null };
+    }
+
+    function episodeKey(number) {
+        return String(number).replace(/^0+(?=\d)/, '') || '0';
+    }
+
+    function renderEpisodeView(episodes) {
+        syncEpisodeSourceOrder(episodes);
+        const grid = episodeViewContainer.querySelector('.anlink-episode-grid');
+        const uniqueEpisodes = new Map();
+        episodes.forEach(episode => uniqueEpisodes.has(episodeKey(episode.number)) || uniqueEpisodes.set(episodeKey(episode.number), episode));
+        const sortedEpisodes = [...uniqueEpisodes.values()].sort((first, second) => +first.number - +second.number);
+        const existing = new Map([...grid.querySelectorAll('.anlink-episode-card')].map(card => [card.dataset.episodeKey, card]));
+        sortedEpisodes.forEach((episode, index) => {
+            const key = episodeKey(episode.number);
+            const preferred = getPreferredEpisodeLink(episode);
+            const card = existing.get(key) || createEpisodeCard(episode, preferred.source);
+            updateEpisodeCard(card, episode, preferred.source);
+            if (grid.children[index] !== card) grid.insertBefore(card, grid.children[index] || null);
+            existing.delete(key);
+        });
+        existing.forEach(card => { stopEpisodePreview(card); card.remove(); });
+    }
+
+    function createEpisodeCard(episode, source) {
+        const card = document.createElement('article');
+        card.className = 'anlink-episode-card';
+        card.dataset.episodeKey = episodeKey(episode.number);
+
+        const selectLabel = document.createElement('label');
+        selectLabel.className = 'anlink-episode-card-select';
+        const checkbox = Object.assign(document.createElement('input'), { type: 'checkbox', className: 'anlink-episode-checkbox' });
+        const episodeNumber = Object.assign(document.createElement('span'), { className: 'anlink-card-episode-number' });
+        selectLabel.append(checkbox, episodeNumber);
+        selectLabel.addEventListener('click', event => {
+            if (event.target === checkbox) return;
+            event.preventDefault();
+            checkbox.click();
+        });
+
+        const actions = Object.assign(document.createElement('div'), { className: 'anlink-episode-card-actions' });
+        const downloadButton = Object.assign(document.createElement('button'), { type: 'button', className: 'anlink-episode-card-action', textContent: '⇩', title: 'Download episode' });
+        const mpvButton = Object.assign(document.createElement('button'), { type: 'button', className: 'anlink-episode-card-action', title: 'Play episode with MPV' });
+        mpvButton.innerHTML = '<img width="18" height="18" src="https://a.fsdn.com/allura/p/mpv-player-windows/icon?1517058933" alt="MPV">';
+        actions.append(downloadButton, mpvButton);
+
+        const content = Object.assign(document.createElement('div'), { className: 'anlink-episode-card-content' });
+        const title = Object.assign(document.createElement('strong'), { className: 'anlink-episode-card-title' });
+        const sourceName = Object.assign(document.createElement('span'), { className: 'anlink-episode-card-source' });
+        const sourceCount = Object.assign(document.createElement('span'), { className: 'anlink-episode-source-count' });
+        const sourceLabel = Object.assign(document.createElement('span'), { className: 'anlink-episode-source-name' });
+        const sourceValue = Object.assign(document.createElement('span'), { className: 'anlink-episode-source-value' });
+        const referrerLabel = Object.assign(document.createElement('span'), { className: 'anlink-episode-card-referrer' });
+        const copyButton = Object.assign(document.createElement('button'), { type: 'button', className: 'anlink-episode-copy', textContent: '⧉', title: 'Copy episode link' });
+        copyButton.setAttribute('aria-label', 'Copy episode link');
+        const hiddenLink = Object.assign(document.createElement('a'), { className: 'anlink-episode-link anlink-episode-card-link', tabIndex: -1 });
+        hiddenLink.setAttribute('aria-hidden', 'true');
+        const preview = Object.assign(document.createElement('video'), { className: 'anlink-episode-preview', muted: true, loop: true, preload: 'none' });
+        preview.defaultMuted = true;
+        preview.playsInline = true;
+        preview.tabIndex = -1;
+        preview.setAttribute('aria-hidden', 'true');
+        const previewSeek = Object.assign(document.createElement('input'), { type: 'range', className: 'anlink-episode-preview-seek', min: 0, max: 0, step: 0.1, value: 0, title: 'Seek preview' });
+        previewSeek.setAttribute('aria-label', 'Seek episode preview');
+        sourceLabel.append(sourceValue, referrerLabel);
+        sourceName.append(sourceCount, sourceLabel);
+        content.append(title, sourceName, hiddenLink);
+        card.append(preview, selectLabel, actions, content, copyButton, previewSeek);
+
+        card._selected = false;
+        card._linkKey = '';
+        card._previewLinkKey = '';
+        card._preview = preview;
+        card._previewSeek = previewSeek;
+        checkbox.addEventListener('change', () => { card._selected = checkbox.checked; });
+        checkbox.addEventListener('click', event => event.stopPropagation());
+        card.addEventListener('mouseenter', () => startEpisodePreview(card));
+        card.addEventListener('mouseleave', () => stopEpisodePreview(card));
+        preview.addEventListener('loadedmetadata', () => {
+            previewSeek.max = Number.isFinite(preview.duration) ? preview.duration : 0;
+            previewSeek.value = 0;
+        });
+        preview.addEventListener('timeupdate', () => {
+            if (!card._previewSeeking && Number.isFinite(preview.duration)) previewSeek.value = preview.currentTime;
+        });
+        preview.addEventListener('playing', () => card.classList.add('is-previewing'));
+        preview.addEventListener('error', () => card.classList.remove('is-previewing'));
+        previewSeek.addEventListener('pointerdown', () => { card._previewSeeking = true; });
+        previewSeek.addEventListener('pointerup', () => { card._previewSeeking = false; });
+        previewSeek.addEventListener('pointercancel', () => { card._previewSeeking = false; });
+        previewSeek.addEventListener('input', () => {
+            if (Number.isFinite(preview.duration)) preview.currentTime = +previewSeek.value;
+        });
+        copyButton.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!card._linkData?.stream) return;
+            GM_setClipboard(card._linkData.stream, 'text');
+            copyButton.textContent = '✓';
+            copyButton.title = 'Copied';
+            copyButton.classList.remove('is-copied');
+            void copyButton.offsetWidth;
+            copyButton.classList.add('is-copied');
+            setTimeout(() => {
+                if (!copyButton.isConnected) return;
+                copyButton.textContent = '⧉';
+                copyButton.title = 'Copy episode link';
+                copyButton.classList.remove('is-copied');
+            }, 900);
+        });
+        downloadButton.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (card._linkData?.stream) onDownloadEpisodes([card._episode], card._quality, event.currentTarget);
+        });
+        mpvButton.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (card._linkData?.stream) playEpisodeInMpv(card._episode, card._linkData);
+        });
+        return card;
+    }
+
+    function updateEpisodeCard(card, episode, source) {
+        const linkData = source ? episode.links?.[source] : null;
+        const availableLinks = Object.values(episode.links || {}).filter(link => link?.stream);
+        const linkKey = `${source}\u0000${linkData?.stream || ''}`;
+        const checkbox = card.querySelector('.anlink-episode-checkbox');
+        const hiddenLink = card.querySelector('.anlink-episode-card-link');
+        const copyButton = card.querySelector('.anlink-episode-copy');
+        const downloadButton = card.querySelector('.anlink-episode-card-action');
+        const mpvButton = card.querySelectorAll('.anlink-episode-card-action')[1];
+
+        const previousLinkKey = card._linkKey;
+        if (card._previewLinkKey && previousLinkKey !== linkKey) stopEpisodePreview(card);
+        card._episode = episode;
+        card._quality = source || '';
+        card._linkData = linkData || null;
+        card._linkKey = linkKey;
+        card.dataset.epnum = episode.number;
+        card.dataset.quality = source || '';
+        card.classList.toggle('is-unavailable', !linkData?.stream);
+        card.style.backgroundImage = episode.thumbnail ? `url("${String(episode.thumbnail).replace(/["\\\r\n\f]/g, '\\$&')}")` : '';
+        if (episode.thumbnail) card._preview.poster = episode.thumbnail;
+        else card._preview.removeAttribute('poster');
+        card.querySelector('.anlink-episode-card-title').textContent = episode.epTitle || '';
+        const sourceCount = card.querySelector('.anlink-episode-source-count');
+        const sourceLabel = card.querySelector('.anlink-episode-source-name');
+        const sourceValue = card.querySelector('.anlink-episode-source-value');
+        const referrerLabel = card.querySelector('.anlink-episode-card-referrer');
+        const countTitle = `${availableLinks.length} source${availableLinks.length === 1 ? '' : 's'} available`;
+        sourceCount.textContent = availableLinks.length;
+        sourceCount.title = countTitle;
+        sourceCount.setAttribute('aria-label', countTitle);
+        sourceValue.textContent = source || 'Unavailable';
+        sourceLabel.title = source || 'Unavailable';
+        referrerLabel.textContent = `⌬ ${linkData?.referer ? String(linkData.referer).replace(/^https?:\/\//, '') : 'unavailable'}`;
+        referrerLabel.title = linkData?.referer || 'No referrer available';
+        card.querySelector('.anlink-card-episode-number').textContent = `Ep ${String(episode.number).replace(/^0+/, '')}`;
+        checkbox.checked = !!linkData?.stream && card._selected;
+        checkbox.disabled = !linkData?.stream;
+        downloadButton.disabled = !linkData?.stream;
+        mpvButton.disabled = !linkData?.stream;
+        copyButton.disabled = !linkData?.stream;
+        if (linkData?.stream) {
+            hiddenLink.href = linkData.stream;
+            hiddenLink.dataset.epnum = episode.number;
+            hiddenLink.dataset.ep = JSON.stringify({ ...episode, links: undefined });
+        } else {
+            hiddenLink.removeAttribute('href');
+            hiddenLink.removeAttribute('data-epnum');
+            hiddenLink.removeAttribute('data-ep');
+        }
+        if (previousLinkKey !== linkKey) {
+            copyButton.textContent = '⧉';
+            copyButton.title = 'Copy episode link';
+            copyButton.classList.remove('is-copied');
+        }
+    }
+
+    function startEpisodePreview(card) {
+        const linkData = card._linkData;
+        if (!linkData?.stream) return;
+        if (card._previewLinkKey !== card._linkKey) {
+            card._preview.src = linkData.stream;
+            card._previewLinkKey = card._linkKey;
+            card._preview.load();
+        }
+        card._preview.play().catch(() => {});
+    }
+
+    function stopEpisodePreview(card) {
+        if (!card?._preview) return;
+        card._preview.pause();
+        card._preview.currentTime = 0;
+        card._previewSeek.value = 0;
+        card._previewSeeking = false;
+        card.classList.remove('is-previewing');
+    }
+
+    function playEpisodeInMpv(episode, linkData) {
+        const name = episode.filename;
+        location.replace(`${MPV_PROTOCOL}://play/` + safeBtoa(linkData.stream) + `/?v_title=${safeBtoa(name)}&cookies=${location.hostname}.txt&referrer=${safeBtoa(linkData.referer || location.href)}` + (linkData.tracks?.some(track => track.kind === 'caption') ? `&subfile=${safeBtoa(linkData.tracks.filter(track => /^caption/.test(track.kind)).map(track => track.file).join(';'))}` : ''));
+        showToast('Sent to MPV. If nothing happened, install v0.4.0+ of <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a>.');
+    }
+
+    function persistEpisodeSourceOrder() {
+        const saved = GM_getValue(episodeSourceOrderKey, {});
+        GM_setValue(episodeSourceOrderKey, { ...(saved && typeof saved === 'object' ? saved : {}), [location.host]: episodeSourceOrder });
+    }
+
+    function toggleEpisodeSourcePopover() {
+        if (episodeSourcePopover) {
+            episodeSourcePopover._close?.();
+            return;
+        }
+        const popover = document.createElement('div');
+        popover.className = 'anlink-episode-source-popover';
+        popover.innerHTML = `
+            <div class="anlink-episode-source-heading">Preferred episode source<div class="anlink-episode-source-help">The first available source is shown on each card.</div></div>
+            <div class="anlink-episode-source-list"></div>
+            <button type="button" class="anlink-episode-source-reset">Reset order</button>
+        `;
+        episodeViewContainer.querySelector('.anlink-episode-toolbar').appendChild(popover);
+        episodeSourcePopover = popover;
+        const list = popover.querySelector('.anlink-episode-source-list');
+        const availableSources = () => discoveredEpisodeSources;
+        const renderOrder = () => {
+            const sources = availableSources();
+            const ordered = [...episodeSourceOrder.filter(source => sources.includes(source)), ...sources.filter(source => !episodeSourceOrder.includes(source))];
+            list.replaceChildren(...ordered.map((source, index) => {
+                const item = document.createElement('div');
+                item.className = 'anlink-episode-source-item';
+                const position = Object.assign(document.createElement('span'), { className: 'anlink-episode-source-position', textContent: `#${index + 1}` });
+                const name = Object.assign(document.createElement('span'), { className: 'anlink-episode-source-name', textContent: source, title: source });
+                const up = Object.assign(document.createElement('button'), { type: 'button', textContent: '↑', title: 'Move source up' });
+                const down = Object.assign(document.createElement('button'), { type: 'button', textContent: '↓', title: 'Move source down' });
+                up.dataset.move = 'up'; up.dataset.index = index; up.disabled = index === 0;
+                down.dataset.move = 'down'; down.dataset.index = index; down.disabled = index === ordered.length - 1;
+                up.setAttribute('aria-label', `Move ${source} up`);
+                down.setAttribute('aria-label', `Move ${source} down`);
+                item.append(position, name, up, down);
+                return item;
+            }));
+        };
+        const applyOrder = ordered => {
+            episodeSourceOrder = [...ordered, ...episodeSourceOrder.filter(source => !ordered.includes(source))];
+            persistEpisodeSourceOrder();
+            renderEpisodeView(window._anilink_episodes || []);
+        };
+        const close = () => {
+            AniLINKUI.root.removeEventListener('click', outside);
+            popover.remove();
+            if (episodeSourcePopover === popover) episodeSourcePopover = null;
+        };
+        popover._close = close;
+        popover._refresh = renderOrder;
+        const outside = event => !popover.contains(event.target) && event.target !== episodeSourceButton && close();
+        list.addEventListener('click', event => {
+            const button = event.target.closest('button[data-move]');
+            if (!button) return;
+            const ordered = [...list.querySelectorAll('.anlink-episode-source-name')].map(name => name.textContent);
+            const index = +button.dataset.index;
+            const nextIndex = index + (button.dataset.move === 'up' ? -1 : 1);
+            if (nextIndex < 0 || nextIndex >= ordered.length) return;
+            [ordered[index], ordered[nextIndex]] = [ordered[nextIndex], ordered[index]];
+            applyOrder(ordered);
+        });
+        popover.querySelector('.anlink-episode-source-reset').addEventListener('click', () => applyOrder([...discoveredEpisodeSources]));
+        popover.addEventListener('click', event => event.stopPropagation());
+        AniLINKUI.root.addEventListener('click', outside);
+        renderOrder();
     }
 
     // Renders quality link lists inside a given container element
@@ -1508,6 +1975,7 @@ async function extractEpisodes() {
 
     // Helper to get all selected episodes across all qualities
     function getAllSelectedEpisodes(selectAllWhenEmpty = true) {
+        if (layoutMode === 'episodes') return getEpisodeViewSelectedEpisodes(selectAllWhenEmpty);
         const selected = {};
         AniLINKUI.queryAll('.anlink-quality-section').forEach(section => {
             const quality = section.dataset.quality;
@@ -1523,6 +1991,18 @@ async function extractEpisodes() {
                 selected[quality] = items;
             });
         }
+        return selected;
+    }
+
+    function getEpisodeViewSelectedEpisodes(selectAllWhenEmpty) {
+        const cards = [...episodeViewContainer.querySelectorAll('.anlink-episode-card')];
+        const selected = {};
+        const addCard = card => {
+            const source = card.dataset.quality;
+            if (source && card._linkData?.stream) (selected[source] ||= []).push(card);
+        };
+        cards.filter(card => card.querySelector('.anlink-episode-checkbox')?.checked).forEach(addCard);
+        if (selectAllWhenEmpty && !Object.keys(selected).length) cards.forEach(addCard);
         return selected;
     }
 
