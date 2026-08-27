@@ -100,6 +100,9 @@ const PREFER_JAP_TITLE = GM_getValue('prefer_jap_title', false); // Prefer takin
 const UNSUPPORTED_DOWNLOAD_URL_PATTERNS = [
     /^https:\/\/megap\.*$/i
 ];
+const ANILINK_GITHUB_REPO = 'https://github.com/jeryjs/Userscripts/tree/main/AniLINK';
+const ANILINK_GITHUB_ISSUES = `https://github.com/jeryjs/Userscripts/issues/new`;
+const ANILINK_GREASYFORK_PAGE = 'https://greasyfork.org/en/scripts/492029-anilink-episode-link-extractor';
 
 /**
  * Represents an anime episode with metadata and streaming links.
@@ -1050,6 +1053,7 @@ if (!site) throw new Error(`[AniLINK] No extractor found for ${window.location.h
 
 // register menu command to start script
 GM_registerMenuCommand('Extract Episodes', extractEpisodes);
+// GM_registerMenuCommand('About & Feedback', showAniLINKInfoDialog);
 
 // attach start button to page
 try {
@@ -1086,7 +1090,8 @@ async function extractEpisodes() {
     // --- Materialize CSS Initialization ---
     AniLINKUI.addStyle(`
         #AniLINK_Overlay { position: fixed; inset: 0; background: var(--anlink-modal-overlay); backdrop-filter: blur(8px) saturate(140%); -webkit-backdrop-filter: blur(8px) saturate(140%); z-index: 1000; display: flex; align-items: center; justify-content: center; transition: opacity .28s ease, transform .28s ease, visibility .28s; pointer-events: auto; }
-        #AniLINK_RerunBtn { position: fixed; top: 22px; right: 26px; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; background: rgba(255,255,255,.05); color: #d9eeeb; font-size: 24px; cursor: pointer; transition: border-color .2s, background .2s, transform .2s; } #AniLINK_RerunBtn:hover { border-color: #26a69a; background: rgba(38,166,154,.18); transform: translateY(-2px); }
+        #AniLINK_RerunBtn, #AniLINK_InfoBtn { position: fixed; top: 22px; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; background: rgba(255,255,255,.05); color: #d9eeeb; font-size: 20px; cursor: pointer; transition: border-color .2s, background .2s, transform .2s; } #AniLINK_InfoBtn:hover, #AniLINK_RerunBtn:hover { border-color: #26a69a; background: rgba(38,166,154,.18); transform: translateY(-2px); }
+        #AniLINK_InfoBtn { right: 70px; } #AniLINK_RerunBtn { right: 26px; font-size: 24px; }
         #AniLINK_LinksContainer { width: min(1100px, 92vw); max-height: 86vh; background: var(--anlink-glass-bg); color: #edf5f4; padding: 22px; border: 1.5px solid var(--anlink-glass-border); border-radius: 24px; overflow-y: auto; display: flex; flex-direction: column; box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); }
         .anlink-status-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; background: linear-gradient(180deg, var(--anlink-glass-surface), transparent); border-bottom: 1px solid var(--anlink-glass-border-soft); } /* Header for status bar and stop button */
         .anlink-status-bar { color: #9eb4b1; flex-grow: 1; margin-right: 10px; display: block; font: 12px/1.3 system-ui, sans-serif; } /* Status bar takes space */
@@ -1130,7 +1135,8 @@ async function extractEpisodes() {
         @media (max-width: 680px) {
             #AniLINK_Overlay { padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
             #AniLINK_LinksContainer { width: 100%; max-height: 100%; padding: 14px; padding-top: 0; border-radius: 20px; }
-            #AniLINK_RerunBtn { top: max(10px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right)); z-index: 10; }
+            #AniLINK_InfoBtn, #AniLINK_RerunBtn { top: max(10px, env(safe-area-inset-top)); z-index: 10; }
+            #AniLINK_InfoBtn { right: max(54px, calc(env(safe-area-inset-right) + 44px)); } #AniLINK_RerunBtn { right: max(10px, env(safe-area-inset-right)); }
             .anlink-status-header { flex-wrap: wrap; gap: 8px; position: sticky; padding-block: 14px; top: 0; border-radius: 8px; z-index: 2; }
             .anlink-status-bar { order: 0; flex-basis: calc(100% - 36px); margin-right: 0; }
             .anlink-header-buttons { width: 100%; flex-wrap: wrap; gap: 6px; }
@@ -1145,8 +1151,16 @@ async function extractEpisodes() {
     // Create an overlay to cover the page
     const overlayDiv = document.createElement("div");
     overlayDiv.id = "AniLINK_Overlay";
-    overlayDiv.onclick = e => !linksContainer.contains(e.target) && !rerunBtn.contains(e.target) &&
+    overlayDiv.onclick = e => !linksContainer.contains(e.target) && !rerunBtn.contains(e.target) && !infoBtn.contains(e.target) &&
         (status.text.startsWith("Cancelled") ? AniLINKUI.removeExtractor() : AniLINKUI.close());
+
+    const infoBtn = document.createElement('button');
+    infoBtn.id = 'AniLINK_InfoBtn';
+    infoBtn.title = 'About and feedback';
+    infoBtn.setAttribute('aria-label', 'About and feedback');
+    infoBtn.textContent = 'ⓘ';
+    infoBtn.addEventListener('click', showAniLINKInfoDialog);
+    overlayDiv.appendChild(infoBtn);
 
     // Rerun button
     const rerunBtn = document.createElement('button');
@@ -1910,6 +1924,114 @@ async function showSourceSelector(sourcesGetter, siteKey, defaults = {}) {
 }
 
 /***************************************************************
+ * AniLINK Info Dialog - About, Changelog, and Support
+ ***************************************************************/
+let anilinkInfoDialog;
+function showAniLINKInfoDialog() {
+    if (anilinkInfoDialog?.isConnected) {
+        anilinkInfoDialog.querySelector('[data-info-tab="about"]')?.focus();
+        return;
+    }
+
+    if (!showAniLINKInfoDialog.stylesReady) {
+        AniLINKUI.addStyle(`
+            @keyframes anlink-info-fade-in { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes anlink-info-scale-in { from { opacity: 0; transform: scale(.94) translateY(12px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+            .anlink-info-backdrop { position: fixed; inset: 0; z-index: 1002; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--anlink-modal-overlay); backdrop-filter: blur(8px) saturate(140%); -webkit-backdrop-filter: blur(8px) saturate(140%); animation: anlink-info-fade-in .25s ease-out; pointer-events: auto; }
+            .anlink-info-dialog { width: min(680px, 92vw); max-height: min(760px, 90vh); overflow: hidden; display: flex; flex-direction: column; color: #edf7f5; background: var(--anlink-glass-bg); border: 1.5px solid var(--anlink-glass-border); border-radius: 24px; box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); animation: anlink-info-scale-in .28s cubic-bezier(.4,0,.2,1); }
+            .anlink-info-header { display: flex; align-items: center; gap: 14px; padding: 22px 24px 18px; background: linear-gradient(180deg, var(--anlink-glass-border), transparent); border-bottom: 1px solid var(--anlink-glass-border-soft); }
+            .anlink-info-brand { display: grid; place-items: center; flex: none; width: 48px; height: 48px; border: 1px solid rgba(180,255,245,.2); border-radius: 15px; background: linear-gradient(135deg, rgba(38,166,154,.42), rgba(38,166,154,.08)); color: #b8fff5; font-size: 25px; box-shadow: 0 8px 24px rgba(38,166,154,.16); }
+            .anlink-info-heading { min-width: 0; flex: 1; } .anlink-info-heading h2 { margin: 0; color: #f1fffc; font: 700 21px/1.2 system-ui, sans-serif; } .anlink-info-heading p { margin: 5px 0 0; color: #9eb4b1; font: 12px/1.4 system-ui, sans-serif; }
+            .anlink-info-close { flex: none; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.12); border-radius: 10px; background: rgba(255,255,255,.05); color: #d9eeeb; cursor: pointer; font-size: 20px; line-height: 1; transition: border-color .2s, background .2s, transform .2s; } .anlink-info-close:hover { border-color: #26a69a; background: rgba(38,166,154,.18); transform: translateY(-2px); }
+            .anlink-info-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 18px 24px 0; padding: 5px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 12px; background: var(--anlink-glass-surface); }
+            .anlink-info-tab { min-height: 38px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #9eb4b1; cursor: pointer; font: 600 12px system-ui, sans-serif; transition: color .2s, background .2s, border-color .2s, transform .2s; } .anlink-info-tab:hover { color: #dffaf6; background: rgba(255,255,255,.06); } .anlink-info-tab.active { border-color: rgba(180,255,245,.18); background: rgba(38,166,154,.18); color: #9ff1e6; box-shadow: 0 4px 16px rgba(0,0,0,.12); }
+            .anlink-info-content { min-height: 0; overflow-y: auto; padding: 22px 24px 24px; }
+            .anlink-info-page { display: none; animation: anlink-info-fade-in .2s ease-out; } .anlink-info-page.active { display: block; }
+            .anlink-info-hero { display: flex; align-items: flex-start; gap: 14px; padding: 16px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 14px; background: linear-gradient(135deg, rgba(38,166,154,.14), var(--anlink-glass-surface)); } .anlink-info-hero-icon { font-size: 30px; line-height: 1; } .anlink-info-hero h3 { margin: 0; color: #eafff9; font: 700 18px/1.2 system-ui, sans-serif; } .anlink-info-hero p { margin: 7px 0 0; color: #a8bbb8; font: 13px/1.55 system-ui, sans-serif; }
+            .anlink-info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; } .anlink-info-card { padding: 13px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 12px; background: var(--anlink-glass-surface); } .anlink-info-card strong { display: block; margin-bottom: 5px; color: #b9f8ef; font: 600 12px system-ui, sans-serif; } .anlink-info-card span { color: #91a7a4; font: 11px/1.45 system-ui, sans-serif; }
+            .anlink-info-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 16px; color: #829794; font: 11px system-ui, sans-serif; } .anlink-info-meta strong { color: #c1d7d3; font-weight: 600; }
+            .anlink-info-links { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 18px; } .anlink-info-link { display: inline-flex; align-items: center; gap: 6px; padding: 9px 12px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: rgba(255,255,255,.05); color: #9ff1e6; text-decoration: none; font: 600 12px system-ui, sans-serif; transition: border-color .2s, background .2s, transform .2s; } .anlink-info-link:hover { border-color: #26a69a; background: rgba(38,166,154,.16); transform: translateY(-1px); }
+            .anlink-info-note { margin: 18px 0 0; color: #829794; font: 11px/1.5 system-ui, sans-serif; }
+            .anlink-info-choice { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 18px; } .anlink-info-choice button { padding: 13px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 11px; background: var(--anlink-glass-surface); color: #b4c9c5; cursor: pointer; font: 600 12px system-ui, sans-serif; transition: border-color .2s, background .2s, color .2s, transform .2s; } .anlink-info-choice button:hover { border-color: rgba(38,166,154,.58); color: #dffaf6; transform: translateY(-1px); } .anlink-info-choice button.active { border-color: rgba(126,239,225,.48); background: rgba(38,166,154,.18); color: #9ff1e6; }
+            .anlink-info-form { display: grid; gap: 12px; } .anlink-info-field { display: grid; gap: 6px; } .anlink-info-field label { color: #a8c0bc; font: 600 11px system-ui, sans-serif; } .anlink-info-field input, .anlink-info-field textarea { width: 100%; border: 1px solid var(--anlink-glass-border-soft); border-radius: 9px; outline: none; background: var(--anlink-input-bg); color: #eefbf8; font: 13px/1.4 system-ui, sans-serif; transition: border-color .2s, box-shadow .2s; } .anlink-info-field input { padding: 10px 11px; } .anlink-info-field textarea { min-height: 86px; padding: 10px 11px; resize: vertical; } .anlink-info-field input:focus, .anlink-info-field textarea:focus { border-color: #26a69a; box-shadow: 0 0 0 3px rgba(38,166,154,.12); }
+            .anlink-info-submit { justify-self: end; margin-top: 3px; padding: 10px 16px; border: 1px solid rgba(180,255,245,.2); border-radius: 9px; background: linear-gradient(135deg, rgba(38,166,154,.9), rgba(32,132,122,.82)); color: #fff; cursor: pointer; font: 600 12px system-ui, sans-serif; transition: transform .2s, box-shadow .2s, filter .2s; } .anlink-info-submit:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(38,166,154,.24); filter: brightness(1.08); }
+            .anlink-info-footnote { margin: 0; color: #829794; font: 11px/1.45 system-ui, sans-serif; }
+            @media (max-width: 680px) { .anlink-info-backdrop { padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); } .anlink-info-dialog { width: 100%; max-height: 100%; border-radius: 20px; } .anlink-info-header { padding: 18px 16px 14px; } .anlink-info-tabs { margin-inline: 16px; } .anlink-info-content { padding: 18px 16px 20px; } .anlink-info-grid { grid-template-columns: 1fr; } .anlink-info-choice { grid-template-columns: 1fr; } .anlink-info-tab { min-height: 42px; } }
+        `);
+        showAniLINKInfoDialog.stylesReady = true;
+    }
+
+    const version = typeof GM_info !== 'undefined' ? GM_info.script.version : 'unknown';
+    const dialog = document.createElement('div');
+    dialog.className = 'anlink-info-backdrop';
+    dialog.innerHTML = `
+        <section class="anlink-info-dialog" role="dialog" aria-modal="true" aria-labelledby="anlink-info-title">
+            <header class="anlink-info-header">
+                <div class="anlink-info-brand" aria-hidden="true">🔗</div>
+                <div class="anlink-info-heading"><h2 id="anlink-info-title">AniLINK</h2><p>Extract, stream, and download episodes with ease.</p></div>
+                <button type="button" class="anlink-info-close" data-info-action="close" title="Close" aria-label="Close">×</button>
+            </header>
+            <nav class="anlink-info-tabs" aria-label="AniLINK information">
+                <button type="button" class="anlink-info-tab active" data-info-tab="about" aria-selected="true">About</button>
+                <button type="button" class="anlink-info-tab" data-info-tab="request" aria-selected="false">Request</button>
+                <button type="button" class="anlink-info-tab" data-info-tab="issue" aria-selected="false">Report</button>
+            </nav>
+            <div class="anlink-info-content">
+                <section class="anlink-info-page active" data-info-page="about"><div class="anlink-info-hero"><span class="anlink-info-hero-icon" aria-hidden="true">✨</span><div><h3>Your anime, your workflow.</h3><p>AniLINK turns supported episode pages into direct links, convenient playlists, and downloads managed right from the browser.</p></div></div><div class="anlink-info-grid"><div class="anlink-info-card"><strong>Direct links</strong><span>Find episode streams grouped by quality and source.</span></div><div class="anlink-info-card"><strong>Instant playback</strong><span>Send episodes and playlists directly to MPV.</span></div><div class="anlink-info-card"><strong>Batch downloads</strong><span>Queue episodes and manage progress in one place.</span></div></div><div class="anlink-info-meta"><span><strong>Version</strong> ${version}</span><span><strong>License</strong> MIT</span><span><strong>Made with ♡ by</strong> JeryJs</span></div><div class="anlink-info-links"><a class="anlink-info-link" href="${ANILINK_GITHUB_REPO}" target="_blank">⌘ GitHub</a><a class="anlink-info-link" href="${ANILINK_GREASYFORK_PAGE}" target="_blank">⚙ GreasyFork</a></div><p class="anlink-info-note">AniLINK is intended for personal use. Please follow the laws and terms that apply in your region.</p></section>
+                <section class="anlink-info-page" data-info-page="request"><div class="anlink-info-choice"><button type="button" class="active" data-request-kind="site">🌐 Request a site</button><button type="button" data-request-kind="feature">✨ Suggest a feature</button></div><div class="anlink-info-form"><div class="anlink-info-field"><label for="anlink-request-title">Title</label><input id="anlink-request-title" data-info-field="request-title" type="text" placeholder="Which site should AniLINK support?"></div><div class="anlink-info-field"><label for="anlink-request-details">Details</label><textarea id="anlink-request-details" data-info-field="request-details" placeholder="Tell me what you would like to see and include useful links or examples."></textarea></div><button type="button" class="anlink-info-submit" data-info-action="open-request">Open request form ↗</button><p class="anlink-info-footnote">This opens a prefilled GitHub issue so the request can be discussed and tracked.</p></div></section>
+                <section class="anlink-info-page" data-info-page="issue"><div class="anlink-info-choice"><button type="button" class="active" data-issue-kind="bug">🐞 Bug report</button><button type="button" data-issue-kind="downloader">⇩ Downloader issue</button></div><div class="anlink-info-form"><div class="anlink-info-field"><label for="anlink-issue-title">Title</label><input id="anlink-issue-title" data-info-field="issue-title" type="text" placeholder="What went wrong?"></div><div class="anlink-info-field"><label for="anlink-issue-description">Description</label><textarea id="anlink-issue-description" data-info-field="issue-description" placeholder="Describe the problem and what you expected to happen."></textarea></div><div class="anlink-info-field"><label for="anlink-issue-steps">Steps to reproduce</label><textarea id="anlink-issue-steps" data-info-field="issue-steps" placeholder="1. ...&#10;2. ..."></textarea></div><button type="button" class="anlink-info-submit" data-info-action="open-issue">Open issue form ↗</button><p class="anlink-info-footnote">Please include the affected site, browser, and userscript manager when possible.</p></div></section>
+            </div>
+        </section>
+    `;
+    anilinkInfoDialog = dialog;
+
+    const close = () => { dialog.remove(); anilinkInfoDialog = null; };
+    const openExternal = url => {
+        const opened = window.open(url, '_blank', 'popup=yes,width=600,height=900,left='+(window.innerWidth-600)/2+',top='+(window.innerHeight-900)/2+',noopener'); // centered popup with no opener
+        if (!opened) showToast('Please allow pop-ups to open the GitHub form.');
+    };
+    const switchPage = pageName => {
+        dialog.querySelectorAll('[data-info-tab]').forEach(tab => {
+            const active = tab.dataset.infoTab === pageName;
+            tab.classList.toggle('active', active);
+            tab.setAttribute('aria-selected', String(active));
+        });
+        dialog.querySelectorAll('[data-info-page]').forEach(page => page.classList.toggle('active', page.dataset.infoPage === pageName));
+    };
+    const selectKind = (selector, attribute, value) => dialog.querySelectorAll(selector).forEach(button => button.classList.toggle('active', button.dataset[attribute] === value));
+
+    dialog.querySelectorAll('[data-info-tab]').forEach(tab => tab.addEventListener('click', () => switchPage(tab.dataset.infoTab)));
+    dialog.querySelectorAll('[data-request-kind]').forEach(button => button.addEventListener('click', () => {
+        selectKind('[data-request-kind]', 'requestKind', button.dataset.requestKind);
+        const title = dialog.querySelector('[data-info-field="request-title"]');
+        title.placeholder = button.dataset.requestKind === 'site' ? 'Which site should AniLINK support?' : 'What feature would improve AniLINK?';
+    }));
+    dialog.querySelectorAll('[data-issue-kind]').forEach(button => button.addEventListener('click', () => selectKind('[data-issue-kind]', 'issueKind', button.dataset.issueKind)));
+    dialog.querySelector('[data-info-action="open-request"]').addEventListener('click', () => {
+        const kind = dialog.querySelector('[data-request-kind].active').dataset.requestKind;
+        const title = dialog.querySelector('[data-info-field="request-title"]').value.trim();
+        const details = dialog.querySelector('[data-info-field="request-details"]').value.trim();
+        const prefix = kind === 'site' ? '[AniLINK - Site Request]' : '[AniLINK - Feature Request]';
+        const body = kind === 'site' ? `## Site\n${title || '(site name)'}\n\n## Details\n${details || '(add details here)'}\n\n## Useful links\n` : `## Feature idea\n${title || '(feature name)'}\n\n## Details\n${details || '(add details here)'}\n`;
+        openExternal(`${ANILINK_GITHUB_ISSUES}?title=${encodeURIComponent(`${prefix} ${title || 'AniLINK request'}`)}&body=${encodeURIComponent(body)}`);
+    });
+    dialog.querySelector('[data-info-action="open-issue"]').addEventListener('click', () => {
+        const kind = dialog.querySelector('[data-issue-kind].active').dataset.issueKind;
+        const title = dialog.querySelector('[data-info-field="issue-title"]').value.trim();
+        const description = dialog.querySelector('[data-info-field="issue-description"]').value.trim();
+        const steps = dialog.querySelector('[data-info-field="issue-steps"]').value.trim();
+        const label = kind === 'downloader' ? 'Downloader Issue' : 'Bug Report';
+        const body = `## Description\n${description || '(add a description)'}\n\n## Steps to reproduce\n${steps || '1. ...\n2. ...'}\n\n## Expected behavior\n\n## Environment\n- Page: ${location.href}\n- Browser: ${navigator.userAgent}\n- Userscript version: ${version}`;
+        openExternal(`${ANILINK_GITHUB_ISSUES}?title=${encodeURIComponent(`[AniLINK] ${label}: ${title || 'Unexpected behavior'}`)}&body=${encodeURIComponent(body)}`);
+    });
+    dialog.querySelector('[data-info-action="close"]').addEventListener('click', close);
+    dialog.addEventListener('click', event => event.target === dialog && close());
+    dialog.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); close(); } });
+    AniLINKUI.root.appendChild(dialog);
+    dialog.querySelector('[data-info-tab="about"]').focus();
+}
+
+/***************************************************************
  * Display a simple toast message on the top right of the screen
  ***************************************************************/
 let toasts = [];
@@ -2067,7 +2189,7 @@ const AniLINKUI = (() => {
         const downloader = typeof anilinkDownloader === 'undefined' ? null : anilinkDownloader;
         const extractorVisible = extractorOverlay && !extractorOverlay.classList.contains('anlink-view-hidden');
         const downloaderVisible = downloaderOverlay && !downloaderOverlay.classList.contains('anlink-view-hidden');
-        const shouldShow = downloader?.settings?.fabAlwaysVisible !== false || extractorVisible || downloaderVisible;
+        const shouldShow = downloaderOverlay || downloader?.settings?.fabAlwaysVisible !== false || extractorVisible || downloaderVisible;
         if (fab) fab.classList.toggle('anlink-fab-hidden', !shouldShow);
         if (fab) {
             const count = downloader?.activeTaskCount?.() || 0;
@@ -3543,6 +3665,7 @@ class DownloaderUI {
             <div class="anilink-dl-header">
                 <button class="anilink-dl-icon-btn" data-action="back" title="Back to extractor">←</button>
                 <div class="anilink-dl-title"><h2>Download Center</h2><p>${active.length ? `${active.length} active task${active.length === 1 ? '' : 's'}` : 'Ready for downloads'}</p></div>
+                <button class="anilink-dl-icon-btn" data-action="info" title="About and feedback">ⓘ</button>
                 <button class="anilink-dl-icon-btn" data-action="settings" title="Downloader settings">⚙</button>
                 <button class="anilink-dl-icon-btn" data-action="close" title="Close">×</button>
             </div>
@@ -3683,7 +3806,7 @@ class DownloaderUI {
                 <div><label>Default threads</label><input name="defaultThreads" type="number" min="1" max="32" placeholder="6" value="${settings.defaultThreads}"></div>
                 <div><label>Default speed limit (KB/s, 0 = unlimited)</label><input name="defaultSpeedLimitBps" type="number" min="0" placeholder="0" value="${Number.isFinite(settings.defaultSpeedLimitBps) ? Math.round(settings.defaultSpeedLimitBps / 1024) : 0}"></div>
                 <div><label>Preferred stream resolution (360, 720, 1080, etc)</label><input name="preferredResolution" type="number" min="0" step="1" value="${settings.preferredResolution || ''}" placeholder="Auto"></div>
-                <div><label>Subtitle folder (blank = alongside video)</label><input name="subtitleDirectory" type="text" value="${escape(settings.subtitleDirectory || '')}" placeholder="Optional folder name">${window.showDirectoryPicker ? '<small>This feature might not be supported in your browser. See <a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/showDirectoryPicker#browser_compatibility" target="_blank" rel="noreferrer">MDN</a> for more information.</small>' : ''}</div>
+                <div><label>Subtitle folder (blank = alongside video)</label><input name="subtitleDirectory" type="text" value="${escape(settings.subtitleDirectory || '')}" placeholder="Optional folder name">${window.showDirectoryPicker ? '<small>This feature might not be supported in your browser. See <a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/showDirectoryPicker#browser_compatibility" target="_blank">MDN</a> for more information.</small>' : ''}</div>
                 <div style="display: flex; flex-direction: column;"><label style="margin-bottom: -4px;">Always show floating button</label><label style="display: flex; align-items: center; gap: 12px; background-color: #18211f; border: 1px solid #343c3a; border-radius: 6px; padding: 6px 10px; cursor: pointer;"><input name="fabAlwaysVisible" type="checkbox" ${settings.fabAlwaysVisible === true ? 'checked' : ''} onchange="this.nextElementSibling.textContent = this.checked ? 'True' : 'False'" style="accent-color: #3f51b5; width: 14px; height: 14px; margin: 0; cursor: pointer;"><span style="font-size: 14px; font-family: sans-serif; opacity: 0.85;">${settings.fabAlwaysVisible === true ? 'True' : 'False'}</span></label></div>
                 <div><label>Notifications</label><select name="notifications">
                     <option value="off" ${settings.notifications==='off' ? 'selected' : '' }>Off</option>
@@ -3694,7 +3817,7 @@ class DownloaderUI {
                 <div><label>History retention</label><input name="historyLimit" type="number" min="1" max="100" placeholder="15" value="${Math.min(100, settings.historyLimit)}"></div>
             </div>
             <div class="anilink-dl-actions"><button type="button" data-action="clear-history">Clear history</button></div>
-            <div class="anilink-dl-help">Need help? <a href="https://github.com/jeryjs/Userscripts/issues/new?title=%5BAniLINK%5D%20Downloader%20issue&body=%23%23%20Description%0A%0A%23%23%20Steps%20to%20reproduce%0A1.%20%0A2.%20%0A%0A%23%23%20Expected%20behavior%0A-%20Browser%3A%20%0A-%20Userscript%20manager%3A%20" target="_blank" rel="noreferrer">Report an issue on GitHub</a></div>
+            <div class="anilink-dl-help">Need help? <a href="https://github.com/jeryjs/Userscripts/issues/new?title=%5BAniLINK%5D%20Downloader%20issue&body=%23%23%20Description%0A%0A%23%23%20Steps%20to%20reproduce%0A1.%20%0A2.%20%0A%0A%23%23%20Expected%20behavior%0A-%20Browser%3A%20%0A-%20Userscript%20manager%3A%20" target="_blank">Report an issue on GitHub</a></div>
         </div>`;
         const { modal } = createModal({
             title: 'Downloader Settings',
@@ -3721,6 +3844,7 @@ class DownloaderUI {
     bindActions(panel) {
         panel.querySelector('[data-action="back"]')?.addEventListener('click', () => AniLINKUI.switchView('extractor'));
         panel.querySelector('[data-action="close"]')?.addEventListener('click', () => AniLINKUI.close());
+        panel.querySelector('[data-action="info"]')?.addEventListener('click', () => showAniLINKInfoDialog());
         panel.querySelector('[data-action="settings"]')?.addEventListener('click', () => this.showSettingsDialog());
         panel.querySelector('[data-action="toggle-history"]')?.addEventListener('click', () => {
             this.historyOpen = !this.historyOpen;
