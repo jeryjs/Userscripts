@@ -1061,6 +1061,12 @@ try {
 
 // append site specific css styles
 GM_addStyle(site.styles || '');
+// Conditionally accomodate to MAL-Sync's floating button if it exists on the page
+GM_addStyle(`html:has(> button.open-info-popup.floatbutton) #AniLINK_UIHost {
+    --anlink-fab-right: 40px;
+    --anlink-fab-bottom: 108px;
+    --anlink-fab-size: 56px;
+}`);
 
 /***************************************************************
  * This function creates an overlay on the page and displays a list of episodes extracted from a website
@@ -2149,7 +2155,7 @@ const AniLINKUI = (() => {
         :host { all: initial; }
         *, *::before, *::after { box-sizing: border-box; }
         .anlink-view-hidden { opacity: 0 !important; transform: translateY(18px) scale(.985) !important; pointer-events: none !important; visibility: hidden !important; }
-        .anlink-fab { position: fixed; right: 26px; bottom: 26px; width: 58px; height: 58px; border: 1px solid #26a69a; border-radius: 50%; display: grid; place-items: center; background: rgba(38,166,154,.12); color: #7ce4d8; box-shadow: 0 12px 32px rgba(0,0,0,.42), 0 0 0 1px rgba(255,255,255,.12) inset; cursor: pointer; pointer-events: auto; transition: opacity .28s, transform .28s, background .28s; z-index: 1001; }
+        .anlink-fab { position: fixed; right: var(--anlink-fab-right, 26px); bottom: var(--anlink-fab-bottom, 26px); width: var(--anlink-fab-size, 58px); height: var(--anlink-fab-size, 58px); border: 1px solid #26a69a; border-radius: 50%; display: grid; place-items: center; background: rgba(38,166,154,.12); color: #7ce4d8; box-shadow: 0 12px 32px rgba(0,0,0,.42), 0 0 0 1px rgba(255,255,255,.12) inset; cursor: pointer; pointer-events: auto; transition: opacity .28s, transform .28s, background .28s; z-index: 1001; }
         .anlink-fab:hover { transform: translateY(-3px) scale(1.04); color: #fff; background: linear-gradient(135deg, #31c7b8, #168d81); }
         .anlink-fab-hidden { opacity: 0; transform: scale(.65); pointer-events: none; }
         .anlink-fab-icon { font: 700 30px/1 system-ui, sans-serif; transform: translateY(-1px); }
@@ -2157,7 +2163,7 @@ const AniLINKUI = (() => {
         .anlink-fab-count:empty { display: none; }
         .anlink-fab-drop-chip { position: fixed; z-index: 2147483647; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: #ffca28; color: #26302f; font: 700 15px/1 system-ui, sans-serif; pointer-events: none; box-shadow: 0 5px 16px rgba(0,0,0,.35); will-change: transform, opacity; }
         @media (max-width: 680px) {
-            .anlink-fab { right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); width: 52px; height: 52px; }
+            .anlink-fab { right: var(--anlink-fab-right, max(12px, env(safe-area-inset-right))); bottom: var(--anlink-fab-bottom, max(12px, env(safe-area-inset-bottom))); width: var(--anlink-fab-size, 52px); height: var(--anlink-fab-size, 52px); }
             .anlink-fab-icon { font-size: 27px; }
         }
         @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
