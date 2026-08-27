@@ -1062,7 +1062,8 @@ try {
 // append site specific css styles
 GM_addStyle(site.styles || '');
 // Conditionally accomodate to MAL-Sync's floating button if it exists on the page
-GM_addStyle(`html:has(> button.open-info-popup.floatbutton) #AniLINK_UIHost {
+// Only apply offset when NO AniLINK overlay is open (extractor or downloader)
+GM_addStyle(`html:has(> button.open-info-popup.floatbutton) #AniLINK_UIHost:not(.anlink-overlay-open) {
     --anlink-fab-right: 40px;
     --anlink-fab-bottom: 108px;
     --anlink-fab-size: 56px;
@@ -1084,10 +1085,10 @@ async function extractEpisodes() {
 
     // --- Materialize CSS Initialization ---
     AniLINKUI.addStyle(`
-        #AniLINK_Overlay { position: fixed; inset: 0; background: rgba(0,0,0,.78); backdrop-filter: blur(12px); z-index: 1000; display: flex; align-items: center; justify-content: center; transition: opacity .28s ease, transform .28s ease, visibility .28s; pointer-events: auto; }
+        #AniLINK_Overlay { position: fixed; inset: 0; background: var(--anlink-modal-overlay); backdrop-filter: blur(8px) saturate(140%); -webkit-backdrop-filter: blur(8px) saturate(140%); z-index: 1000; display: flex; align-items: center; justify-content: center; transition: opacity .28s ease, transform .28s ease, visibility .28s; pointer-events: auto; }
         #AniLINK_RerunBtn { position: fixed; top: 22px; right: 26px; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; background: rgba(255,255,255,.05); color: #d9eeeb; font-size: 24px; cursor: pointer; transition: border-color .2s, background .2s, transform .2s; } #AniLINK_RerunBtn:hover { border-color: #26a69a; background: rgba(38,166,154,.18); transform: translateY(-2px); }
-        #AniLINK_LinksContainer { width: min(1100px, 92vw); max-height: 86vh; background: linear-gradient(145deg, rgba(25,35,34,.98), rgba(28,28,31,.98)); color: #edf5f4; padding: 22px; border: 1px solid rgba(100,220,207,.18); border-radius: 18px; overflow-y: auto; display: flex; flex-direction: column; box-shadow: 0 24px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.04) inset; }
-        .anlink-status-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; background: linear-gradient(145deg, rgba(25,35,34,.98), rgba(28,28,31,.98)); border-bottom: 1px solid rgba(255,255,255,.08); } /* Header for status bar and stop button */
+        #AniLINK_LinksContainer { width: min(1100px, 92vw); max-height: 86vh; background: var(--anlink-glass-bg); color: #edf5f4; padding: 22px; border: 1.5px solid var(--anlink-glass-border); border-radius: 24px; overflow-y: auto; display: flex; flex-direction: column; box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); }
+        .anlink-status-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; background: linear-gradient(180deg, var(--anlink-glass-surface), transparent); border-bottom: 1px solid var(--anlink-glass-border-soft); } /* Header for status bar and stop button */
         .anlink-status-bar { color: #9eb4b1; flex-grow: 1; margin-right: 10px; display: block; font: 12px/1.3 system-ui, sans-serif; } /* Status bar takes space */
         .anlink-status-icon { background: transparent; border: none; color: #d9eeeb; cursor: pointer; padding-right: 10px; } /* status icon style */
         .anlink-status-icon i { display: inline-block; font: 700 24px/1 system-ui, sans-serif; transition: transform 0.3s ease-in-out; } /* Icon size and transition */
@@ -1097,7 +1098,7 @@ async function extractEpisodes() {
         .anlink-header-buttons button:hover { border-color: #26a69a; background: rgba(38,166,154,.18); color: #7ce4d8; }
         .anlink-quick-download { margin-left: 8px; width: 22px; height: 22px; padding: 0; border: 1px solid #26a69a; border-radius: 50%; background: rgba(38,166,154,.12); color: #7ce4d8; cursor: pointer; font-weight: 700; line-height: 18px; transition: transform .18s, background .18s; }
         .anlink-quick-download:hover { transform: translateY(-2px) scale(1.08); background: #26a69a; color: #fff; }
-        .anlink-quality-section { margin-top: 18px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 12px; background: rgba(255,255,255,.035); }
+        .anlink-quality-section { margin-top: 18px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 12px; background: var(--anlink-glass-surface); }
         .anlink-quality-header { display: flex; justify-content: space-between; align-items: center; }
         .anlink-quality-header > span { color: #65d6c8; font-size: 1.25em; display: flex; align-items: center; flex-grow: 1; } /* Flex and align items for icon and text */
         .anlink-quality-count { cursor: pointer; margin-right: 8px; opacity: 0.7; transition: opacity 0.2s; }
@@ -1106,7 +1107,7 @@ async function extractEpisodes() {
         .anlink-quality-header i { margin-right: 8px; font: 700 22px/1 system-ui, sans-serif; transition: transform 0.3s ease-in-out; }
         .anlink-quality-header i.rotate { transform: rotate(90deg); } /* Rotate class */
         .anlink-episode-list { list-style: none; padding-left: 0; margin-top: 0; overflow: hidden; transition: max-height 0.5s ease-in-out; } /* Transition for max-height */
-        .anlink-episode-item { margin-bottom: 5px; padding: 10px; border-bottom: 1px solid rgba(255,255,255,.07); display: flex; flex-direction: column; }
+        .anlink-episode-item { margin-bottom: 5px; padding: 10px; border-bottom: 1px solid var(--anlink-glass-border-soft); display: flex; flex-direction: column; }
         .anlink-episode-item:last-child { border-bottom: none; }
         .anlink-episode-missing-count { margin-left:32px; margin-top: -22px; margin-bottom: 6px; color: #888; font-size:0.85em; user-select: none; }
         .anlink-episode-main { display: flex; align-items: baseline; }
@@ -1128,7 +1129,7 @@ async function extractEpisodes() {
         button[data-action] * { pointer-events: none; }
         @media (max-width: 680px) {
             #AniLINK_Overlay { padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
-            #AniLINK_LinksContainer { width: 100%; max-height: 100%; padding: 14px; padding-top: 0; border-radius: 14px; }
+            #AniLINK_LinksContainer { width: 100%; max-height: 100%; padding: 14px; padding-top: 0; border-radius: 20px; }
             #AniLINK_RerunBtn { top: max(10px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right)); z-index: 10; }
             .anlink-status-header { flex-wrap: wrap; gap: 8px; position: sticky; padding-block: 14px; top: 0; border-radius: 8px; z-index: 2; }
             .anlink-status-bar { order: 0; flex-basis: calc(100% - 36px); margin-right: 0; }
@@ -1627,9 +1628,11 @@ function createModal({ title, icon, subtitle, bodyHTML, width = '420px', onConfi
     // Inject shared modal styles (only once)
     if (!createModal.stylesReady) {
         AniLINKUI.addStyle(`
-            .anlink-modal-backdrop { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; padding: 24px; background: rgba(4,12,13,.52); backdrop-filter: blur(18px) saturate(135%); }
-            .anlink-modal { background: linear-gradient(145deg, rgba(31,52,50,.78), rgba(24,31,34,.72)); border: 1px solid rgba(180,255,245,.2); border-radius: 18px; box-shadow: 0 24px 80px rgba(0,0,0,.5), 0 0 30px rgba(38,166,154,.08) inset; backdrop-filter: blur(24px) saturate(130%); max-width: 90vw; color: #edf7f5; overflow: hidden; }
-            .anlink-modal-header { text-align: center; padding: 24px 24px 16px; background: linear-gradient(135deg, rgba(38,166,154,.48), rgba(20,92,87,.34)); border-bottom: 1px solid rgba(180,255,245,.12); }
+            @keyframes anlink-modal-fade-in { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes anlink-modal-scale-in { from { opacity: 0; transform: scale(.92) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+            .anlink-modal-backdrop { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; padding: 24px; background: var(--anlink-modal-overlay); backdrop-filter: blur(8px) saturate(140%); -webkit-backdrop-filter: blur(8px) saturate(140%); animation: anlink-modal-fade-in .25s ease-out; }
+            .anlink-modal { background: var(--anlink-glass-bg); border: 1.5px solid var(--anlink-glass-border); border-radius: 24px; box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); max-width: 90vw; color: #edf7f5; overflow: hidden; animation: anlink-modal-scale-in .28s cubic-bezier(.4,0,.2,1); }
+            .anlink-modal-header { text-align: center; padding: 24px 24px 16px; background: linear-gradient(180deg, var(--anlink-glass-border), transparent); border-bottom: 1px solid var(--anlink-glass-border-soft); }
             .anlink-modal-icon { font-size: 48px; margin-bottom: 8px; }
             .anlink-modal h2 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
             .anlink-episode-count { opacity: 0.9; font-size: 14px; }
@@ -1725,7 +1728,7 @@ async function showEpisodeRangeSelector(total) {
             .anlink-range-inputs { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
             .anlink-input-group { flex: 1; }
             .anlink-input-group label { display: block; margin-bottom: 8px; font-size: 14px; color: #26a69a; font-weight: 500; }
-            .anlink-input-group input { width: 100%; padding: 12px; border: 2px solid #444; border-radius: 8px; background: #1a1a1a; color: #fff; font-size: 16px; text-align: center; transition: all 0.2s; }
+            .anlink-input-group input { width: 100%; padding: 12px; border: 2px solid #444; border-radius: 8px; background: var(--anlink-input-bg); color: #fff; font-size: 16px; text-align: center; transition: all 0.2s; }
             .anlink-input-group input:focus { outline: none; border-color: #26a69a; box-shadow: 0 0 0 3px rgba(38,166,154,0.1); }
             .anlink-range-divider { color: #26a69a; font-weight: bold; font-size: 18px; margin-top: 24px; }
         `);
@@ -1842,8 +1845,8 @@ async function showSourceSelector(sourcesGetter, siteKey, defaults = {}) {
             .anlink-source-mode input[type="radio"] { accent-color: #26a69a; }
             .anlink-source-mode label:has(input:checked) { color: #26a69a; font-weight: 600; }
             .anlink-source-mode label:has(input:disabled) { color: #555; cursor: not-allowed; }
-            .anlink-source-list { max-height: 320px; overflow-y: auto; margin-bottom: 16px; border: 1px solid #444; border-radius: 8px; padding: 8px; background: #1a1a1a; }
-            .anlink-source-item { display: flex; align-items: center; gap: 10px; padding: 10px; margin-bottom: 6px; background: #2d2d2d; border: 1px solid #444; border-radius: 6px; cursor: move; transition: all 0.2s; }
+            .anlink-source-list { max-height: 320px; overflow-y: auto; margin-bottom: 16px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 8px; padding: 8px; background: var(--anlink-input-bg); }
+            .anlink-source-item { display: flex; align-items: center; gap: 10px; padding: 10px; margin-bottom: 6px; background: var(--anlink-glass-surface); border: 1px solid var(--anlink-glass-border-soft); border-radius: 6px; cursor: move; transition: all 0.2s; }
             .anlink-source-item:hover { border-color: #26a69a; background: #333; }
             .anlink-source-item.dragging { opacity: 0.5; }
             .anlink-drag-handle { color: #666; cursor: grab; font-size: 18px; }
@@ -1923,7 +1926,7 @@ function showToast(message, duration = 5000) {
         AniLINKUI.addStyle(`
             @keyframes anlink-toast-slide-in { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
             @keyframes anlink-toast-slide-out { from { transform: translateX(0); opacity: 1; } to { transform: translateX(400px); opacity: 0; } }
-            .anlink-toast { position: fixed; right: 20px; min-width: 300px; max-width: 400px; background: linear-gradient(145deg, rgba(31,52,50,.78), rgba(24,31,34,.72)); border: 1px solid rgba(180,255,245,.2); border-radius: 14px; padding: 16px 20px; box-shadow: 0 18px 55px rgba(0,0,0,.42), 0 0 24px rgba(38,166,154,.08) inset; z-index: 10000; display: flex; align-items: flex-start; gap: 12px; animation: anlink-toast-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1); backdrop-filter: blur(22px) saturate(135%); transition: top 0.4s cubic-bezier(0.16, 1, 0.3, 1); pointer-events: auto; }
+            .anlink-toast { position: fixed; right: 20px; min-width: 300px; max-width: 400px; background: var(--anlink-glass-bg); border: 1px solid var(--anlink-glass-border); border-radius: 14px; padding: 16px 20px; box-shadow: var(--anlink-glass-shadow); z-index: 10000; display: flex; align-items: flex-start; gap: 12px; animation: anlink-toast-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); transition: top 0.4s cubic-bezier(0.16, 1, 0.3, 1); pointer-events: auto; }
             .anlink-toast.slide-out { animation: anlink-toast-slide-out 0.3s cubic-bezier(0.7, 0, 0.84, 0) forwards; }
             .anlink-toast-icon { flex-shrink: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: rgba(38,166,154,.48); border: 1px solid rgba(180,255,245,.18); border-radius: 50%; color: #f2fffd; font-size: 14px; font-weight: bold; }
             .anlink-toast-content { flex: 1; color: #e8f6f3; font-size: 14px; line-height: 1.5; font-weight: 500; }
@@ -2052,6 +2055,9 @@ const AniLINKUI = (() => {
         if (!element) return;
         element.classList.toggle('anlink-view-hidden', !visible);
         element.setAttribute('aria-hidden', String(!visible));
+        // Toggle class on host for CSS :has() detection (shadow DOM not traversable)
+        const anyOverlayOpen = (!extractorOverlay?.classList?.contains('anlink-view-hidden')) || (!downloaderOverlay?.classList?.contains('anlink-view-hidden'));
+        host?.classList.toggle('anlink-overlay-open', anyOverlayOpen);
         syncPointerEvents();
     };
     const syncPointerEvents = () => {
@@ -2152,10 +2158,20 @@ const AniLINKUI = (() => {
     };
 
     addStyle(`
-        :host { all: initial; }
+        :host {
+            all: initial;
+            --anlink-glass-bg: linear-gradient(145deg, rgba(25,35,34,.78), rgba(28,28,31,.18));
+            --anlink-glass-surface: rgba(255,255,255,.035);
+            --anlink-glass-border: rgba(100,220,207,.18);
+            --anlink-glass-border-soft: rgba(255,255,255,.08);
+            --anlink-glass-shadow: 0 24px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.04) inset;
+            --anlink-glass-blur: blur(14px) saturate(140%);
+            --anlink-modal-overlay: rgba(0,0,0,.75);
+            --anlink-input-bg: #1a1a1a;
+        }
         *, *::before, *::after { box-sizing: border-box; }
         .anlink-view-hidden { opacity: 0 !important; transform: translateY(18px) scale(.985) !important; pointer-events: none !important; visibility: hidden !important; }
-        .anlink-fab { position: fixed; right: var(--anlink-fab-right, 26px); bottom: var(--anlink-fab-bottom, 26px); width: var(--anlink-fab-size, 58px); height: var(--anlink-fab-size, 58px); border: 1px solid #26a69a; border-radius: 50%; display: grid; place-items: center; background: rgba(38,166,154,.12); color: #7ce4d8; box-shadow: 0 12px 32px rgba(0,0,0,.42), 0 0 0 1px rgba(255,255,255,.12) inset; cursor: pointer; pointer-events: auto; transition: opacity .28s, transform .28s, background .28s; z-index: 1001; }
+        .anlink-fab { position: fixed; right: var(--anlink-fab-right, 26px); bottom: var(--anlink-fab-bottom, 26px); width: var(--anlink-fab-size, 58px); height: var(--anlink-fab-size, 58px); border: 1px solid var(--anlink-glass-border); border-radius: 50%; display: grid; place-items: center; background: var(--anlink-glass-bg); color: #7ce4d8; box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); cursor: pointer; pointer-events: auto; transition: opacity .28s, transform .28s, background .28s; z-index: 1001; }
         .anlink-fab:hover { transform: translateY(-3px) scale(1.04); color: #fff; background: linear-gradient(135deg, #31c7b8, #168d81); }
         .anlink-fab-hidden { opacity: 0; transform: scale(.65); pointer-events: none; }
         .anlink-fab-icon { font: 700 30px/1 system-ui, sans-serif; transform: translateY(-1px); }
@@ -3426,16 +3442,16 @@ class DownloaderUI {
     mount() {
         if (this.overlay) return this.overlay;
         AniLINKUI.addStyle(`
-            #AniLINK_DownloaderOverlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 7vh 4vw; background: rgba(0,0,0,.78); backdrop-filter: blur(12px); opacity: 1; transform: translateY(0) scale(1); transition: opacity .28s ease, transform .28s ease, visibility .28s; pointer-events: auto; }
-            #AniLINK_DownloaderPanel { width: min(1100px, 92vw); max-height: 86vh; overflow: hidden; display: flex; flex-direction: column; color: #edf5f4; background: linear-gradient(145deg, rgba(25,35,34,.98), rgba(28,28,31,.98)); border: 1px solid rgba(100,220,207,.18); border-radius: 18px; box-shadow: 0 24px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.04) inset; }
-            .anilink-dl-header { display: flex; align-items: center; gap: 14px; padding: 18px 22px; border-bottom: 1px solid rgba(255,255,255,.08); }
+            #AniLINK_DownloaderOverlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 7vh 4vw; background: var(--anlink-modal-overlay); backdrop-filter: blur(8px) saturate(140%); -webkit-backdrop-filter: blur(8px) saturate(140%); opacity: 1; transform: translateY(0) scale(1); transition: opacity .28s ease, transform .28s ease, visibility .28s; pointer-events: auto; }
+            #AniLINK_DownloaderPanel { width: min(1100px, 92vw); max-height: 86vh; overflow: hidden; display: flex; flex-direction: column; color: #edf5f4; background: var(--anlink-glass-bg); border: 1.5px solid var(--anlink-glass-border); border-radius: 24px; box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); }
+            .anilink-dl-header { display: flex; align-items: center; gap: 14px; padding: 18px 22px; background: linear-gradient(180deg, var(--anlink-glass-surface), transparent); border-bottom: 1px solid var(--anlink-glass-border-soft); }
             .anilink-dl-title { flex: 1; } .anilink-dl-title h2 { margin: 0; color: #65d6c8; font: 700 20px/1.2 system-ui, sans-serif; } .anilink-dl-title p { margin: 5px 0 0; color: #8ea3a1; font: 12px/1.3 system-ui, sans-serif; }
             .anilink-dl-icon-btn { width: 34px; height: 34px; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; background: rgba(255,255,255,.05); color: #d9eeeb; cursor: pointer; font-size: 17px; } .anilink-dl-icon-btn:hover { border-color: #26a69a; background: rgba(38,166,154,.18); }
             .anilink-dl-body { padding: 18px 22px 22px; overflow-y: auto; } .anilink-dl-section { margin-bottom: 22px; } .anilink-dl-section:last-child { margin-bottom: 0; }
             .anilink-dl-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; color: #9adbd3; font: 700 12px/1 system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
             .anilink-dl-section-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
             .anilink-dl-section-head button { border: 0; background: transparent; color: #82aaa6; cursor: pointer; font: 12px system-ui, sans-serif; } .anilink-dl-section-head button:hover { color: #65d6c8; }
-            .anilink-dl-task { position: relative; padding: 14px; margin: 9px 0; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: rgba(255,255,255,.035); transition: border-color .2s, background .2s; } .anilink-dl-task:hover { border-color: rgba(38,166,154,.42); background: rgba(38,166,154,.06); }
+            .anilink-dl-task { position: relative; padding: 14px; margin: 9px 0; border: 1px solid var(--anlink-glass-border-soft); border-radius: 12px; background: var(--anlink-glass-surface); transition: border-color .2s, background .2s; } .anilink-dl-task:hover { border-color: rgba(38,166,154,.42); background: rgba(38,166,154,.06); }
             .anilink-dl-task-top { display: flex; align-items: flex-start; gap: 10px; } .anilink-dl-task-name { min-width: 0; flex: 1; color: #f2fbfa; font: 600 14px/1.3 system-ui, sans-serif; overflow: auto; text-overflow: clip; white-space: nowrap; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.12) transparent; } .anilink-dl-task-meta { margin-top: 4px; color: #829794; font: 11px/1.3 system-ui, sans-serif; }
             .anilink-dl-task-name::-webkit-scrollbar { height: 2px; } .anilink-dl-task-name::-webkit-scrollbar-track { background: transparent; } .anilink-dl-task-name::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 2px; }
             .anilink-dl-status { flex: none; padding: 4px 8px; border-radius: 10px; background: rgba(38,166,154,.14); color: #7ce4d8; font: 700 10px/1 system-ui, sans-serif; text-transform: uppercase; letter-spacing: .05em; } .anilink-dl-status.failed { background: rgba(239,83,80,.16); color: #ff8b89; } .anilink-dl-status.completed { background: rgba(102,187,106,.16); color: #a0e7a3; }
@@ -3443,14 +3459,14 @@ class DownloaderUI {
             .anilink-dl-log { margin-top: 10px; border-top: 1px solid rgba(255,255,255,.07); color: #8ea3a1; font: 11px/1.45 ui-monospace, monospace; } .anilink-dl-log summary { padding-top: 9px; cursor: pointer; color: #82aaa6; font: 11px system-ui, sans-serif; } .anilink-dl-log pre { max-height: 180px; margin: 8px 0 0; overflow: auto; white-space: pre; color: #b9cbc8; }
             .anilink-dl-stats { display: flex; flex-wrap: wrap; gap: 8px 16px; color: #9eb4b1; font: 11px/1.3 ui-monospace, monospace; } .anilink-dl-error { margin-top: 8px; color: #ff9997; font: 11px/1.4 system-ui, sans-serif; }
             .anilink-dl-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; } .anilink-dl-actions button, .anilink-dl-settings button { border: 1px solid rgba(255,255,255,.12); border-radius: 7px; padding: 6px 9px; background: rgba(255,255,255,.05); color: #d4e7e4; cursor: pointer; font: 11px system-ui, sans-serif; } .anilink-dl-actions button:hover, .anilink-dl-settings button:hover { border-color: #26a69a; color: #7ce4d8; }
-            .anilink-dl-popover { position: absolute; right: 12px; top: 48px; z-index: 5; width: 230px; padding: 12px; border: 1px solid rgba(100,220,207,.24); border-radius: 10px; background: #202a29; box-shadow: 0 12px 30px rgba(0,0,0,.4); } .anilink-dl-popover label, .anilink-dl-settings label { display: block; margin: 8px 0 4px; color: #9eb4b1; font: 11px system-ui, sans-serif; } .anilink-dl-popover input, .anilink-dl-settings input, .anilink-dl-settings select { width: 100%; padding: 7px 8px; border: 1px solid rgba(255,255,255,.12); border-radius: 6px; background: #18211f; color: #ecf7f5; }
-            .anilink-dl-empty { padding: 28px 12px; border: 1px dashed rgba(255,255,255,.12); border-radius: 10px; color: #829794; text-align: center; font: 13px system-ui, sans-serif; }
-            .anilink-dl-settings { padding: 14px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: rgba(255,255,255,.03); } .anilink-dl-setting-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } .anilink-dl-setting-wide { grid-column: 1 / -1; } .anilink-dl-help { margin-top: 12px; color: #829794; font: 11px/1.45 system-ui, sans-serif; } .anilink-dl-help a { color: #75cfc5; }
+            .anilink-dl-popover { position: absolute; right: 12px; top: 48px; z-index: 5; width: 230px; padding: 12px; border: 1px solid var(--anlink-glass-border); border-radius: 10px; background: var(--anlink-glass-bg); box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); } .anilink-dl-popover label, .anilink-dl-settings label { display: block; margin: 8px 0 4px; color: #9eb4b1; font: 11px system-ui, sans-serif; } .anilink-dl-popover input, .anilink-dl-settings input, .anilink-dl-settings select { width: 100%; padding: 7px 8px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 6px; background: var(--anlink-input-bg); color: #ecf7f5; }
+            .anilink-dl-empty { padding: 28px 12px; border: 1px dashed var(--anlink-glass-border-soft); border-radius: 10px; color: #829794; text-align: center; font: 13px system-ui, sans-serif; }
+            .anilink-dl-settings { padding: 14px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 12px; background: var(--anlink-glass-surface); } .anilink-dl-setting-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } .anilink-dl-setting-wide { grid-column: 1 / -1; } .anilink-dl-help { margin-top: 12px; color: #829794; font: 11px/1.45 system-ui, sans-serif; } .anilink-dl-help a { color: #75cfc5; }
             .anilink-dl-settings small { display: block; color: #829794; font: 10px/1.3 system-ui, sans-serif; }
             button[data-action] * { pointer-events: none; }
             @media (max-width: 680px) {
                 #AniLINK_DownloaderOverlay { padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
-                #AniLINK_DownloaderPanel { width: 96vw; max-height: 92vh; width: 100%; max-height: 100%; border-radius: 14px; }
+                #AniLINK_DownloaderPanel { width: 96vw; max-height: 92vh; width: 100%; max-height: 100%; border-radius: 20px; }
                 .anilink-dl-header, .anilink-dl-body { padding-left: 14px; padding-right: 14px; gap: 8px; }
                 .anilink-dl-setting-grid { grid-template-columns: 1fr; }
                 .anilink-dl-setting-wide { grid-column: auto; }
