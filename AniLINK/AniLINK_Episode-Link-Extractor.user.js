@@ -33,7 +33,6 @@
 // @match       https://animesogo.to/*
 // @match       https://anikoto.site/*
 // @match       https://animesugez.tv/*
-// @match       https://animixplay.tube/*
 // @match       https://aniwave.id/*
 // @match       https://animekai.se/*
 // @match       https://gogoanime.com.by/*
@@ -58,6 +57,8 @@
 // @match       https://av1please.com/anime/*
 // @match       https://av1please.com/episodes/*/*
 // @match       https://anidb.app/anime/*
+// @match       https://reanime.to/*
+// @match       https://reanime.cz/*
 // @require     https://cdn.jsdelivr.net/npm/@trim21/gm-fetch@0.3.0
 // @grant       GM.xmlHttpRequest
 // @grant       GM.download
@@ -239,7 +240,7 @@ const Websites = [
                     const epNumber = (epNum - firstEpNum + 1).toString();
                     const thumbnail = page.querySelector(this.thumbnail).src;
                     status.text = `Extracting episodes ${epNumber - Math.min(epNumber, this._chunkSize) + 1} - ${epNumber}...`;
-                    const links = Object.fromEntries(await Promise.all([...page.querySelectorAll('#resolutionMenu > button[data-resolution]')].filter(b => (srcCfg.mode === 'single' ? [srcCfg.sources[0]] : srcCfg.sources).includes(b.textContent.trim())).map(async elm => [elm.textContent, { stream: await Extractors.use(elm.getAttribute('data-src')), type: 'm3u8', referer: 'https://kwik.cx/' }])));
+                    const links = Object.fromEntries(await Promise.all([...page.querySelectorAll('#resolutionMenu > button[data-resolution]')].filter(b => (srcCfg.mode === 'single' ? [srcCfg.sources[0]] : srcCfg.sources).includes(b.textContent.trim())).map(async elm => [elm.textContent, await Extractors.use(elm.getAttribute('data-src'))]))); // kwik.cx
                     return new Episode(epNumber, PREFER_JAP_TITLE ? ($('h2.japanese').text() || animeTitle) : animeTitle, links, thumbnail, epLink.parentNode?.parentNode?.querySelector('.episode-title')?.textContent);
                 }));
 				if (i < epLinks.length - this._chunkSize) await sleep(2500);  // for prevent rate limit
@@ -501,7 +502,7 @@ const Websites = [
                 yield* yieldEpisodesFromPromises(epElms.slice(i, i + this._chunkSize).map(async ep => {
                     const epNum = ep.getAttribute('data-episode'); status.text = `Extracting Episodes ${(epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
                     const servers = await fetchPage(ep.href).then(doc => [..._$$('.server', doc)].map(e => ({ url: e.dataset.url, name: `${this._typeSuffix(e.closest('div').dataset.id)} - ${e.textContent}` }))).catch(e => showToast(`Failed to fetch servers for Ep ${epNum}`));
-                    const links = {}, fetchSource = async s => { try { links[s.name] = await Extractors.use(s.url); } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${s.name}: ${e.message || e}`); } };
+                    const links = {}, fetchSource = async s => { try { links[s.name] = await Extractors.use(s.url); } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${s.name}: ${e.message || e}`); } };  // megavid.buzz, megaplay.buzz
                     if (srcCfg?.mode === 'single') { for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) { await fetchSource(s); if (Object.keys(links).length) break; } } }
                     else for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) await fetchSource(s); }
                     return new Episode(epNum, _$('h1').textContent, links, _$('.poster-wrap-bg').getAttribute('style').match(/https?.*\.[a-z]+/g)[0], ep.querySelector('span').textContent);
@@ -547,10 +548,10 @@ const Websites = [
                     const o = [..._$('.mirror', p)?.options || []].map(x => ({ name: x.textContent.trim(), url: x.value })).slice(1), L = {};
                     const dl = _$('a[aria-label="Download"]', p)?.href;
                     for (const key of s.sources) {
-                        if (key == 'Download-MP4' && dl) try { L[key] = await Extractors.use(dl); } catch (e) { showToast(e); }
+                        if (key == 'Download-MP4' && dl) try { L[key] = await Extractors.use(dl); } catch (e) { showToast(e); } // luluvdo.com
                         else {
                             const k = o.find(x => new RegExp(key, 'i').test(x.name));
-                            if (k) try { const q = await fetchPage(k.url); L[key] = await Extractors.use(_$('.player-embed > iframe', q)?.src); } catch (err) { showToast(err); }
+                            if (k) try { const q = await fetchPage(k.url); L[key] = await Extractors.use(_$('.player-embed > iframe', q)?.src); } catch (err) { showToast(err); } // misterdonghua.in, rumble.com, vidhide.com
                         }
                         if (s.mode === 'single' && Object.keys(L).length) break;
                     }
@@ -561,7 +562,7 @@ const Websites = [
     },
     {
         name: "Anikoto (and clones)",
-        url: ["anikototv.", 'anikoto.', 'animekai.org.in/', 'anixtv.me/', 'animixplay.cz/', 'animewave.to/', 'anix.best/', 'animesogo.to/', 'animesugez.tv/', 'animixplay.tube/', 'aniwave.id/', 'animekai.se/', 'gogoanime.com.by/', 'animekaitv.to/', 'anikai.se/', 'anikoto.bz/', 'animesugetv.bz/', 'anikaitv.to/', 'hianimez.org/', 'anisuge.tv/', 'anisuge.se/', 'zorotv.cz/', 'hianimes.re/', 'animesalt.cz/', 'animesalt.to/', 'aniwave.cz/', 'animesuge.re/', 'hianimetv.si/', 'aniwatch.ch/', 'anichi.to/'],
+        url: ["anikototv.", 'anikoto.', 'animekai.org.in/', 'anixtv.me/', 'animixplay.cz/', 'animewave.to/', 'anix.best/', 'animesogo.to/', 'animesugez.tv/', 'aniwave.id/', 'animekai.se/', 'gogoanime.com.by/', 'animekaitv.to/', 'anikai.se/', 'anikoto.bz/', 'animesugetv.bz/', 'anikaitv.to/', 'hianimez.org/', 'anisuge.tv/', 'anisuge.se/', 'zorotv.cz/', 'hianimes.re/', 'animesalt.cz/', 'animesalt.to/', 'aniwave.cz/', 'animesuge.re/', 'hianimetv.si/', 'aniwatch.ch/', 'anichi.to/'],
         _chunkSize: 12,
         addStartButton: (id) => setInterval(() => {
             const target = _$('.d-flex.flex-row, .d-flex.head-left, .filter.name, .ep-view-tools, #w-episodes:not(.ep-mode-name)>.head, .ss-choice, .episode-list-search-box');
@@ -579,7 +580,7 @@ const Websites = [
                 yield* yieldEpisodesFromPromises(epElms.slice(i, i + this._chunkSize).map(async ep => {
                     const epNum = ep.dataset.num; status.text = `Extracting Episodes ${(epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
                     const servers = await fetch(`/ajax/server/list?servers=${ep.dataset.ids}`, { "headers": { "x-requested-with": "XMLHttpRequest" } }).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => [..._$$('li, .server, .btn', doc)].map(e => ({ lid: e.dataset.linkId, name: `${e.closest('.type, .ps_-block').querySelector('label, .name, span[title]').textContent.trim()} - ${e.textContent.trim()}` }))).catch(e => showToast(`Failed to fetch servers for Ep ${epNum}`));
-                    const links = {}, fetchSource = async s => { try { links[s.name] = await fetch(`/ajax/server?get=${s.lid}`, { "headers": { "x-requested-with": "XMLHttpRequest" } }).then(r => r.json().then(d => d.result)).then(async d => await Extractors.use(d.url)) } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${s.name}: ${e.message || e}`); } };
+                    const links = {}, fetchSource = async s => { try { links[s.name] = await fetch(`/ajax/server?get=${s.lid}`, { "headers": { "x-requested-with": "XMLHttpRequest" } }).then(r => r.json().then(d => d.result)).then(async d => await Extractors.use(d.url)) } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${s.name}: ${e.message || e}`); } }; // megaplay.buzz, vidtube.site
                     if (srcCfg?.mode === 'single') { for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) { await fetchSource(s); if (Object.keys(links).length) break; } } }
                     else for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) await fetchSource(s); }
                     return new Episode(epNum, _$('h1, .film-name')?.textContent, links, _$('.binfo img, .poster img, .film-poster img')?.getAttribute('src'), ep.querySelector('span')?.textContent);
@@ -652,6 +653,23 @@ const Websites = [
                     return new Episode(ep.number, _$(`${PREFER_JAP_TITLE ? 'p.mb-3, ' : ''}h1`).textContent, links, _$('img[src*="poster"]')?.src);
                 }));
         }
+    },
+    {
+        name: "Re:Anime",
+        url: ["reanime.cz/", "reanime.to/"],
+        extractEpisodes: async function* (status) {
+            const id = location.pathname.split('/').pop(); status.text = `Fetching Episodes for ${id}...`;
+            const anilist_id = [..._$$('script')].map(sc => sc.text.match(new RegExp(`anilist_id:(\\d+),anime_id:"${id}"`))).filter(Boolean)[0][1]
+            const eps = await fetchJSON(`${location.origin}/api/v1/anime/${id}/episodes?limit=2000`).then(d => d?.data).then(applyEpisodeRangeFilter);
+            const srcCfg = await this._fetchSources(anilist_id, eps[0].episode_number).then(s => showSourceSelector(s.map(e => e.name), 'reanime'));
+            for (const ep of eps) {
+                status.text = `Extracting Episode ${ep.episode_number}...`
+                const sources = await this._fetchSources(anilist_id, ep.episode_number);
+                const links = await srcCfg.sources.reduce(async (a, src) => (a = await a, (s = sources.find(x => x.name === src)) && !(srcCfg.mode === 'single' && Object.keys(a).length) && await Extractors.use(s.link).then(r => a[src] = r).catch(e => showToast(`Failed Ep ${ep.episode_number} from ${src}: ${e.message || e}`)), a), Promise.resolve({}));   // flixcloud.cc
+                yield new Episode(ep.episode_number, _$('h2'+(PREFER_JAP_TITLE?'+h3':"")).textContent, links, _$('.watch-info-enter img')?.src, ep.title);
+            }
+        },
+        _fetchSources: async (anilist_id, ep_num) => await fetchJSON(`${location.origin}/api/flix/${anilist_id}/${ep_num}`).then(d => d?.servers.map(s => ({ name: `${s.dataType.toUpperCase()} - ${s.serverName}`, link: s.dataLink }))).catch(e => showToast('Failed to fetch sources: ' + e.message || e)),
     }
 ];
 
@@ -671,7 +689,7 @@ const Extractors = {
     'kwik.cx': async function (kwikUrl, referer = location.href) {
         const response = await fetch(kwikUrl, { headers: { referer } });
         const data = await response.text();
-        return eval(/(eval)(\(f.*?)(\n<\/script>)/s.exec(data)[2].replace("eval", "")).match(/https.*?m3u8/)[0];
+        return {stream: eval(/(eval)(\(f.*?)(\n<\/script>)/s.exec(data)[2].replace("eval", "")).match(/https.*?m3u8/)[0], type: 'm3u8', referer:'https://kwik.cx/'};
     },
     '/megaplay.buzz|vidwish.live/': async function (embed, referer) {
         const host = (new URL(embed)).host;
@@ -832,7 +850,15 @@ const Extractors = {
         const [id, ep, aud] = location.href.split('/').slice(-3);
         const data = await GM_fetchJSON(`https://tryembed.us.cc/api/stream_data?id=${id}&episode=${ep}&audio=${aud}&nonce=${nonce}`).catch(() => { throw new Error('Failed to fetch stream data'); });
         // retturn 
-    }
+    },
+    'flixcloud.cc': async function (url, referer = 'https://flixcloud.cc/') {
+        const page = await GM_fetch(url, { headers: { referer } }).then(r => r.text());
+        const data = eval("(" + page.match(/type:\s*"data",\s*data:\s*(\{.*?\})\s*,\s*uses:/s)[1] + ")");
+        const decToken = await GM_fetch('https://enc-dec.app/api/dec-flixcloud?type=token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data }) }).then(r => r.json()).then(d => d.result);
+        const streamResponse = await GM_fetch(`https://flixcloud.cc/api/m3u8/${decToken.token}`, { headers: { referer } }).then(r => r.json());
+        const decStream = await GM_fetch('https://enc-dec.app/api/dec-flixcloud?type=stream', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: { context: decToken.context, stream_response: streamResponse } }) }).then(r => r.json()).then(d => d.result);
+        return { file: decStream.stream, type: 'm3u8', tracks: data.subtitles?.map(s => ({ file: s.url, label: s.language, kind: 'captions' })) || [], referer };
+    },
 }
 /**
  * Fetches the HTML content of a given URL and parses it into a DOM object.
