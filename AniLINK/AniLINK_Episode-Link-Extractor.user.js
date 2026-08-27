@@ -59,6 +59,7 @@
 // @match       https://anidb.app/anime/*
 // @match       https://reanime.to/*
 // @match       https://reanime.cz/*
+// @match       https://anineko.to/watch/*
 // @require     https://cdn.jsdelivr.net/npm/@trim21/gm-fetch@0.3.0
 // @grant       GM.xmlHttpRequest
 // @grant       GM.download
@@ -127,7 +128,7 @@ class Episode {
             linkObj.stream &&= new URL(linkObj.stream, location.origin).href;   // Ensure stream URLs are absolute
             if (linkObj.file) linkObj.stream = linkObj.file; delete linkObj.file; // Move file to stream for consistency, then delete file property
             linkObj.referer ??= location.origin + '/' ; // Set referer to current domain if not present
-            linkObj.type = (linkObj.type.startsWith('.') || (linkObj.type === 'embed')) ? linkObj.type : `.${linkObj.type}`; // Ensure type starts with a dot, but not for 'embed'
+            linkObj.type = (linkObj.type?.startsWith('.') || (linkObj.type === 'embed')) ? linkObj.type : `.${linkObj.type || 'm3u8'}`; // Ensure type starts with a dot, but not for 'embed'. Default to '.m3u8' if type is not provided.
             linkObj.tracks?.forEach?.(track => track.kind = /^(caption|subtitle)s?/.test(track.kind) ? 'caption' : track.kind); // normalize all 'kind' values's subtitle(s) or caption(s) to 'caption'
             linkObj.tracks?.forEach?.(track => track.file &&= new URL(track.file, location.origin).href);   // Ensure track file URLs are absolute
         }
@@ -661,15 +662,32 @@ const Websites = [
             const id = location.pathname.split('/').pop(); status.text = `Fetching Episodes for ${id}...`;
             const anilist_id = [..._$$('script')].map(sc => sc.text.match(new RegExp(`anilist_id:(\\d+),anime_id:"${id}"`))).filter(Boolean)[0][1]
             const eps = await fetchJSON(`${location.origin}/api/v1/anime/${id}/episodes?limit=2000`).then(d => d?.data).then(applyEpisodeRangeFilter);
-            const srcCfg = await this._fetchSources(anilist_id, eps[0].episode_number).then(s => showSourceSelector(s.map(e => e.name), 'reanime'));
+            const srcCfg = await this._fetchSources(anilist_id, eps[0].episode_number).then(s => showSourceSelector(s.map(e => e.name), 'reanime', { mode: 'single' }));
             for (const ep of eps) {
                 status.text = `Extracting Episode ${ep.episode_number}...`
                 const sources = await this._fetchSources(anilist_id, ep.episode_number);
-                const links = await srcCfg.sources.reduce(async (a, src) => (a = await a, (s = sources.find(x => x.name === src)) && !(srcCfg.mode === 'single' && Object.keys(a).length) && await Extractors.use(s.link).then(r => a[src] = r).catch(e => showToast(`Failed Ep ${ep.episode_number} from ${src}: ${e.message || e}`)), a), Promise.resolve({}));   // flixcloud.cc
+                const links = await srcCfg.sources.reduce(async (a, src) => (a = await a, (s = sources.find(x => x.name === src)) && !(srcCfg.mode === 'single' && Object.keys(a).length) && await await Promise.resolve().then(() => Extractors.use(s.link)).then(r => a[src] = r).catch(e => showToast(`Failed Ep ${ep.episode_number} from ${src}: ${e.message || e}`)), a), Promise.resolve({}));   // flixcloud.cc
                 yield new Episode(ep.episode_number, _$('h2'+(PREFER_JAP_TITLE?'+h3':"")).textContent, links, _$('.watch-info-enter img')?.src, ep.title);
             }
         },
         _fetchSources: async (anilist_id, ep_num) => await fetchJSON(`${location.origin}/api/flix/${anilist_id}/${ep_num}`).then(d => d?.servers.map(s => ({ name: `${s.dataType.toUpperCase()} - ${s.serverName}`, link: s.dataLink }))).catch(e => showToast('Failed to fetch sources: ' + e.message || e)),
+    },
+    {
+        name: "AniNeko",
+        url: ['anineko.to/'],
+        addStartButton: (id) => $('.nv-info-main-column .nv-pill.green, .nv-side-stack .nv-pill').html('Extract Episode Links').click(extractEpisodes).attr('id', id).css({ cursor: 'pointer' }),
+        extractEpisodes: async function* (status) {
+            const epElms = await applyEpisodeRangeFilter($('.nv-episode-list > a, .nv-info-episode-item > a'));
+            const srcCfg = await showSourceSelector(await this._fetchSources(epElms[0].href).then(s => s.map(e => e.name)), 'reanime', { mode: 'single' });
+            for (const epElm of epElms) {
+                const epNum = $(epElm).find('strong').text().replace(/EP|Episode /,''); status.text = `Extracting Episode ${epNum}...`;
+                const sources = await this._fetchSources(epElm.href);
+                const links = await srcCfg.sources.reduce(async (a, src) => (a = await a, (s = sources.find(x => x.name === src)) && !(srcCfg.mode === 'single' && Object.keys(a).length) && await Promise.resolve().then(() => Extractors.use(s.url).then(r => this._handleCaptions(r, s.url))).then(d => a[src] = d).catch(e => showToast(`Failed Ep ${epNum} from ${src}: ${e.message || e}`)), a), Promise.resolve({}));   // bibiemb.xyz, vivibebe.site
+                yield new Episode(epNum, $('h1').text(), links, (_$('.nv-info-poster>img')?.src || $('.play-video').css('background-image')?.split('"')?.[1]), $(epElm).find('span').text());
+            }
+        },
+        _fetchSources: async (url) => await fetchPage(url).then(p => $(p).find('.server-items > button').map(function() { return { name: $(this).find('span').text().trim() + ' - ' + this.childNodes[0].textContent.trim(), url: $(this).data('video') }; }).get()),
+        _handleCaptions: async (data, url) => (data.tracks?.length) ? data : { ...data, tracks: url.includes('?caption') ? [{ file: url.match(/caption_\d=(.*?)&/)?.[1], label: url.match(/sub_\d=(.*)/)?.[1], kind: 'caption' }] : [] },
     }
 ];
 
@@ -680,9 +698,9 @@ const Extractors = {
         for (const key in this) {
             if (typeof this[key] !== 'function') continue;
             // Match exact host or test regex pattern
-            if (key === host) return this[key](url, ...args);
+            if (key === host) return Promise.resolve(this[key](url, ...args));
             const regexMatch = key.match(/^\/(.+)\/([gimuy]*)$/);
-            if (regexMatch) if (new RegExp(regexMatch[1], regexMatch[2]).test(host)) return this[key](url, ...args);
+            if (regexMatch) if (new RegExp(regexMatch[1], regexMatch[2]).test(host)) return Promise.resolve(this[key](url, ...args));
         }
         throw new Error(`No extractor found for ${url}`);
     },
@@ -859,6 +877,24 @@ const Extractors = {
         const decStream = await GM_fetch('https://enc-dec.app/api/dec-flixcloud?type=stream', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: { context: decToken.context, stream_response: streamResponse } }) }).then(r => r.json()).then(d => d.result);
         return { file: decStream.stream, type: 'm3u8', tracks: data.subtitles?.map(s => ({ file: s.url, label: s.language, kind: 'captions' })) || [], referer };
     },
+    'bibiemb.xyz': async (url) => ({ stream: (await GM_fetch(url).then(r => r.text())).match(/src = "(.*?)";/)[1], referer: 'https://bibiemb.xyz/' }),
+    'vivibebe.site': async (url, referer = location.origin+'/') => ({ stream: `https://vivibebe.site/public/stream/${(new URL(url)).pathname.split('/').pop()}/master.m3u8`, referer: 'https://vivibebe.site/' }),
+    '/otakuhg.site|otakuvid.online/': async (url) => {
+        const m = await GM_fetch(url).then(r => r.text()).then(html => html.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]*?\}\(\s*'([\s\S]+?)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'([\s\S]+?)'\.split\('\|'\)/));
+        if (!m) throw new Error('Packed player script not found');
+        let [, p, a, c, k] = m; a = +a; c = +c; k = k.split('|');
+        while (c--) if (k[c]) p = p.replace(new RegExp('\\b' + c.toString(a) + '\\b', 'g'), k[c]);
+        const sources = Object.fromEntries([...p.matchAll(/"(hls\d)":"([^"]+)"/g)].map(x => [x[1], x[2]]));
+        const stream = sources.hls2 || (sources.hls4 ? new URL(sources.hls4, url).href : sources.hls3);;   // hls4 seems to be broken or something while hls2 is reliable.
+        if (!stream) throw new Error('No stream URL found in packed script');
+        return { stream, type: 'm3u8', referer: new URL(url).origin+'/' };
+    },
+    'playmogo.com': async (url) => {
+        const subs = url.includes('?c1_file=') ? [{ file: url.match(/c1_file=(.*?)&/)?.[1], label: url.match(/c1_label=(.*)^/)?.[1], kind: 'captions' }] : [];
+        const html = await GM_fetch(url.split('?')[0]).then(r => r.text());
+        const link = await GM_fetch('https://playmogo.com/'+html.match(/(pass_md5.*?)',/)[1]).then(r=>r.text());
+        return { stream: link, type: 'mp4', tracks: subs, referer: 'https://playmogo.com/' };
+    },
 }
 /**
  * Fetches the HTML content of a given URL and parses it into a DOM object.
@@ -877,6 +913,7 @@ async function fetchPage(url, options = {}, fetchFn = fetch) {
         throw new Error(`Failed to fetch HTML for ${url} : ${response.status}`);
     }
 }
+GM_fetchPage = (url, options = {}) => fetchPage(url, options, GM_fetch);
 
 /**
  * Fetches JSON data from a given URL with optional callback and fetch function.
