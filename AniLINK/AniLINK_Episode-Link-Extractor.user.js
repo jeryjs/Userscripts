@@ -81,9 +81,10 @@
 // 1. Do full tampermonkey support audit.
 // 2. Add ts to mp4 transcoding support to downloader.
 // 3. Add guide/tutorial in ui for stuff
-// 4. Fix toast's close button positioning when displaying error
+// ~~4. Fix toast's close button positioning when displaying error~~
 // 5. Fix keyboard input in modals.
 // 6. Work on the Todo in the downloader
+// 7. Make Play with a popover with support for more popular players.
 
 // track last version for managing backwards compatability for script updates
 if (GM_info.script.version > GM_getValue('script_version', '0')) {
@@ -2497,10 +2498,10 @@ function showToast(message, duration = 5000) {
             .anlink-toast { position: fixed; right: 20px; min-width: 300px; max-width: 400px; background: var(--anlink-glass-bg); border: 1px solid var(--anlink-glass-border); border-radius: 14px; padding: 16px 20px; box-shadow: var(--anlink-glass-shadow); z-index: 10000; display: flex; align-items: flex-start; gap: 12px; animation: anlink-toast-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); transition: top 0.4s cubic-bezier(0.16, 1, 0.3, 1); pointer-events: auto; }
             .anlink-toast.slide-out { animation: anlink-toast-slide-out 0.3s cubic-bezier(0.7, 0, 0.84, 0) forwards; }
             .anlink-toast-icon { flex-shrink: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: rgba(38,166,154,.48); border: 1px solid rgba(180,255,245,.18); border-radius: 50%; color: #f2fffd; font-size: 14px; font-weight: bold; }
-            .anlink-toast-content { flex: 1; color: #e8f6f3; font-size: 14px; line-height: 1.5; font-weight: 500; }
+            .anlink-toast-content { flex: 1; color: #e8f6f3; font-size: 14px; line-height: 1.5; font-weight: 500; padding-right: 36px; }
             .anlink-toast-content a { color: #26a69a; text-decoration: none; font-weight: 600; border-bottom: 1px solid transparent; transition: border-color 0.2s; }
             .anlink-toast-content a:hover { border-bottom-color: #26a69a; }
-            .anlink-toast-close { flex-shrink: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.1); border-radius: 50%; color: #c7d8d5; cursor: pointer; font-size: 16px; line-height: 1; transition: all 0.2s; padding: 0; }
+            .anlink-toast-close { position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.1); border-radius: 50%; color: #c7d8d5; cursor: pointer; font-size: 16px; line-height: 1; transition: all 0.2s; padding: 0; }
             .anlink-toast-close:hover { background: rgba(255,255,255,.16); color: #fff; transform: scale(1.1); }
             @media (max-width: 680px) {
                 .anlink-toast { left: max(10px, env(safe-area-inset-left)); right: max(10px, env(safe-area-inset-right)); min-width: 0; max-width: none; width: auto; }
@@ -2550,15 +2551,30 @@ function showToast(message, duration = 5000) {
         }, 300);
     };
 
-    closeBtn.addEventListener('click', removeToast);
+    closeBtn.addEventListener('click', event => {
+        if (event.shiftKey) {
+            toasts.forEach(t => { t.classList.add('slide-out'); setTimeout(() => t.remove(), 300); });
+            toasts = [];
+            showToast('All notifications cleared.', 500);
+            return;
+        }
+        removeToast();
+    });
 
     // Add the new toast to the list
     toasts.push(toast);
 
     // Auto-remove after delay (or dont remove if duration is 0)
-    if (duration > 0) {
-        setTimeout(() => removeToast(), duration);
-    }
+    let autoDismissTimer = null;
+    const scheduleAutoDismiss = () => {
+        clearTimeout(autoDismissTimer);
+        if (duration > 0) autoDismissTimer = setTimeout(() => removeToast(), duration);
+    };
+    scheduleAutoDismiss();
+
+    // Pause auto-dismiss while hovering
+    toast.addEventListener('mouseenter', () => clearTimeout(autoDismissTimer));
+    toast.addEventListener('mouseleave', scheduleAutoDismiss);
 
     // Limit the number of toasts to maxToasts
     if (toasts.length > maxToasts) {
