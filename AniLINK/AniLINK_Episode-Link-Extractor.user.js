@@ -82,7 +82,7 @@
 // 2. Add ts to mp4 transcoding support to downloader.
 // 3. Add guide/tutorial in ui for stuff
 // ~~4. Fix toast's close button positioning when displaying error~~
-// 5. Fix keyboard input in modals.
+// ~~5. Fix keyboard input in modals.~~
 // 6. Work on the Todo in the downloader
 // 7. Make Play with a popover with support for more popular players.
 
@@ -2134,6 +2134,8 @@ function createModal({ title, icon, subtitle, bodyHTML, width = '420px', onConfi
     modal.addEventListener('keydown', e => {
         if (e.key === 'Escape') { e.preventDefault(); handleCancel(); }
         else if (e.key === 'Enter' && !e.target.matches('input[type="radio"], input[type="checkbox"]')) { e.preventDefault(); handleConfirm(); }
+        // passthrough all other keys to target (workaround for sites like Miruro that have global keydown handlers that prevent default behavior)
+        else if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') try { e.stopPropagation(); e.target.dispatchEvent(new KeyboardEvent('keydown', e)); } catch (err) { /* ignore */ }
     });
     cancelBtn.addEventListener('click', handleCancel);
     primaryBtn.addEventListener('click', handleConfirm);
