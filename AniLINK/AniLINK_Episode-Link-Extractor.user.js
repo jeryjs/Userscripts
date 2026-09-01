@@ -77,6 +77,14 @@
 // @updateURL https://update.greasyfork.org/scripts/492029/AniLINK%20-%20Episode%20Link%20Extractor.meta.js
 // ==/UserScript==
 
+// TODO — temp tracker for v7 release
+// 1. Do full tampermonkey support audit.
+// 2. Add ts to mp4 transcoding support to downloader.
+// 3. Add guide/tutorial in ui for stuff
+// 4. Fix toast's close button positioning when displaying error
+// 5. Fix keyboard input in modals.
+// 6. Work on the Todo in the downloader
+
 // track last version for managing backwards compatability for script updates
 if (GM_info.script.version > GM_getValue('script_version', '0')) {
     // migrate anilink_sources_* keys to new sources_config map format
@@ -989,61 +997,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
  */
 const safeBtoa = str => btoa(unescape(encodeURIComponent(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-/**
- * Analyzes the given media url to return duration, size, and resolution of the media.
- * @param {string} mediaUrl - The URL of the media to analyze.
- * @return {Promise<{duration: string, size: string, resolution: string}>} A promise that resolves to an object
- * containing duration (in hh:mm:ss), size of the media (in MB), and resolution (e.g., 1920x1080).
- * @TODO: Not Yet Implemented
- */
-async function analyzeMedia(mediaUrl) {
-    if (_analyzedMediaCache.has(mediaUrl)) return _analyzedMediaCache.get(mediaUrl);
-
-    let metadata = { duration: 'N/A', resolution: 'N/A', size: 'N/A' };
-    try {
-        if (mediaUrl.endsWith('.mp4')) {
-            const r = await GM_fetch(mediaUrl, { method: 'HEAD' });
-            if (r.ok) {
-                const sz = parseFloat(r.headers.get('Content-Length')) || 0;
-                metadata.size = `${(sz / 1048576).toFixed(2)} MB`;
-            }
-        } else if (mediaUrl.endsWith('.m3u8')) {
-            const r = await GM_fetch(mediaUrl);
-            if (r.ok) {
-                const t = await r.text();
-                const res = t.match(/RESOLUTION=(\d+x\d+)/i);
-                if (res) metadata.resolution = res[1];
-                let d = 0;
-                for (const m of t.matchAll(/#EXTINF:([\d.]+)/g)) d += parseFloat(m[1]);
-                if (d > 0) {
-                    const h = Math.floor(d / 3600), m = Math.floor((d % 3600) / 60), s = Math.floor(d % 60);
-                    metadata.duration = [h, m, s].map(v => String(v).padStart(2, '0')).join(':');
-                }
-            }
-        }
-        if (metadata.duration === 'N/A' || metadata.resolution === 'N/A') {
-            await new Promise(res => {
-                const v = document.createElement('video');
-                v.src = mediaUrl; v.preload = 'metadata'; v.muted = true;
-                v.onloadedmetadata = () => {
-                    if (v.duration && metadata.duration === 'N/A') {
-                        const h = Math.floor(v.duration / 3600), m = Math.floor((v.duration % 3600) / 60), s = Math.floor(v.duration % 60);
-                        metadata.duration = [h, m, s].map(x => String(x).padStart(2, '0')).join(':');
-                    }
-                    if (v.videoWidth && v.videoHeight && metadata.resolution === 'N/A')
-                        metadata.resolution = `${v.videoWidth}x${v.videoHeight}`;
-                    res();
-                };
-                v.onerror = () => res();
-                setTimeout(res, 2000);
-            });
-        }
-    } catch (e) { }
-    _analyzedMediaCache.set(mediaUrl, metadata);
-    return metadata;
-}
-const _analyzedMediaCache = new Map();  // Cache to store analyzed media results for the above function
-
+// ============================== \\
 
 // initialize
 if (window.top !== window.self) throw new Error('[AniLINK] Skipping embedded frame.');
@@ -1975,7 +1929,20 @@ async function extractEpisodes() {
 
     // Helper to get all selected episodes across all qualities
     function getAllSelectedEpisodes(selectAllWhenEmpty = true) {
-        if (layoutMode === 'episodes') return getEpisodeViewSelectedEpisodes(selectAllWhenEmpty);
+        if (layoutMode === 'episodes') {
+            const cards = [...episodeViewContainer.querySelectorAll('.anlink-episode-card')];
+            const selected = {};
+            const addCard = card => {
+                const source = card.dataset.quality;
+                if (source && card._linkData?.stream) (selected[source] ||= []).push(card);
+            };
+            const checkedCards = cards.filter(card => card.querySelector('.anlink-episode-checkbox')?.checked);
+            const cardsToUse = checkedCards.length || !selectAllWhenEmpty ? checkedCards : cards;
+            const orderedCards = cardsToUse.filter(card => card._linkData?.stream);
+            orderedCards.forEach(addCard);
+            Object.defineProperty(selected, '_episodeOrder', { value: orderedCards });
+            return selected;
+        }
         const selected = {};
         AniLINKUI.queryAll('.anlink-quality-section').forEach(section => {
             const quality = section.dataset.quality;
@@ -1994,34 +1961,32 @@ async function extractEpisodes() {
         return selected;
     }
 
-    function getEpisodeViewSelectedEpisodes(selectAllWhenEmpty) {
-        const cards = [...episodeViewContainer.querySelectorAll('.anlink-episode-card')];
-        const selected = {};
-        const addCard = card => {
-            const source = card.dataset.quality;
-            if (source && card._linkData?.stream) (selected[source] ||= []).push(card);
-        };
-        cards.filter(card => card.querySelector('.anlink-episode-checkbox')?.checked).forEach(addCard);
-        if (selectAllWhenEmpty && !Object.keys(selected).length) cards.forEach(addCard);
-        return selected;
-    }
-
     // Helper to build m3u8 content from selected episodes
     function buildPlaylist(selected) {
         let out = '#EXTM3U\n';
-        for (const [quality, items] of Object.entries(selected)) {
-            const epNums = items.map(i => i.querySelector('[data-epnum]').dataset.epnum);
-            const episodes = (window._anilink_episodes || []).filter(ep => ep.links[quality] && epNums.includes(ep.number));
-            const referer = episodes[0]?.links[quality]?.referer;
-            if (referer && !out.includes(referer)) out += `#EXTVLCOPT:http-referrer=${referer}\n`;
-            episodes.forEach(ep => {
-                const link = ep.links[quality];
-                if (link?.tracks?.length) link.tracks.forEach(t => {
-                    const type = t.kind?.startsWith('audio') ? 'AUDIO' : /^(caption|subtitle)s?/.test(t.kind) ? 'SUBTITLES' : null;
-                    if (type) out += `#EXT-X-MEDIA:TYPE=${type},GROUP-ID="${type.toLowerCase()}${ep.number}",NAME="${t.label || type}",DEFAULT=${t.default ? 'YES' : 'NO'},URI="${t.file}"\n`;
-                });
-                out += `#EXTINF:-1,${ep.filename.replaceAll('/', '|')}${SRC_IN_FN ? ` [${quality}]` : ''}\n${link.stream}\n`;
+        let previousReferer = '';
+        const addEpisode = (episode, link, quality) => {
+            if (link.referer !== previousReferer) {
+                if (link.referer) out += `#EXTVLCOPT:http-referrer=${link.referer}\n`;
+                previousReferer = link.referer || '';
+            }
+            if (link?.tracks?.length) link.tracks.forEach(t => {
+                const type = t.kind?.startsWith('audio') ? 'AUDIO' : /^(caption|subtitle)s?/.test(t.kind) ? 'SUBTITLES' : null;
+                if (type) out += `#EXT-X-MEDIA:TYPE=${type},GROUP-ID="${type.toLowerCase()}${episode.number}",NAME="${t.label || type}",DEFAULT=${t.default ? 'YES' : 'NO'},URI="${t.file}"\n`;
             });
+            out += `#EXTINF:-1,${episode.filename.replaceAll('/', '|')}${SRC_IN_FN ? ` [${quality}]` : ''}\n${link.stream}\n`;
+        };
+        if (layoutMode === 'episodes') {
+            selected._episodeOrder.forEach(card => {
+                const episode = card._episode, quality = card.dataset.quality, link = card._linkData;
+                if (episode && quality && link?.stream) addEpisode(episode, link, quality);
+            });
+        } else {
+            for (const [quality, items] of Object.entries(selected)) {
+                const epNums = items.map(i => i.querySelector('[data-epnum]').dataset.epnum);
+                const episodes = (window._anilink_episodes || []).filter(ep => ep.links[quality] && epNums.includes(ep.number));
+                episodes.forEach(ep => addEpisode(ep, ep.links[quality], quality));
+            }
         }
         return out;
     }
@@ -2029,7 +1994,8 @@ async function extractEpisodes() {
     async function onCopyAll(btn) {
         const selected = getAllSelectedEpisodes();
         if (!Object.keys(selected).length) return showToast('No episodes selected');
-        const links = Object.values(selected).flat().map(i => i.querySelector('.anlink-episode-link').href).join('\n') + '\n';
+        const items = selected._episodeOrder || Object.values(selected).flat();
+        const links = items.map(i => i.querySelector('.anlink-episode-link').href).join('\n') + '\n';
         GM_setClipboard(links, "text", () => showToast(`Copied ${links.split('\n').filter(l => l).length} links to clipboard`));
         btn.textContent = `Copied ${links.split('\n').filter(l => l).length} links!`;
         setTimeout(() => btn.textContent = 'Copy Links', 1000);
