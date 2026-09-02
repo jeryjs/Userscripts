@@ -130,7 +130,8 @@ class Episode {
         this.epTitle = (epTitle==animeTitle || /^Episode \d+$/.test(epTitle)) ? undefined : epTitle; // The title of the episode (this can be the specific ep title or blank).
         this.links = this._processLinks(links);     // An object containing streaming links and tracks for each source: {"source1":{stream:"url", type:"m3u8|mp4", tracks:[{file:"url", kind:"caption|audio", label:"name"}]}}}
         this.thumbnail = thumbnail; // The URL of the episode's thumbnail image (if unavailable, then just any image is fine. Thumbnail property isnt really used in the script yet).
-        this.filename = `${this.animeTitle} - ${this.number.padStart(3, '0')}${this.epTitle ? ` - ${this.epTitle}` : ''}${Object.values(this.links)[0]?.type || ''}`;   // The formatted name of the episode, combining anime name, number and title and extension.
+        const firstLink = Object.values(this.links)[0];
+        this.filename = `${this.animeTitle} - ${this.number.padStart(3, '0')}${this.epTitle ? ` - ${this.epTitle}` : ''}${firstLink?.type || ''}${SRC_IN_FN ? ` [${Object.keys(this.links)[0]}]` : ''}`;   // The formatted name of the episode, combining anime name, number and title and extension.
         this.title = this.epTitle ?? this.animeTitle;
     }
 
@@ -1806,7 +1807,7 @@ async function extractEpisodes() {
                         <label>
                             <input type="checkbox" class="anlink-episode-checkbox" />
                             <span class="mpv-epnum" title="Play in MPV">Ep ${ep.number.replace(/^0+/, '')}: </span>
-                            <a href="${ep.links[quality].stream}" class="anlink-episode-link" download="${encodeURI(ep.filename)}" data-epnum="${ep.number}" data-ep=${encodeURI(JSON.stringify({ ...ep, links: undefined }))} >${ep.links[quality].stream}</a>
+                            <a href="${ep.links[source].stream}" class="anlink-episode-link" download="${encodeURI(ep.filename + (SRC_IN_FN ? ` [${source}]` : ''))}" data-epnum="${ep.number}" data-ep=${encodeURI(JSON.stringify({ ...ep, links: undefined }))} >${ep.links[source].stream}</a>
                         </label>
                         ${hasSubs ? '<span class="anlink-subs-toggle" title="Shift+Click to toggle all episodes\' subtitles">🄰 Subs ▼</span>' : ''}
                     </div>
@@ -1975,7 +1976,7 @@ async function extractEpisodes() {
                 const type = t.kind?.startsWith('audio') ? 'AUDIO' : /^(caption|subtitle)s?/.test(t.kind) ? 'SUBTITLES' : null;
                 if (type) out += `#EXT-X-MEDIA:TYPE=${type},GROUP-ID="${type.toLowerCase()}${episode.number}",NAME="${t.label || type}",DEFAULT=${t.default ? 'YES' : 'NO'},URI="${t.file}"\n`;
             });
-            out += `#EXTINF:-1,${episode.filename.replaceAll('/', '|')}${SRC_IN_FN ? ` [${quality}]` : ''}\n${link.stream}\n`;
+            out += `#EXTINF:-1,${episode.filename.replaceAll('/', '|')}${SRC_IN_FN ? ` [${source}]` : ''}\n${link.stream}\n`;
         };
         if (layoutMode === 'episodes') {
             selected._episodeOrder.forEach(card => {
@@ -2043,8 +2044,8 @@ async function extractEpisodes() {
         const selected = getAllSelectedEpisodes();
         if (!Object.keys(selected).length) return showToast('No episodes selected');
         const playlistData = buildPlaylist(selected);
-        const qualities = Object.keys(selected).join(', ');
-        const fileName = (window._anilink_episodes?.[0]?.animeTitle || 'Anime') + `${SRC_IN_FN ? ` [${qualities}]` : ''}` + '.m3u8';
+        const sources = Object.keys(selected).join(', ');
+        const fileName = (window._anilink_episodes?.[0]?.animeTitle || 'Anime') + `${SRC_IN_FN ? ` [${sources}]` : ''}` + '.m3u8';
         Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([playlistData], { type: 'application/vnd.apple.mpegurl' })), download: fileName }).click();
         btn.textContent = 'Exported';
         setTimeout(() => btn.textContent = 'Export', 1000);
@@ -4110,7 +4111,7 @@ class DownloaderUI {
         const link = episode.links?.[quality];
         if (!link?.stream) throw new Error(`Episode ${episode.number} has no stream for ${quality}.`);
         const extension = link.type === '.m3u8' || link.type === 'm3u8' ? '.ts' : link.type || '.bin';
-        const filename = `${episode.animeTitle} - ${String(episode.number).padStart(3, '0')}${episode.epTitle ? ` - ${episode.epTitle}` : ''}${extension}`;
+        const filename = `${episode.animeTitle} - ${String(episode.number).padStart(3, '0')}${episode.epTitle ? ` - ${episode.epTitle}` : ''}${extension}${SRC_IN_FN ? ` [${source}]` : ''}`;
         const task = this.downloader.addTask(filename, episode.animeTitle, link.stream, {
             ...options, format: link.type, quality, headers: options.headers, referer: link.referer, threads: options.threads,
             speedLimitBps: options.speedLimitBps, tracks: link.tracks || [], metadata: { episodeNumber: episode.number, quality }
