@@ -1054,7 +1054,7 @@ async function extractEpisodes() {
         #AniLINK_ViewToggle::before { display: block; width: 24px; height: 24px; border: 2px solid currentColor; border-radius: 50%; content: ''; transition: border-color .2s, transform .25s; } #AniLINK_ViewToggle::after { position: absolute; top: 9px; left: 9px; width: 8px; height: 8px; border-radius: 50%; background: currentColor; content: ''; transition: transform .25s, background .2s; }
         #AniLINK_ViewToggle[aria-pressed="true"]::before { transform: scale(.72); } #AniLINK_ViewToggle[aria-pressed="true"]::after { transform: translate(10px, 0); } #AniLINK_ViewToggle:focus-visible { outline: 2px solid #26a69a; outline-offset: 3px; }
         #AniLINK_LinksContainer { width: min(1100px, 92vw); max-height: 86vh; background: var(--anlink-glass-bg); color: #edf5f4; padding: 22px; border: 1.5px solid var(--anlink-glass-border); border-radius: 24px; overflow-y: auto; display: flex; flex-direction: column; box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); }
-        #AniLINK_QualitiesContainer { overflow-y: auto; } #AniLINK_QualitiesContainer::-webkit-scrollbar { width: 6px; } #AniLINK_QualitiesContainer::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 3px; } #AniLINK_QualitiesContainer::-webkit-scrollbar-track { background: transparent; }
+        #AniLINK_sourcesContainer { overflow-y: auto; } #AniLINK_sourcesContainer::-webkit-scrollbar { width: 6px; } #AniLINK_sourcesContainer::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 3px; } #AniLINK_sourcesContainer::-webkit-scrollbar-track { background: transparent; }
         .anlink-status-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; background: linear-gradient(180deg, var(--anlink-glass-surface), transparent); border-bottom: 1px solid var(--anlink-glass-border-soft); } /* Header for status bar and stop button */
         .anlink-status-bar { color: #9eb4b1; flex-grow: 1; margin-right: 10px; display: block; font: 12px/1.3 system-ui, sans-serif; } /* Status bar takes space */
         .anlink-status-icon { background: transparent; border: none; color: #d9eeeb; cursor: pointer; padding-right: 10px; } /* status icon style */
@@ -1065,14 +1065,14 @@ async function extractEpisodes() {
         .anlink-header-buttons button:hover { border-color: #26a69a; background: rgba(38,166,154,.18); color: #7ce4d8; }
         .anlink-quick-download { margin-left: 8px; width: 22px; height: 22px; padding: 0; border: 1px solid #26a69a; border-radius: 50%; background: rgba(38,166,154,.12); color: #7ce4d8; cursor: pointer; font-weight: 700; line-height: 18px; transition: transform .18s, background .18s; }
         .anlink-quick-download:hover { transform: translateY(-2px) scale(1.08); background: #26a69a; color: #fff; }
-        .anlink-quality-section { margin-top: 18px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 12px; background: var(--anlink-glass-surface); }
-        .anlink-quality-header { display: flex; justify-content: space-between; align-items: center; }
-        .anlink-quality-header > span { color: #65d6c8; font-size: 1.25em; display: flex; align-items: center; flex-grow: 1; } /* Flex and align items for icon and text */
-        .anlink-quality-count { cursor: pointer; margin-right: 8px; opacity: 0.7; transition: opacity 0.2s; }
-        .anlink-quality-count:hover { opacity: 1; }
-        .anlink-quality-name { cursor: pointer; flex-grow: 1; }
-        .anlink-quality-header i { margin-right: 8px; font: 700 22px/1 system-ui, sans-serif; transition: transform 0.3s ease-in-out; }
-        .anlink-quality-header i.rotate { transform: rotate(90deg); } /* Rotate class */
+        .anlink-source-section { margin-top: 18px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 12px; background: var(--anlink-glass-surface); }
+        .anlink-source-header { display: flex; justify-content: space-between; align-items: center; }
+        .anlink-source-header > span { color: #65d6c8; font-size: 1.25em; display: flex; align-items: center; flex-grow: 1; } /* Flex and align items for icon and text */
+        .anlink-source-count { cursor: pointer; margin-right: 8px; opacity: 0.7; transition: opacity 0.2s; }
+        .anlink-source-count:hover { opacity: 1; }
+        .anlink-source-name { cursor: pointer; flex-grow: 1; }
+        .anlink-source-header i { margin-right: 8px; font: 700 22px/1 system-ui, sans-serif; transition: transform 0.3s ease-in-out; }
+        .anlink-source-header i.rotate { transform: rotate(90deg); } /* Rotate class */
         .anlink-episode-list { list-style: none; padding-left: 0; margin-top: 0; overflow: hidden; transition: max-height 0.5s ease-in-out; } /* Transition for max-height */
         .anlink-episode-item { margin-bottom: 5px; padding: 10px; border-bottom: 1px solid var(--anlink-glass-border-soft); display: flex; flex-direction: column; }
         .anlink-episode-item:last-child { border-bottom: none; }
@@ -1105,7 +1105,7 @@ async function extractEpisodes() {
             .anlink-header-buttons { width: 100%; flex-wrap: wrap; gap: 6px; }
             .anlink-header-buttons button { flex: 1 1 calc(50% - 6px); min-height: 38px; }
             .anlink-episode-main { align-items: flex-start; }
-            .anlink-quality-section { padding: 10px; }
+            .anlink-source-section { padding: 10px; }
         }
         @keyframes spinning { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } /* Spinning animation */
         @keyframes checkTilt { from { transform: rotate(-20deg); } to { transform: rotate(0deg); } } /* Checkmark tilt animation */
@@ -1297,10 +1297,10 @@ async function extractEpisodes() {
     }, 100);
     _lastStatus = { ...status }; // Store a shallow copy of the last status for reference
 
-    // Create a container for qualities and episodes
-    const qualitiesContainer = document.createElement('div');
-    qualitiesContainer.id = "AniLINK_QualitiesContainer";
-    linksContainer.appendChild(qualitiesContainer);
+    // Create a container for sources and episodes
+    const sourcesContainer = document.createElement('div');
+    sourcesContainer.id = "AniLINK_sourcesContainer";
+    linksContainer.appendChild(sourcesContainer);
 
     const episodeViewContainer = document.createElement('div');
     episodeViewContainer.className = 'anlink-episode-view';
@@ -1315,7 +1315,7 @@ async function extractEpisodes() {
         </div>
     `;
     linksContainer.appendChild(episodeViewContainer);
-    qualitiesContainer.hidden = layoutMode === 'episodes';
+    sourcesContainer.hidden = layoutMode === 'episodes';
     const episodeToolbar = episodeViewContainer.querySelector('.anlink-episode-toolbar');
     const episodeSourceButton = episodeViewContainer.querySelector('.anlink-episode-source-button');
     episodeToolbar.hidden = true;
@@ -1334,12 +1334,12 @@ async function extractEpisodes() {
     updateEpisodeViewControls();
 
     // Update counts on checkbox change (event delegation)
-    qualitiesContainer.addEventListener('change', e => {
+    sourcesContainer.addEventListener('change', e => {
         if (e.target.classList.contains('anlink-episode-checkbox')) {
-            const section = e.target.closest('.anlink-quality-section');
+            const section = e.target.closest('.anlink-source-section');
             const total = section.querySelectorAll('.anlink-episode-checkbox').length;
             const checked = section.querySelectorAll('.anlink-episode-checkbox:checked').length;
-            section.querySelector('.anlink-quality-count').textContent = checked ? `(${checked}/${total})` : `(${total})`;
+            section.querySelector('.anlink-source-count').textContent = checked ? `(${checked}/${total})` : `(${total})`;
         }
     });
 
@@ -1350,7 +1350,7 @@ async function extractEpisodes() {
     let startTime = Date.now();
     try {
         const episodeGenerator = site.extractEpisodes(status);
-        const qualityLinkLists = {};
+        const sourceLinkLists = {};
         startTime = Date.now(); // Reset start time after initialization
 
         for await (const episode of episodeGenerator) {
@@ -1361,19 +1361,19 @@ async function extractEpisodes() {
             if (!episode) continue;
             window._anilink_episodes.push(episode);
 
-            // Get all links into format - {[qual1]:[ep1,2,3,4], [qual2]:[ep1,2,3,4], ...}
-            for (const quality in episode.links) {
-                qualityLinkLists[quality] = qualityLinkLists[quality] || [];
-                qualityLinkLists[quality].push(episode);
+            // Get all links into format - {[source1]:[ep1,2,3,4], [source2]:[ep1,2,3,4], ...}
+            for (const source in episode.links) {
+                sourceLinkLists[source] = sourceLinkLists[source] || [];
+                sourceLinkLists[source].push(episode);
             }
 
-            // Update UI in real-time - RENDER UI HERE BASED ON qualityLinkLists
-            renderQualityLinkLists(qualityLinkLists, qualitiesContainer);
+            // Update UI in real-time - RENDER UI HERE BASED ON sourceLinkLists
+            rendersourceLinkLists(sourceLinkLists, sourcesContainer);
         }
 
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
         statusIconElement.querySelector('i').classList.remove('extracting');
-        if (qualityLinkLists && Object.keys(qualityLinkLists).length > 0) {
+        if (sourceLinkLists && Object.keys(sourceLinkLists).length > 0) {
             status = { isExtracting: false, text: `Extraction Complete in ${duration} seconds` };
         } else {
             status = { isExtracting: false, text: "No episodes found." };
@@ -1397,7 +1397,7 @@ async function extractEpisodes() {
         const scrollTop = linksContainer.scrollTop;
         layoutMode = mode;
         if (mode !== 'episodes') episodeViewContainer.querySelectorAll('.anlink-episode-card').forEach(stopEpisodePreview);
-        qualitiesContainer.hidden = mode === 'episodes';
+        sourcesContainer.hidden = mode === 'episodes';
         episodeViewContainer.hidden = mode !== 'episodes';
         if (mode !== 'episodes') episodeSourcePopover?._close?.();
         GM_setValue(viewStorageKey, layoutMode);
@@ -1560,7 +1560,7 @@ async function extractEpisodes() {
         downloadButton.addEventListener('click', event => {
             event.preventDefault();
             event.stopPropagation();
-            if (card._linkData?.stream) onDownloadEpisodes([card._episode], card._quality, event.currentTarget);
+            if (card._linkData?.stream) onDownloadEpisodes([card._episode], card._source, event.currentTarget);
         });
         mpvButton.addEventListener('click', event => {
             event.preventDefault();
@@ -1583,11 +1583,11 @@ async function extractEpisodes() {
         const previousLinkKey = card._linkKey;
         if (card._previewLinkKey && previousLinkKey !== linkKey) stopEpisodePreview(card);
         card._episode = episode;
-        card._quality = source || '';
+        card._source = source || '';
         card._linkData = linkData || null;
         card._linkKey = linkKey;
         card.dataset.epnum = episode.number;
-        card.dataset.quality = source || '';
+        card.dataset.source = source || '';
         card.classList.toggle('is-unavailable', !linkData?.stream);
         card.style.backgroundImage = episode.thumbnail ? `url("${String(episode.thumbnail).replace(/["\\\r\n\f]/g, '\\$&')}")` : '';
         if (episode.thumbnail) card._preview.poster = episode.thumbnail;
@@ -1721,77 +1721,77 @@ async function extractEpisodes() {
         renderOrder();
     }
 
-    // Renders quality link lists inside a given container element
-    function renderQualityLinkLists(sortedLinks, container) {
-        // Track expanded state for each quality section
+    // Renders source link lists inside a given container element
+    function rendersourceLinkLists(sortedLinks, container) {
+        // Track expanded state for each source section
         const expandedState = {};
-        container.querySelectorAll('.anlink-quality-section').forEach(section => {
-            const quality = section.dataset.quality;
+        container.querySelectorAll('.anlink-source-section').forEach(section => {
+            const source = section.dataset.source;
             const episodeList = section.querySelector('.anlink-episode-list');
-            expandedState[quality] = episodeList && episodeList.style.maxHeight !== '0px';
+            expandedState[source] = episodeList && episodeList.style.maxHeight !== '0px';
         });
 
-        for (const quality in sortedLinks) {
-            let qualitySection = container.querySelector(`.anlink-quality-section[data-quality="${quality}"]`);
+        for (const source in sortedLinks) {
+            let sourceSection = container.querySelector(`.anlink-source-section[data-source="${source}"]`);
             let episodeListElem;
 
-            const episodes = sortedLinks[quality].sort((a, b) => +a.number - +b.number);
+            const episodes = sortedLinks[source].sort((a, b) => +a.number - +b.number);
 
-            if (!qualitySection) {
+            if (!sourceSection) {
                 // Create new section if it doesn't exist
-                qualitySection = document.createElement('div');
-                qualitySection.className = 'anlink-quality-section';
-                qualitySection.dataset.quality = quality;
+                sourceSection = document.createElement('div');
+                sourceSection.className = 'anlink-source-section';
+                sourceSection.dataset.source = source;
 
                 const headerDiv = document.createElement('div');
-                headerDiv.className = 'anlink-quality-header';
-                headerDiv.title = 'Shift+Click to select/deselect all episodes in this quality';
+                headerDiv.className = 'anlink-source-header';
+                headerDiv.title = 'Shift+Click to select/deselect all episodes in this source';
 
-                const qualitySpan = document.createElement('span');
+                const sourceSpan = document.createElement('span');
                 const count = document.createElement('i');
-                count.className = 'anlink-quality-count';
-                count.textContent = `(${sortedLinks[quality].length})`;
+                count.className = 'anlink-source-count';
+                count.textContent = `(${sortedLinks[source].length})`;
                 count.title = 'Click to select/deselect all';
-                count.dataset.total = sortedLinks[quality].length;
+                count.dataset.total = sortedLinks[source].length;
                 count.addEventListener('click', e => {
                     e.stopPropagation();
-                    toggleSelectAll(qualitySection);
+                    toggleSelectAll(sourceSection);
                 });
 
                 const icon = document.createElement('i');
-                icon.className = 'anlink-quality-chevron';
+                icon.className = 'anlink-source-chevron';
                 icon.textContent = '›';
 
                 const name = document.createElement('span');
-                name.className = 'anlink-quality-name';
-                name.textContent = quality;
-                name.addEventListener('click', toggleQualitySection);
+                name.className = 'anlink-source-name';
+                name.textContent = source;
+                name.addEventListener('click', toggleSourceSection);
 
-                qualitySpan.appendChild(count);
-                qualitySpan.appendChild(icon);
-                qualitySpan.appendChild(name);
-                headerDiv.appendChild(qualitySpan);
-                qualitySection.appendChild(headerDiv);
+                sourceSpan.appendChild(count);
+                sourceSpan.appendChild(icon);
+                sourceSpan.appendChild(name);
+                headerDiv.appendChild(sourceSpan);
+                sourceSection.appendChild(headerDiv);
 
-                // --- Add Empty episodes list elm to the quality section ---
+                // --- Add Empty episodes list elm to the source section ---
                 episodeListElem = document.createElement('ul');
                 episodeListElem.className = 'anlink-episode-list';
                 episodeListElem.style.maxHeight = '0px';
-                qualitySection.appendChild(episodeListElem);
+                sourceSection.appendChild(episodeListElem);
 
-                container.appendChild(qualitySection);
+                container.appendChild(sourceSection);
 
-                // Shift+Click to select all episodes in this quality
-                headerDiv.addEventListener('mousedown', e => e.shiftKey && toggleSelectAll(qualitySection));
+                // Shift+Click to select all episodes in this source
+                headerDiv.addEventListener('mousedown', e => e.shiftKey && toggleSelectAll(sourceSection));
             } else {
                 // Update header count
-                const countElem = qualitySection.querySelector('.anlink-quality-count');
+                const countElem = sourceSection.querySelector('.anlink-source-count');
                 if (countElem) {
-                    const checked = qualitySection.querySelectorAll('.anlink-episode-checkbox:checked').length;
-                    countElem.textContent = checked ? `(${checked}/${sortedLinks[quality].length})` : `(${sortedLinks[quality].length})`;
-                    countElem.dataset.total = sortedLinks[quality].length;
+                    const checked = sourceSection.querySelectorAll('.anlink-episode-checkbox:checked').length;
+                    countElem.textContent = checked ? `(${checked}/${sortedLinks[source].length})` : `(${sortedLinks[source].length})`;
+                    countElem.dataset.total = sortedLinks[source].length;
                 }
-                episodeListElem = qualitySection.querySelector('.anlink-episode-list');
+                episodeListElem = sourceSection.querySelector('.anlink-episode-list');
             }
 
             // Update episode list items
@@ -1800,7 +1800,7 @@ async function extractEpisodes() {
                 const listItem = document.createElement('li');
                 listItem.className = 'anlink-episode-item';
                 const missingBeforeCount = i ? Math.max(0, (+ep.number || 0) - (+episodes[i - 1].number || 0) - 1) : 0;
-                const hasSubs = ep.links[quality].tracks?.some(t => /^(caption|subtitle)s?/.test(t.kind));
+                const hasSubs = ep.links[source].tracks?.some(t => /^(caption|subtitle)s?/.test(t.kind));
                 listItem.innerHTML = `
                     ${missingBeforeCount ? `<span class="anlink-episode-missing-count">——— Missing ${missingBeforeCount} episode${missingBeforeCount != 1 ? 's' : ''} ———</span>` : ''}
                     <div class="anlink-episode-main">
@@ -1824,8 +1824,8 @@ async function extractEpisodes() {
                     epnumSpan.innerHTML = `<img width="20" height="20" fill="#26a69a" src="https://a.fsdn.com/allura/p/mpv-player-windows/icon?1517058933"> ${ep.number.replace(/^0+/, '')}: `;
                     const label = _$('label', listItem);
                     label.after(Object.assign(document.createElement('button'), { className: 'anlink-quick-download', type: 'button', title: `Add episode ${ep.number} to downloads`, textContent: '⇩' }));
-                    label.after(Object.assign(document.createElement('span'), { className: 'anlink-referrer', title: `Referer: ${ep.links[quality].referer}`, textContent: `⌬ ${ep.links[quality].referer.split('://')[1]}` }));
-                    listItem.querySelector('.anlink-quick-download').addEventListener('click', event => onDownloadEpisodes([ep], quality, event.currentTarget));
+                    label.after(Object.assign(document.createElement('span'), { className: 'anlink-referrer', title: `Referer: ${ep.links[source].referer}`, textContent: `⌬ ${ep.links[source].referer.split('://')[1]}` }));
+                    listItem.querySelector('.anlink-quick-download').addEventListener('click', event => onDownloadEpisodes([ep], source, event.currentTarget));
                 });
                 listItem.addEventListener('mouseleave', () => {
                     episodeLinkElement.textContent = decodeURIComponent(link);
@@ -1835,7 +1835,7 @@ async function extractEpisodes() {
                 });
                 epnumSpan.addEventListener('click', e => {
                     e.preventDefault();
-                    location.replace(`${MPV_PROTOCOL}://play/` + safeBtoa(link) + `/?v_title=${safeBtoa(name)}&cookies=${location.hostname}.txt&referrer=${safeBtoa(ep.links[quality].referer || location.href)}` + (ep.links[quality].tracks?.some(t => t.kind === 'caption') ? `&subfile=${safeBtoa(ep.links[quality].tracks.filter(t => /^caption/.test(t.kind)).map(t => t.file).join(';'))}` : ''));
+                    location.replace(`${MPV_PROTOCOL}://play/` + safeBtoa(link) + `/?v_title=${safeBtoa(name)}&cookies=${location.hostname}.txt&referrer=${safeBtoa(ep.links[source].referer || location.href)}` + (ep.links[source].tracks?.some(t => t.kind === 'caption') ? `&subfile=${safeBtoa(ep.links[source].tracks.filter(t => /^caption/.test(t.kind)).map(t => t.file).join(';'))}` : ''));
                     showToast('Sent to MPV. If nothing happened, install v0.4.0+ of <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a>.');
                 });
                 episodeLinkElement.addEventListener('click', () => {
@@ -1858,7 +1858,7 @@ async function extractEpisodes() {
                         const isExpanded = subsList.classList.toggle('expanded');
                         subsToggle.textContent = isExpanded ? '🄰 Subs ▲' : '🄰 Subs ▼';
                         if (isExpanded && !subsList.hasChildNodes()) {
-                            ep.links[quality].tracks.filter(t => /^caption/.test(t.kind)).forEach(track => {
+                            ep.links[source].tracks.filter(t => /^caption/.test(t.kind)).forEach(track => {
                                 const subItem = document.createElement('div');
                                 subItem.className = 'anlink-sub-item';
                                 subItem.innerHTML = `└─ ${track.label || 'Subtitle'}: <a href="${track.file}" target="_blank">${track.file}</a>`;
@@ -1877,19 +1877,19 @@ async function extractEpisodes() {
             });
 
             // Restore expand state only if section was previously expanded
-            if (expandedState[quality]) {
-                const icon = qualitySection.querySelector('.anlink-quality-chevron');
+            if (expandedState[source]) {
+                const icon = sourceSection.querySelector('.anlink-source-chevron');
                 episodeListElem.style.maxHeight = `${episodeListElem.scrollHeight}px`;
                 icon.classList.add('rotate');
             }
         }
     }
 
-    function toggleQualitySection(event) {
-        const qualityName = event.currentTarget;
-        const qualitySection = qualityName.closest('.anlink-quality-section');
-        const episodeList = qualitySection.querySelector('.anlink-episode-list');
-        const icon = qualitySection.querySelector('.anlink-quality-chevron');
+    function toggleSourceSection(event) {
+        const sourceName = event.currentTarget;
+        const sourceSection = sourceName.closest('.anlink-source-section');
+        const episodeList = sourceSection.querySelector('.anlink-episode-list');
+        const icon = sourceSection.querySelector('.anlink-source-chevron');
         const isCollapsed = episodeList.style.maxHeight === '0px';
 
         if (isCollapsed) {
@@ -1901,15 +1901,15 @@ async function extractEpisodes() {
         }
     }
 
-    function toggleSelectAll(qualitySection) {
-        const checkboxes = Array.from(qualitySection.querySelectorAll('.anlink-episode-checkbox'));
+    function toggleSelectAll(sourceSection) {
+        const checkboxes = Array.from(sourceSection.querySelectorAll('.anlink-episode-checkbox'));
         const allChecked = checkboxes.every(cb => cb.checked);
         checkboxes.forEach(cb => cb.checked = !allChecked);
         checkboxes[0].dispatchEvent(new Event('change', { bubbles: true }));   // trigger change event to update counts
         // also select all the text
         if (!allChecked) {
             const range = document.createRange();
-            range.selectNodeContents(qualitySection.querySelector('ul'));
+            range.selectNodeContents(sourceSection.querySelector('ul'));
             const sel = window.getSelection();
             sel.removeAllRanges();
             sel.addRange(range);
@@ -1929,13 +1929,13 @@ async function extractEpisodes() {
         playBtn.addEventListener('click', () => onPlayAll(playBtn));
     };
 
-    // Helper to get all selected episodes across all qualities
+    // Helper to get all selected episodes across all sources
     function getAllSelectedEpisodes(selectAllWhenEmpty = true) {
         if (layoutMode === 'episodes') {
             const cards = [...episodeViewContainer.querySelectorAll('.anlink-episode-card')];
             const selected = {};
             const addCard = card => {
-                const source = card.dataset.quality;
+                const source = card.dataset.source;
                 if (source && card._linkData?.stream) (selected[source] ||= []).push(card);
             };
             const checkedCards = cards.filter(card => card.querySelector('.anlink-episode-checkbox')?.checked);
@@ -1946,18 +1946,18 @@ async function extractEpisodes() {
             return selected;
         }
         const selected = {};
-        AniLINKUI.queryAll('.anlink-quality-section').forEach(section => {
-            const quality = section.dataset.quality;
+        AniLINKUI.queryAll('.anlink-source-section').forEach(section => {
+            const source = section.dataset.source;
             const items = Array.from(section.querySelectorAll('.anlink-episode-item input:checked'))
                 .map(cb => cb.closest('.anlink-episode-item'));
-            if (items.length) selected[quality] = items;
+            if (items.length) selected[source] = items;
         });
         // If none selected, select all by default
         if (selectAllWhenEmpty && !Object.keys(selected).length) {
-            AniLINKUI.queryAll('.anlink-quality-section').forEach(section => {
-                const quality = section.dataset.quality;
+            AniLINKUI.queryAll('.anlink-source-section').forEach(section => {
+                const source = section.dataset.source;
                 const items = Array.from(section.querySelectorAll('.anlink-episode-item'));
-                selected[quality] = items;
+                selected[source] = items;
             });
         }
         return selected;
@@ -1967,7 +1967,7 @@ async function extractEpisodes() {
     function buildPlaylist(selected) {
         let out = '#EXTM3U\n';
         let previousReferer = '';
-        const addEpisode = (episode, link, quality) => {
+        const addEpisode = (episode, link, source) => {
             if (link.referer !== previousReferer) {
                 if (link.referer) out += `#EXTVLCOPT:http-referrer=${link.referer}\n`;
                 previousReferer = link.referer || '';
@@ -1980,14 +1980,14 @@ async function extractEpisodes() {
         };
         if (layoutMode === 'episodes') {
             selected._episodeOrder.forEach(card => {
-                const episode = card._episode, quality = card.dataset.quality, link = card._linkData;
-                if (episode && quality && link?.stream) addEpisode(episode, link, quality);
+                const episode = card._episode, source = card.dataset.source, link = card._linkData;
+                if (episode && source && link?.stream) addEpisode(episode, link, source);
             });
         } else {
-            for (const [quality, items] of Object.entries(selected)) {
+            for (const [source, items] of Object.entries(selected)) {
                 const epNums = items.map(i => i.querySelector('[data-epnum]').dataset.epnum);
-                const episodes = (window._anilink_episodes || []).filter(ep => ep.links[quality] && epNums.includes(ep.number));
-                episodes.forEach(ep => addEpisode(ep, ep.links[quality], quality));
+                const episodes = (window._anilink_episodes || []).filter(ep => ep.links[source] && epNums.includes(ep.number));
+                episodes.forEach(ep => addEpisode(ep, ep.links[source], source));
             }
         }
         return out;
@@ -2003,12 +2003,12 @@ async function extractEpisodes() {
         setTimeout(() => btn.textContent = 'Copy Links', 1000);
     }
 
-    async function onDownloadEpisodes(episodes, quality, source) {
+    async function onDownloadEpisodes(episodes, source, target) {
         try {
             const directorySelected = await anilinkDownloader.setDirectory();
             if (!directorySelected) return;
-            anilinkDownloaderUI.addEpisodes(episodes, quality, { show: false });
-            AniLINKUI.animateDrop(source);
+            anilinkDownloaderUI.addEpisodes(episodes, source, { show: false });
+            AniLINKUI.animateDrop(target);
             setTimeout(() => anilinkDownloaderUI.show(), 520);
             showToast(`${episodes.length} episode${episodes.length === 1 ? '' : 's'} added to downloads.`);
         } catch (error) { showToast(`Could not start downloads: ${dlUtils?.anlinkEscapeHtml?.(error.message || error) || error}`); }
@@ -2024,15 +2024,15 @@ async function extractEpisodes() {
                 if (!allEpisodes.length) return showToast('No episodes available to download');
                 const range = await showEpisodeRangeSelector(allEpisodes.length);
                 const episodes = allEpisodes.slice(range.start - 1, range.end);
-                const quality = Object.keys(episodes[0]?.links || {})[0];
-                if (!quality) return showToast('No downloadable source found');
-                return onDownloadEpisodes(episodes, quality, btn);
+                const source = Object.keys(episodes[0]?.links || {})[0];
+                if (!source) return showToast('No downloadable source found');
+                return onDownloadEpisodes(episodes, source, btn);
             }
             const tasks = [];
-            for (const [quality, items] of Object.entries(selected)) {
+            for (const [source, items] of Object.entries(selected)) {
                 const epNums = items.map(item => item.querySelector('[data-epnum]').dataset.epnum);
-                const episodes = (window._anilink_episodes || []).filter(ep => epNums.includes(ep.number) && ep.links[quality]);
-                if (episodes.length) tasks.push(...anilinkDownloaderUI.addEpisodes(episodes, quality, { show: false }));
+                const episodes = (window._anilink_episodes || []).filter(ep => epNums.includes(ep.number) && ep.links[source]);
+                if (episodes.length) tasks.push(...anilinkDownloaderUI.addEpisodes(episodes, source, { show: false }));
             }
             AniLINKUI.animateDrop(btn);
             setTimeout(() => anilinkDownloaderUI.show(), 520);
@@ -3141,7 +3141,7 @@ class Downloader {
         if (!record) throw new Error('Download history record not found.');
         if (!this.#dirHandle && !await this.setDirectory()) return null;
         const task = this.addTask(record.filename, record.anime, record.url, {
-            format: record.format, quality: record.quality, threads: record.threads,
+            format: record.format, source: record.source || record.quality, threads: record.threads,    // backwards compatibility for old history records (record.quality)
             speedLimitBps: record.speedLimitBps, referer: record.referer,
             preferredResolution: record.preferredResolution, subtitleDirectory: record.subtitleDirectory, tracks: record.tracks || []
         });
@@ -3226,7 +3226,7 @@ class Downloader {
             format: String(inferredFormat).toLowerCase().replace(/^\./, '').split('?')[0],
             allowBufferedFallback: options.allowBufferedFallback === true,
             allowLive: options.allowLive === true,
-            quality: options.quality,
+            source: options.source,
             preferredResolution: Math.max(0, Number(options.preferredResolution ?? this.#settings.preferredResolution) || 0),
             subtitleDirectory: dlUtils.anlinkSafeDirectoryName(options.subtitleDirectory ?? this.#settings.subtitleDirectory),
             tracks: Array.isArray(options.tracks) ? options.tracks.map(track => ({ ...track })) : []
@@ -3408,7 +3408,7 @@ class Downloader {
         const historyId = task._historyId || task.id;
         const record = {
             id: historyId, filename: task.filename, partialFilename: task._partialFilename || '', anime: task.anime, url: task.url, status: task.status,
-            format: task.options.format, quality: task.options.quality || '', threads: task.options.threads,
+            format: task.options.format, source: task.options.source || '', threads: task.options.threads,
             preferredResolution: task.options.preferredResolution, subtitleDirectory: task.options.subtitleDirectory, tracks: task.options.tracks, speedLimitBps: task.options.speedLimitBps,
             referer: task.options.referer || '', logs: task.logs, stats: { ...task._stats }, updatedAt: Date.now()
         };
@@ -3422,7 +3422,7 @@ class Downloader {
     #recordHistory(task) {
         const record = {
             id: task._historyId || task.id, filename: task.filename, partialFilename: task._partialFilename || '', anime: task.anime, url: task.url, status: task.status,
-            format: task.options.format, quality: task.options.quality || '', threads: task.options.threads,
+            format: task.options.format, source: task.options.source || '', threads: task.options.threads,
             preferredResolution: task.options.preferredResolution, subtitleDirectory: task.options.subtitleDirectory, tracks: task.options.tracks, speedLimitBps: task.options.speedLimitBps,
             referer: task.options.referer || '', logs: task.logs, stats: { ...task._stats }, updatedAt: Date.now()
         };
@@ -4100,21 +4100,21 @@ class DownloaderUI {
         AniLINKUI.updateFab();
     }
 
-    addEpisodes(episodes, quality, options = {}) {
+    addEpisodes(episodes, source, options = {}) {
         const { show = true, ...taskOptions } = options;
-        const tasks = episodes.map(episode => this.addEpisode(episode, quality, taskOptions));
+        const tasks = episodes.map(episode => this.addEpisode(episode, source, taskOptions));
         if (show) this.show();
         return tasks;
     }
 
-    addEpisode(episode, quality, options = {}) {
-        const link = episode.links?.[quality];
-        if (!link?.stream) throw new Error(`Episode ${episode.number} has no stream for ${quality}.`);
+    addEpisode(episode, source, options = {}) {
+        const link = episode.links?.[source];
+        if (!link?.stream) throw new Error(`Episode ${episode.number} has no stream for ${source}.`);
         const extension = link.type === '.m3u8' || link.type === 'm3u8' ? '.ts' : link.type || '.bin';
         const filename = `${episode.animeTitle} - ${String(episode.number).padStart(3, '0')}${episode.epTitle ? ` - ${episode.epTitle}` : ''}${extension}${SRC_IN_FN ? ` [${source}]` : ''}`;
         const task = this.downloader.addTask(filename, episode.animeTitle, link.stream, {
-            ...options, format: link.type, quality, headers: options.headers, referer: link.referer, threads: options.threads,
-            speedLimitBps: options.speedLimitBps, tracks: link.tracks || [], metadata: { episodeNumber: episode.number, quality }
+            ...options, format: link.type, source: source, headers: options.headers, referer: link.referer, threads: options.threads,
+            speedLimitBps: options.speedLimitBps, tracks: link.tracks || [], metadata: { episodeNumber: episode.number, source }
         });
         task.start().catch(() => { });
         return task;
@@ -4183,7 +4183,7 @@ class DownloaderUI {
         card.className = 'anilink-dl-task';
         card.dataset.taskId = task.id;
         card.innerHTML = `
-            <div class="anilink-dl-task-top"><div class="anilink-dl-task-name" title="${escape(displayFilename)}">${escape(displayFilename)}<div class="anilink-dl-task-meta">${escape(task.anime || 'Anime')} · ${escape(task.options.quality || task.options.format || 'source')}</div></div><span class="anilink-dl-status ${escape(task.status)}">${escape(displayStatus)}</span></div>
+            <div class="anilink-dl-task-top"><div class="anilink-dl-task-name" title="${escape(displayFilename)}">${escape(displayFilename)}<div class="anilink-dl-task-meta">${escape(task.anime || 'Anime')} · ${escape(task.options.source || task.options.format || 'source')}</div></div><span class="anilink-dl-status ${escape(task.status)}">${escape(displayStatus)}</span></div>
             <div class="anilink-dl-progress${progressState.indeterminate ? ' indeterminate' : ''}"><span style="width:${progressState.indeterminate ? 38 : progressState.percent}%"></span></div>
             <div class="anilink-dl-stats"><span data-field="size">${stats.filesize} / ${stats.totalsize}</span><span data-field="speed">${stats.speed}</span><span data-field="eta">ETA ${stats.eta}</span><span data-field="parts">Parts ${stats.completedSegments}/${stats.totalSegments || '?'}</span><span data-field="phase" hidden></span></div>
             ${task.error ? `<div class="anilink-dl-error">${escape(task.error)}</div>` : ''}
