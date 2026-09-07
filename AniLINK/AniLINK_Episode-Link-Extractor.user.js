@@ -85,6 +85,9 @@
 // ~~5. Fix keyboard input in modals.~~
 // 6. Work on the Todo in the downloader
 // 7. Make Play with a popover with support for more popular players.
+// 8. notifiicTION ICON
+// 9. DOnt remove partial files (add setting for this)
+// 10. Add track support setting to downloader defaulting to 'jp,jpn,japanese' for audio and 'en,eng,enUS,english' for captions (maybe handle for playlist export too?)
 
 // track last version for managing backwards compatability for script updates
 if (GM_info.script.version > GM_getValue('script_version', '0')) {
@@ -382,7 +385,7 @@ const Websites = [
 
             const res = await this._secureFetch(`${this.baseApiUrl}/episodes`, { query: { anilistId } });
             const eps = Object.entries(res.providers).reduce((a, [provider, { episodes }]) => (
-                Object.entries(episodes).forEach(([type, list]) => list.forEach(ep => (a[ep.number] ??= []).push({ ...ep, provider, type }))), a
+                Object.entries(episodes).forEach(([type, list]) => list.forEach(ep => (a[ep.number] ??= []).push({ ...ep, provider, type: ((['hop', 'bee'].includes(provider) && type == 'sub') ? 's' : "") + type }))), a
             ), {});
 
             const allSources = [...new Set(Object.values(eps).flat().map(e => this._getLocalSourceName(e.provider, e.type)))];
@@ -394,8 +397,9 @@ const Websites = [
                     const source = this._getLocalSourceName(provider, type);
                     try {
                         const sresJson = await this._secureFetch(`${this.baseApiUrl}/sources`, { query: { episodeId: id, provider, category: type } });
-                        const referer = `https://${{kaa:'kaa.to', zoro:'megacloud.blog', bonk:'vivibebe.site', kiwi:'kwik.cx', hop:'krussdomi.com', moo:'www.animegg.org', bee:'megaplay.buzz'}[provider] || location.host}/`;
-                        links[source] = { stream: sresJson.streams[0].url, type: "m3u8", tracks: sresJson.tracks || sresJson.subtitles || [], referer };
+                        const stream = sresJson.streams?.find(s => s.type === 'hls') || sresJson.streams?.[0];
+                        const referer = stream?.referer || `https://${{kaa:'kaa.to', zoro:'megacloud.blog', bonk:'anineko.to', kiwi:'kwik.cx', hop:'krussdomi.com', moo:'www.animegg.org', bee:'megaplay.buzz'}[provider] || location.host}/`;
+                        if (stream?.type === 'embed') { links[source] = await Extractors.use(stream.url, referer) } else links[source] = this._buildProxiedLink({ stream: stream.url, type: "m3u8", tracks: sresJson.tracks || sresJson.subtitles || [], referer });
                     } catch (e) { showToast(`Failed to fetch ep-${epNum} from ${source}: ${e}`); }
                 };
                 if (srcCfg?.mode === 'single') { for (const src of srcCfg.sources) { const e = eps[epNum].find(ep => this._getLocalSourceName(ep.provider, ep.type) === src); if (e) { await fetchSource(e); if (Object.keys(links).length) break; } } }
@@ -404,13 +408,25 @@ const Websites = [
             }
         },
         _secureFetch: async (url, options = {}) => {
-            const payload = { path: url.split('/api/').pop(), method: 'GET', query: options.query || {}, body: null, version: '0.1.0' };
+            const payload = { path: url.split('/api/').pop(), method: 'GET', query: options.query || {}, body: null, version: '0.2.0' };
             const encode = o => btoa(encodeURIComponent(JSON.stringify(o)).replace(/%([0-9A-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-            const decode = async s => JSON.parse(new TextDecoder().decode(await new Response(new Blob([Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()));
+			const decode2 = async s => { const raw = Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)); const key = [113,149,16,52,248,251,207,83,216,157,181,44,235,61,194,44]; for (let i = 0; i < raw.length; i++) raw[i] ^= key[i % key.length]; return JSON.parse(new TextDecoder().decode(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer())); };
+            const decode1 = async s => JSON.parse(new TextDecoder().decode(await new Response(new Blob([Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()));
             let res = await fetch(`${location.origin}/api/secure/pipe?e=${encode(payload)}`, { headers: { 'x-protocol-version': payload.version } });
             if (res.status == 500) { await new Promise(r => { showToast(`Error ${res.status}: Rate Limited! Waiting 60s before continuing...`, 60000); setTimeout(r, 60000) }); res = await fetch(`${location.origin}/api/secure/pipe?e=${encode(payload)}`, { headers: { 'x-protocol-version': payload.version } }); }
-            if (res.headers.get('x-obfuscated') === '1') return await decode(await res.text());
+            if (res.status == 444) throw new Error(`Error ${res.status}: Server is not reachable!`);
+            if (res.headers.get('x-obfuscated') === '2') return await decode2(await res.text());
+			if (res.headers.get('x-obfuscated') === '1') return await decode1(await res.text());
             return await res.json();
+        },
+        _buildProxiedLink: function(link) {
+            const K = [165,77,56,156,24,82,125,159,211,231,240,100,62,39,237,190],
+                hash = s => { let h = 0; for (let i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i); h |= 0; } return h; },
+                enc = v => { const b = Uint8Array.from(v, c => c.charCodeAt(0)); for (let i = 0; i < b.length; i++) b[i] ^= K[i % 16]; return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, ''); };
+            const h = hash(link.stream) & 1, u = (h ? 'https://s1.piltover.li/' : 'https://s1.watami.win/') + enc(link.stream) + (link.referer ? '~' + enc(link.referer) : '') + '/pl.m3u8';
+            if (link.tracks) for (const t of link.tracks) if (t.file) { const r = hash(t.file) & 1; t.file = (r ? 'https://s1.piltover.li/' : 'https://s1.watami.win/') + enc(t.file) + (link.referer ? '~' + enc(link.referer) : '') + '/sub.vtt'; }
+            link.stream = u; link.referer = 'https://strm.cx/';
+            return link;
         },
         _getLocalSourceName: function (source, type) {
             source = source.toLowerCase();
@@ -726,8 +742,15 @@ const Extractors = {
         const host = (new URL(embed)).host;
         referer = referer || 'https://' + host + '/';
         const id = await GM_fetch(embed, { headers: { Referer: referer } }).then(r => r.text()).then(t => t.match(/<title>File ([0-9]+)/)[1]);
-        const src = await GM_fetch(`https://${host}/stream/getSources?id=${id}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(e => e.json());
-        return { file: src.sources?.file, type: 'm3u8', tracks: src.tracks || [], referer };
+        let src = await GM_fetch(`https://${host}/stream/getSources?id=${id}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(e => e.json());
+        if (!src.sources && src.enc) {
+            const key = await crypto.subtle.importKey('raw', new TextEncoder().encode('i?LMTAx0Q6,:}50U\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0'), 'AES-CBC', false, ['decrypt']);
+            const dec = await crypto.subtle.decrypt({ name: 'AES-CBC', iv: new TextEncoder().encode("W0;27ToaUpl_P%'c") }, key, Uint8Array.from(atob(src.enc.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)));
+            src['sources'] = JSON.parse(new TextDecoder().decode(dec));
+        }
+        const file = src.sources?.file || (Array.isArray(src.sources) ? src.sources[0]?.file : null);
+        if (!file) throw new Error('Video URL not found in response');
+        return { file, type: 'm3u8', tracks: src.tracks || [], referer };
     },
     'megacloud.blog': async function (embed, referer) {
         // adapted from https://github.com/yuzono/aniyomi-extensions/blob/master/lib/megacloud-extractor/src/main/java/eu/kanade/tachiyomi/lib/megacloudextractor/MegaCloudExtractor.kt
