@@ -84,10 +84,11 @@
 // ~~4. Fix toast's close button positioning when displaying error~~
 // ~~5. Fix keyboard input in modals.~~
 // 6. Work on the Todo in the downloader
-// 7. Make "Play With" a popover with support for more popular players.
+// ~~7. Make "Play With" a popover with support for more popular players.~~
 // ~~8. notification icon (use script icon)~~
 // ~~9. DOnt remove partial files (add setting for this)~~
 // ~~10. Add track support setting to downloader defaulting to 'jp,jpn,japanese' for audio and 'en,eng,enUS,english' for captions (maybe handle for playlist export too?)~~
+// 11. move clear history button out of settings.
 
 // track last version for managing backwards compatability for script updates
 if (GM_info.script.version > GM_getValue('script_version', '0')) {
@@ -119,6 +120,71 @@ const DEFAULT_TRACK_LANGUAGE_PREFERENCES = Object.freeze({
 const ANILINK_GITHUB_REPO = 'https://github.com/jeryjs/Userscripts/tree/main/AniLINK';
 const ANILINK_GITHUB_ISSUES = `https://github.com/jeryjs/Userscripts/issues/new`;
 const ANILINK_GREASYFORK_PAGE = 'https://greasyfork.org/en/scripts/492029-anilink-episode-link-extractor';
+const PLAYERS = Object.freeze([
+    {
+        id: 'mpv-handler',
+        name: 'MPV (mpv-handler)',
+        icon: 'https://a.fsdn.com/allura/p/mpv-player-windows/icon?1517058933',
+        hint: 'Supports headers & subtitles',
+        buildUrl: ({ url: stream, title, referer, tracks }) => {
+            const subTracks = tracks?.filter(t => /^caption/.test(t.kind)) || [];
+            const subfile = subTracks.length ? `&subfile=${safeBtoa(subTracks.map(t => t.file).join(';'))}` : '';
+            return `${MPV_PROTOCOL}://play/${safeBtoa(stream)}/?v_title=${safeBtoa(title)}&cookies=${location.hostname}.txt&referrer=${safeBtoa(referer || location.href)}${subfile}`;
+        },
+        toastHelp: 'Sent to MPV. If nothing happened, install latest version (v0.4.0+) of <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a>.'
+    },
+    {
+        id: 'vlc',
+        name: 'VLC (VLC-web-protocol)',
+        icon: 'https://files.softicons.com/download/application-icons/sleek-xp-software-icons-by-deleket/png/32/VLC%20Media%20Player.png',
+        hint: 'Direct vlc:// stream',
+        buildUrl: ({ url }) => `vlc://${url}`,
+        toastHelp: 'Sent to VLC. If nothing happened, ensure you have installed <a href="https://github.com/milouz-corp/VLC-web-protocol" target="_blank" style="color:#1976d2;">VLC-web-protocol</a>.'
+    },
+    {
+        id: 'vlc-android',
+        name: 'VLC (Android)',
+        icon: 'https://files.softicons.com/download/system-icons/windows-8-metro-icons-by-dakirby309/png/48x48/Applications/VLC%20Media%20Player.png',
+        hint: 'Android VLC intent',
+        buildUrl: ({ url }) => buildAndroidIntent(url, 'org.videolan.vlc')
+    },
+    {
+        id: 'iina',
+        name: 'IINA (macOS)',
+        icon: 'https://raw.githubusercontent.com/iina/iina/master/iina/Assets.xcassets/AppIcon.appiconset/icon_512x512%402x.png',
+        hint: 'macOS open in IINA',
+        buildUrl: ({ url }) => `iina://weblink?url=${encodeURIComponent(url)}`
+    },
+    {
+        id: 'potplayer',
+        name: 'PotPlayer',
+        icon: 'https://files.softicons.com/download/application-icons/daum-potplayer-icon-by-mustafahaydar/png/32x32/dpp.png',
+        hint: 'Windows PotPlayer',
+        buildUrl: ({ url }) => `potplayer://${url}`
+    },
+    {
+        id: 'infuse',
+        name: 'Infuse (Apple)',
+        icon: 'https://f.fameile.net/upload/2025/06/KMzYHp.png',
+        hint: 'iOS / macOS Infuse',
+        buildUrl: ({ url }) => `infuse://control/play?url=${encodeURIComponent(url)}`
+    },
+    {
+        id: 'kodi',
+        name: 'Kodi',
+        icon: 'https://media.imgcdn.org/repo/2023/03/kodi-apk/kodi-icon.png',
+        hint: 'Desktop, TV, and mobile Kodi',
+        buildUrl: ({ url }) => `kodi://play/?url=${encodeURIComponent(url)}`,
+        toastHelp: 'Sent to Kodi. If nothing happened, enable <b>Web Interface</b> in System Settings → Services → Control.'
+    },
+    {
+        id: 'mxplayer',
+        name: 'MX Player (Android)',
+        icon: 'https://www.softexia.com/wp-content/uploads/2025/02/MX_Player_logo.webp',
+        hint: 'Android MX Player intent',
+        buildUrl: ({ url }) => buildAndroidIntent(url, 'com.mxtech.videoplayer.ad')
+    }
+]);
 
 /**
  * Represents an anime episode with metadata and streaming links.
@@ -1026,6 +1092,11 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
  */
 const safeBtoa = str => btoa(unescape(encodeURIComponent(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
+/**
+ * Builds an Android intent URL for opening a video in a specific app.
+ */
+const buildAndroidIntent = (url, packageName) => `intent:${url}#Intent;package=${packageName};type=video/*;scheme=${new URL(url).protocol.replace(':', '')};end`;
+
 // ============================== \\
 // initialize
 
@@ -1136,9 +1207,20 @@ async function extractEpisodes() {
         .anlink-status-icon { background: transparent; border: none; color: #d9eeeb; cursor: pointer; padding-right: 10px; } /* status icon style */
         .anlink-status-icon i { display: inline-block; font: 700 24px/1 system-ui, sans-serif; transition: transform 0.3s ease-in-out; } /* Icon size and transition */
         .anlink-status-icon i.extracting { animation: spinning 2s linear infinite; } /* Spinner animation class */
-        .anlink-header-buttons { display: flex; gap: 10px; }
+        .anlink-header-buttons { position: relative; display: flex; gap: 10px; }
         .anlink-header-buttons button { border: 1px solid rgba(255,255,255,.12); border-radius: 7px; padding: 8px 12px; background: rgba(255,255,255,.05); color: #d4e7e4; cursor: pointer; font: 11px system-ui, sans-serif; transition: border-color .2s, background .2s, color .2s; }
         .anlink-header-buttons button:hover { border-color: #26a69a; background: rgba(38,166,154,.18); color: #7ce4d8; }
+        .anlink-play-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 100; min-width: 230px; padding: 10px; border: 1px solid var(--anlink-glass-border); border-radius: 12px; background: var(--anlink-glass-bg); box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); animation: anlink-episode-popover-in .18s ease-out; }
+        .anlink-play-heading { margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--anlink-glass-border-soft); color: #dffaf6; font: 600 12px/1.3 system-ui, sans-serif; }
+        .anlink-player-list { display: flex; flex-direction: column; gap: 4px; }
+        .anlink-player-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; background: rgba(255,255,255,.04); color: #d4e7e4; cursor: pointer; text-align: left; transition: background .2s, border-color .2s, transform .15s; }
+        .anlink-player-item:hover, .anlink-player-item:focus-visible { border-color: #26a69a; background: rgba(38,166,154,.18); color: #9ff1e6; outline: none; transform: translateY(-1px); }
+        .anlink-player-icon { width: 20px; height: 20px; object-fit: contain; flex-shrink: 0; }
+        .anlink-preferred-player-icon { display: inline-block; width: auto; height: auto; object-fit: contain; vertical-align: middle; }
+        .anlink-player-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+        .anlink-player-name { font: 600 12px/1.2 system-ui, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .anlink-player-hint { font: 10px/1.2 system-ui, sans-serif; color: #829794; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .anlink-player-badge { font-size: 10px; color: #65d6c8; margin-left: auto; flex-shrink: 0; }
         .anlink-quick-download { margin-left: 8px; width: 22px; height: 22px; padding: 0; border: 1px solid #26a69a; border-radius: 50%; background: rgba(38,166,154,.12); color: #7ce4d8; cursor: pointer; font-weight: 700; line-height: 18px; transition: transform .18s, background .18s; }
         .anlink-quick-download:hover { transform: translateY(-2px) scale(1.08); background: #26a69a; color: #fff; }
         .anlink-source-section { margin-top: 18px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 12px; background: var(--anlink-glass-surface); }
@@ -1169,6 +1251,7 @@ async function extractEpisodes() {
         .anlink-sub-item { padding: 2px 0; width: max-content; user-select: none; }
         .anlink-sub-item a { color: #64b5f6; text-overflow: ellipsis; overflow: hidden; display: inline; user-select: text; }
         .anlink-sub-item a:hover { color: #90caf9; text-decoration: underline; }
+        .hidden { display: none !important; }
         button[data-action] * { pointer-events: none; }
         @media (max-width: 680px) {
             #AniLINK_Overlay { padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
@@ -1344,7 +1427,7 @@ async function extractEpisodes() {
         <button type="button" class="anlink-copy-all">Copy</button>
         <button type="button" class="anlink-export-all">Export</button>
         <button type="button" class="anlink-download-selected">Download</button>
-        <button type="button" class="anlink-play-all">Play with MPV</button>
+        <button type="button" class="anlink-play-all">Play With ▼</button>
     `;
     statusBarHeader.appendChild(headerButtons);
     attachHeaderButtons();
@@ -1565,9 +1648,10 @@ async function extractEpisodes() {
 
         const actions = Object.assign(document.createElement('div'), { className: 'anlink-episode-card-actions' });
         const downloadButton = Object.assign(document.createElement('button'), { type: 'button', className: 'anlink-episode-card-action', textContent: '⇩', title: 'Download episode' });
-        const mpvButton = Object.assign(document.createElement('button'), { type: 'button', className: 'anlink-episode-card-action', title: 'Play episode with MPV' });
-        mpvButton.innerHTML = '<img width="18" height="18" src="https://a.fsdn.com/allura/p/mpv-player-windows/icon?1517058933" alt="MPV">';
-        actions.append(downloadButton, mpvButton);
+        const playerButton = Object.assign(document.createElement('button'), { type: 'button', className: 'anlink-episode-card-action', title: 'Play episode', innerHTML: '<img src="" alt="▶" class="anlink-preferred-player-icon" style="width: 18px; height: 18px;">' });
+        playerButton.dataset.playerAction = 'preferred';
+        playerButton.setAttribute('aria-label', 'Play episode');
+        actions.append(downloadButton, playerButton);
 
         const content = Object.assign(document.createElement('div'), { className: 'anlink-episode-card-content' });
         const title = Object.assign(document.createElement('strong'), { className: 'anlink-episode-card-title' });
@@ -1638,10 +1722,10 @@ async function extractEpisodes() {
             event.stopPropagation();
             if (card._linkData?.stream) onDownloadEpisodes([card._episode], card._source, event.currentTarget);
         });
-        mpvButton.addEventListener('click', event => {
+        playerButton.addEventListener('click', event => {
             event.preventDefault();
             event.stopPropagation();
-            if (card._linkData?.stream) playEpisodeInMpv(card._episode, card._linkData);
+            if (card._linkData?.stream) playWithPlayer(getPreferredPlayer(), { episode: card._episode, linkData: card._linkData });
         });
         return card;
     }
@@ -1654,7 +1738,8 @@ async function extractEpisodes() {
         const hiddenLink = card.querySelector('.anlink-episode-card-link');
         const copyButton = card.querySelector('.anlink-episode-copy');
         const downloadButton = card.querySelector('.anlink-episode-card-action');
-        const mpvButton = card.querySelectorAll('.anlink-episode-card-action')[1];
+        const playerButton = card.querySelectorAll('.anlink-episode-card-action')[1];
+        const playerIcon = playerButton.querySelector('.anlink-preferred-player-icon');
 
         const previousLinkKey = card._linkKey;
         if (card._previewLinkKey && previousLinkKey !== linkKey) stopEpisodePreview(card);
@@ -1685,7 +1770,9 @@ async function extractEpisodes() {
         checkbox.checked = !!linkData?.stream && card._selected;
         checkbox.disabled = !linkData?.stream;
         downloadButton.disabled = !linkData?.stream;
-        mpvButton.disabled = !linkData?.stream;
+        playerButton.disabled = !linkData?.stream;
+        playerIcon.src = getPreferredPlayer()?.icon;
+        playerButton.setAttribute('aria-label', playerButton.title);
         copyButton.disabled = !linkData?.stream;
         if (linkData?.stream) {
             hiddenLink.href = linkData.stream;
@@ -1723,10 +1810,149 @@ async function extractEpisodes() {
         card.classList.remove('is-previewing');
     }
 
-    function playEpisodeInMpv(episode, linkData) {
-        const name = episode.filename;
-        location.replace(`${MPV_PROTOCOL}://play/` + safeBtoa(linkData.stream) + `/?v_title=${safeBtoa(name)}&cookies=${location.hostname}.txt&referrer=${safeBtoa(linkData.referer || location.href)}` + (linkData.tracks?.some(track => track.kind === 'caption') ? `&subfile=${safeBtoa(linkData.tracks.filter(track => /^caption/.test(track.kind)).map(track => track.file).join(';'))}` : ''));
-        showToast('Sent to MPV. If nothing happened, install v0.4.0+ of <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a>.');
+    function getPreferredPlayer() {
+        return PLAYERS.find(player => player.id === GM_getValue('preferred_player', 'mpv-handler')) || PLAYERS[0];
+    }
+
+    let _activePlayPopover = null;
+    function showPlayWithPopover(anchorEl) {
+        if (_activePlayPopover) {
+            const isSameAnchor = _activePlayPopover.anchor === anchorEl;
+            if (isSameAnchor) return;
+            _activePlayPopover.close();
+        }
+
+        const preferredId = GM_getValue('preferred_player', 'mpv-handler');
+        const popover = document.createElement('div');
+        popover.className = 'anlink-play-popover';
+        const heading = Object.assign(document.createElement('div'), { className: 'anlink-play-heading', textContent: 'Play with...' });
+        const playerList = Object.assign(document.createElement('div'), { className: 'anlink-player-list' });
+        const playerButtons = new Map();
+        let closeTimer = null;
+        const cancelClose = () => { clearTimeout(closeTimer); closeTimer = null; };
+        const close = () => {
+            cancelClose();
+            anchorEl.removeEventListener('mouseenter', cancelClose);
+            anchorEl.removeEventListener('mouseleave', scheduleClose);
+            popover.removeEventListener('mouseenter', cancelClose);
+            popover.removeEventListener('mouseleave', scheduleClose);
+            popover.remove();
+            AniLINKUI.root.removeEventListener('click', outsideClick);
+            if (_activePlayPopover?.popover === popover) _activePlayPopover = null;
+        };
+        const scheduleClose = () => {
+            cancelClose();
+            closeTimer = setTimeout(close, 180);
+        };
+        PLAYERS.forEach(player => {
+            const button = Object.assign(document.createElement('button'), { type: 'button', className: 'anlink-player-item' });
+            button.setAttribute('aria-label', `Play with ${player.name}`);
+            const icon = Object.assign(document.createElement('img'), { className: 'anlink-player-icon', alt: '', loading: 'lazy' });
+            icon.src = player.icon;
+            icon.addEventListener('error', () => { icon.hidden = true; });
+            const info = Object.assign(document.createElement('div'), { className: 'anlink-player-info' });
+            info.append(
+                Object.assign(document.createElement('span'), { className: 'anlink-player-name', textContent: player.name }),
+                Object.assign(document.createElement('span'), { className: 'anlink-player-hint', textContent: player.hint })
+            );
+            button.append(icon, info);
+            if (player.id === preferredId) button.append(Object.assign(document.createElement('span'), { className: 'anlink-player-badge', textContent: '★' }));
+            button.addEventListener('click', event => {
+                event.preventDefault();
+                event.stopPropagation();
+                close();
+                onPlayAll(anchorEl, player);
+            });
+            playerButtons.set(player.id, button);
+            playerList.appendChild(button);
+        });
+        popover.append(heading, playerList);
+
+        const parent = anchorEl.closest('.anlink-header-buttons, .anlink-episode-card-actions, .anlink-episode-main') || anchorEl.parentElement || anchorEl;
+        if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
+        parent.appendChild(popover);
+
+        const outsideClick = event => {
+            if (!popover.contains(event.target) && !anchorEl.contains(event.target)) close();
+        };
+
+        popover.addEventListener('click', event => event.stopPropagation());
+        popover.addEventListener('keydown', event => {
+            if (event.key === 'Escape') { event.preventDefault(); close(); anchorEl.focus(); }
+        });
+        anchorEl.addEventListener('mouseenter', cancelClose);
+        anchorEl.addEventListener('mouseleave', scheduleClose);
+        popover.addEventListener('mouseenter', cancelClose);
+        popover.addEventListener('mouseleave', scheduleClose);
+        setTimeout(() => {
+            AniLINKUI.root.addEventListener('click', outsideClick);
+            (playerButtons.get(preferredId) || playerButtons.get(PLAYERS[0].id))?.focus();
+        }, 0);
+
+        _activePlayPopover = { popover, anchor: anchorEl, close };
+    }
+
+    async function playWithPlayer(player, options = {}) {
+        GM_setValue('preferred_player', player.id);
+
+        const { isBatch, selected, btn, episode, linkData } = options;
+        if (isBatch && btn) btn.textContent = 'Processing...';
+
+        // Update all preferred player icons and titles in the UI
+        AniLINKUI.queryAll('.anlink-preferred-player-icon').forEach(element => element.src = player.icon);
+        AniLINKUI.queryAll('[data-player-action="preferred"]').forEach(element => {
+            element.title = `Play episode with ${player.name}`;
+            element.setAttribute('aria-label', element.title);
+        });
+
+        // Launch external player with proper handling for intent URLs
+        const launchExternalPlayer = (url) => new Promise((resolve, reject) => {
+            let settled = false, done = (result) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                document.removeEventListener('visibilitychange', onVisibilityChange);
+                result();
+            };
+
+            const onVisibilityChange = () => { if (document.hidden) done(resolve); };
+
+            document.addEventListener('visibilitychange', onVisibilityChange);
+
+            try { location.replace(url); } catch (e) { done(() => reject(e)); return; }
+
+            const timer = setTimeout(() => {
+                done(() => {
+                    if (!document.hidden) { reject(new Error('Could not launch player. The scheme may not have a registered handler, or the browser blocked the launch.')); }
+                    else { resolve(); }
+                });
+            }, 1000);
+        });
+
+        try {
+            let url, title, referer, tracks;
+            if (isBatch) {
+                const playlistBody = buildPlaylist(selected);
+                const playlistUrl = await GM_fetch('https://xi.pe/', { method: 'POST', body: playlistBody }).then(r => r.text()).then(t => t.trim() + "?raw");
+                GM_setClipboard(playlistUrl, "text", () => console.log('Playlist URL:', playlistUrl));
+                url = playlistUrl;
+                title = window._anilink_episodes?.[0]?.animeTitle || 'Anime';
+                const firstLink = Object.values(window._anilink_episodes?.[0]?.links || {})[0];
+                referer = firstLink?.referer || location.origin;
+            } else {
+                url = linkData.stream;
+                title = episode.filename || episode.animeTitle;
+                referer = linkData.referer || location.href;
+                tracks = linkData.tracks || [];
+            }
+            const launchUrl = player.buildUrl({ url, title, referer, tracks });
+            showToast(player.toastHelp || `${isBatch ? 'Sent playlist' : 'Sent episode'} to ${player.name}.<br/>Copied url: <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
+            await launchExternalPlayer(launchUrl);
+        } catch (error) {
+            showToast(`Could not play with ${player.name}: ${error.message || error}`);
+        } finally {
+            if (isBatch && btn) setTimeout(() => btn.textContent = 'Play With ▼', 1200);
+        }
     }
 
     function persistEpisodeSourceOrder() {
@@ -1882,7 +2108,7 @@ async function extractEpisodes() {
                     <div class="anlink-episode-main">
                         <label>
                             <input type="checkbox" class="anlink-episode-checkbox" />
-                            <span class="mpv-epnum" title="Play in MPV">Ep ${ep.number.replace(/^0+/, '')}: </span>
+                            <span class="player-epnum" title="Play episode"><img fill="#26a69a" class="anlink-preferred-player-icon hidden" alt='▶' style="width: 20px; height: 20px;" /><a>Ep ${ep.number.replace(/^0+/, '')}: </a></span>
                             <a href="${ep.links[source].stream}" class="anlink-episode-link" download="${encodeURI(ep.filename + (SRC_IN_FN ? ` [${source}]` : ''))}" data-epnum="${ep.number}" data-ep=${encodeURI(JSON.stringify({ ...ep, links: undefined }))} >${ep.links[source].stream}</a>
                         </label>
                         ${hasSubs ? '<span class="anlink-subs-toggle" title="Shift+Click to toggle all episodes\' subtitles">🄰 Subs ▼</span>' : ''}
@@ -1890,14 +2116,18 @@ async function extractEpisodes() {
                     ${hasSubs ? '<div class="anlink-subs-list"></div>' : ''}
                 `;
                 const episodeLinkElement = listItem.querySelector('.anlink-episode-link');
-                const epnumSpan = listItem.querySelector('.mpv-epnum');
+                const epnumSpan = listItem.querySelector('.player-epnum');
+                const playerIcon = listItem.querySelector('.anlink-preferred-player-icon');
                 const link = episodeLinkElement.href;
                 const name = decodeURIComponent(episodeLinkElement.download);
+                playerIcon.src = getPreferredPlayer().icon;
 
-                // On hover, show MPV icon & file name & referer
+                // On hover, show player icon, file name, and referer
                 listItem.addEventListener('mouseenter', () => {
                     window.getSelection().isCollapsed && (episodeLinkElement.textContent = name);
-                    epnumSpan.innerHTML = `<img width="20" height="20" fill="#26a69a" src="https://a.fsdn.com/allura/p/mpv-player-windows/icon?1517058933"> ${ep.number.replace(/^0+/, '')}: `;
+                    epnumSpan.querySelector('a').textContent = `${ep.number.replace(/^0+/, '')}: `;
+                    playerIcon.classList.remove('hidden');
+                    playerIcon.src = getPreferredPlayer().icon;
                     const label = _$('label', listItem);
                     label.after(Object.assign(document.createElement('button'), { className: 'anlink-quick-download', type: 'button', title: `Add episode ${ep.number} to downloads`, textContent: '⇩' }));
                     label.after(Object.assign(document.createElement('span'), { className: 'anlink-referrer', title: `Referer: ${ep.links[source].referer}`, textContent: `⌬ ${ep.links[source].referer.split('://')[1]}` }));
@@ -1905,14 +2135,16 @@ async function extractEpisodes() {
                 });
                 listItem.addEventListener('mouseleave', () => {
                     episodeLinkElement.textContent = decodeURIComponent(link);
-                    epnumSpan.textContent = `Ep ${ep.number.replace(/^0+/, '')}: `;
+                    epnumSpan.querySelector('a').textContent = `Ep ${ep.number.replace(/^0+/, '')}: `;
+                    playerIcon.classList.add('hidden');
                     listItem.querySelector('.anlink-referrer')?.remove();
                     listItem.querySelector('.anlink-quick-download')?.remove();
                 });
+                epnumSpan.title = 'Play episode';
                 epnumSpan.addEventListener('click', e => {
                     e.preventDefault();
-                    location.replace(`${MPV_PROTOCOL}://play/` + safeBtoa(link) + `/?v_title=${safeBtoa(name)}&cookies=${location.hostname}.txt&referrer=${safeBtoa(ep.links[source].referer || location.href)}` + (ep.links[source].tracks?.some(t => t.kind === 'caption') ? `&subfile=${safeBtoa(ep.links[source].tracks.filter(t => /^caption/.test(t.kind)).map(t => t.file).join(';'))}` : ''));
-                    showToast('Sent to MPV. If nothing happened, install v0.4.0+ of <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a>.');
+                    e.stopPropagation();
+                    playWithPlayer(getPreferredPlayer(), { episode: ep, linkData: ep.links[source] });
                 });
                 episodeLinkElement.addEventListener('click', () => {
                     // fetch(episodeLinkElement.href, { method: 'HEAD', headers })
@@ -2002,6 +2234,7 @@ async function extractEpisodes() {
         copyBtn?.addEventListener('click', () => onCopyAll(copyBtn));
         exportBtn.addEventListener('click', () => onExportAll(exportBtn));
         downloadBtn?.addEventListener('click', event => onDownloadSelected(event.currentTarget));
+        playBtn.addEventListener('mouseenter', () => showPlayWithPopover(playBtn));
         playBtn.addEventListener('click', () => onPlayAll(playBtn));
     };
 
@@ -2127,15 +2360,10 @@ async function extractEpisodes() {
         setTimeout(() => btn.textContent = 'Export', 1000);
     }
 
-    async function onPlayAll(btn) {
+    function onPlayAll(btn, player = getPreferredPlayer()) {
         const selected = getAllSelectedEpisodes();
         if (!Object.keys(selected).length) return showToast('No episodes selected');
-        btn.textContent = 'Processing...';
-        const url = await GM_fetch('https://xi.pe/', { method: 'POST', body: buildPlaylist(selected) }).then(r => r.text()).then(t => t.trim() + "?raw");
-        GM_setClipboard(url, "text", () => console.log(`Playlist URL: `, url));
-        location.replace(`${MPV_PROTOCOL}://play/` + safeBtoa(url) + '/?v_title=' + safeBtoa((window._anilink_episodes?.[0]?.animeTitle || 'Anime')) + `&cookies=${location.hostname}.txt&referrer=${safeBtoa((Object.values(window._anilink_episodes?.[0].links)[0]?.referer || location.origin))}`);
-        btn.textContent = 'Sent to MPV';
-        setTimeout(() => { btn.textContent = 'Play with MPV'; showToast('If nothing happened, install v0.4.0+ of <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a>.'); }, 1000);
+        playWithPlayer(player, { isBatch: true, selected, btn });
     }
 }
 
@@ -2668,11 +2896,6 @@ function showToast(message, duration = 5000) {
             t.style.top = `${20 + index * toastHeight}px`;
         });
     }
-}
-
-// On overlay open, show a help link for mpv-handler if not detected
-function showMPVHandlerHelp() {
-    showToast('To play directly in MPV, install <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a> and reload this page.');
 }
 
 // Simple query selector shortcuts
@@ -4365,6 +4588,7 @@ class DownloaderUI {
                 <div><label>Default speed limit (KB/s, 0 = unlimited)</label><input name="defaultSpeedLimitBps" type="number" min="0" placeholder="0" value="${Number.isFinite(settings.defaultSpeedLimitBps) ? Math.round(settings.defaultSpeedLimitBps / 1024) : 0}"></div>
                 <div><label>Preferred stream resolution (360, 720, 1080, etc)</label><input name="preferredResolution" type="number" min="0" step="1" value="${settings.preferredResolution || ''}" placeholder="Auto"></div>
                 <div><label>Subtitle folder (blank = alongside video)</label><input name="subtitleDirectory" type="text" value="${escape(settings.subtitleDirectory || '')}" placeholder="Optional folder name">${window.showDirectoryPicker ? '<small>This feature might not be supported in your browser. See <a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/showDirectoryPicker#browser_compatibility" target="_blank">MDN</a> for more information.</small>' : ''}</div>
+                <div><label>History retention</label><input name="historyLimit" type="number" min="1" max="100" placeholder="15" value="${Math.min(100, settings.historyLimit)}"></div>
                 <div><label>Preferred audio languages</label><input name="audioTrackLanguages" type="text" value="${escape(settings.audioTrackLanguages)}" placeholder="jp,jpn,japanese"><small>Comma-separated language codes or names; blank keeps all audio tracks.</small></div>
                 <div><label>Preferred caption languages</label><input name="captionTrackLanguages" type="text" value="${escape(settings.captionTrackLanguages)}" placeholder="en,eng,enUS,english"><small>Comma-separated language codes or names; blank keeps all captions.</small></div>
                 <div style="display: flex; flex-direction: column;"><label style="margin-bottom: -4px;">Always show floating button</label><label style="display: flex; align-items: center; gap: 12px; background-color: #18211f; border: 1px solid #343c3a; border-radius: 6px; padding: 6px 10px; cursor: pointer;"><input name="fabAlwaysVisible" type="checkbox" ${settings.fabAlwaysVisible === true ? 'checked' : ''} onchange="this.nextElementSibling.textContent = this.checked ? 'True' : 'False'" style="accent-color: #3f51b5; width: 14px; height: 14px; margin: 0; cursor: pointer;"><span style="font-size: 14px; font-family: sans-serif; opacity: 0.85;">${settings.fabAlwaysVisible === true ? 'True' : 'False'}</span></label></div>
@@ -4375,7 +4599,6 @@ class DownloaderUI {
                     <option value="completed-and-failed" ${settings.notifications==='completed-and-failed' ? 'selected' : ''}>Completed and failed</option>
                     <option value="all" ${settings.notifications==='all' ? 'selected' : '' }>All state changes</option>
                 </select></div>
-                <div><label>History retention</label><input name="historyLimit" type="number" min="1" max="100" placeholder="15" value="${Math.min(100, settings.historyLimit)}"></div>
             </div>
             <div class="anilink-dl-actions"><button type="button" data-action="clear-history">Clear history</button></div>
             <div class="anilink-dl-help">Need help? <a href="https://github.com/jeryjs/Userscripts/issues/new?title=%5BAniLINK%5D%20Downloader%20issue&body=%23%23%20Description%0A%0A%23%23%20Steps%20to%20reproduce%0A1.%20%0A2.%20%0A%0A%23%23%20Expected%20behavior%0A-%20Browser%3A%20%0A-%20Userscript%20manager%3A%20" target="_blank">Report an issue on GitHub</a></div>
