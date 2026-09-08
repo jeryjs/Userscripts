@@ -87,7 +87,7 @@
 // 7. Make Play with a popover with support for more popular players.
 // 8. notifiicTION ICON
 // ~~9. DOnt remove partial files (add setting for this)~~
-// 10. Add track support setting to downloader defaulting to 'jp,jpn,japanese' for audio and 'en,eng,enUS,english' for captions (maybe handle for playlist export too?)
+// ~~10. Add track support setting to downloader defaulting to 'jp,jpn,japanese' for audio and 'en,eng,enUS,english' for captions (maybe handle for playlist export too?)~~
 
 // track last version for managing backwards compatability for script updates
 if (GM_info.script.version > GM_getValue('script_version', '0')) {
@@ -110,8 +110,12 @@ const MPV_PROTOCOL = GM_getValue('MPV_PROTOCOL', 'mpv-handler'); // you can set 
 const SRC_IN_FN = GM_getValue('include_source_in_filename', true); // Whether the exported playlist filename should include the source name that you chose as well
 const PREFER_JAP_TITLE = GM_getValue('prefer_jap_title', false); // Prefer taking the japenese/romaji titles from sites where relevant like animepahe
 const UNSUPPORTED_DOWNLOAD_URL_PATTERNS = [
-    /^https:\/\/megap\.*$/i
+    /^https:\/\/megap\..*$/i
 ];
+const DEFAULT_TRACK_LANGUAGE_PREFERENCES = Object.freeze({
+    audioTrackLanguages: 'jp,jpn,japanese,en,eng,english',
+    captionTrackLanguages: 'en,eng,enUS,english'
+});
 const ANILINK_GITHUB_REPO = 'https://github.com/jeryjs/Userscripts/tree/main/AniLINK';
 const ANILINK_GITHUB_ISSUES = `https://github.com/jeryjs/Userscripts/issues/new`;
 const ANILINK_GREASYFORK_PAGE = 'https://greasyfork.org/en/scripts/492029-anilink-episode-link-extractor';
@@ -145,7 +149,7 @@ class Episode {
             if (linkObj.file) linkObj.stream = linkObj.file; delete linkObj.file; // Move file to stream for consistency, then delete file property
             linkObj.referer ??= location.origin + '/' ; // Set referer to current domain if not present
             linkObj.type = (linkObj.type?.startsWith('.') || (linkObj.type === 'embed')) ? linkObj.type : `.${linkObj.type || 'm3u8'}`; // Ensure type starts with a dot, but not for 'embed'. Default to '.m3u8' if type is not provided.
-            linkObj.tracks?.forEach?.(track => track.kind = /^(caption|subtitle)s?/.test(track.kind) ? 'caption' : track.kind); // normalize all 'kind' values's subtitle(s) or caption(s) to 'caption'
+            linkObj.tracks?.forEach?.(track => track.kind = (trackKind(track) === 'caption') ? 'caption' : track.kind); // normalize all 'kind' values's subtitle(s) or caption(s) to 'caption'
             linkObj.tracks?.forEach?.(track => track.file &&= new URL(track.file, location.origin).href);   // Ensure track file URLs are absolute
         }
         return links;
@@ -1023,8 +1027,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const safeBtoa = str => btoa(unescape(encodeURIComponent(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 // ============================== \\
-
 // initialize
+
 if (window.top !== window.self) throw new Error('[AniLINK] Skipping embedded frame.');
 console.log('[AniLINK] Initializing...');
 const site = Websites.find(site => site.url.some(url => window.location.href.includes(url)));
@@ -1051,6 +1055,55 @@ GM_addStyle(`html:has(> button.open-info-popup.floatbutton) #AniLINK_UIHost:not(
     --anlink-fab-bottom: 108px;
     --anlink-fab-size: 56px;
 }`);
+
+// ============================= \\
+// Functions shared across views
+
+/**
+ * Normalizes a track language setting by removing duplicates and trimming whitespace.
+ * @param {string | string[]} value - The language value(s) to normalize.
+ * @param {string} fallback - The fallback value to use if the input is empty or null.
+ * @returns {string} The normalized language setting.
+ */
+const normalizeTrackLanguageSetting = (value, fallback = '') => [...new Set((Array.isArray(value) ? value : String(value ?? fallback).split(','))
+    .map(language => String(language).trim()).filter(Boolean))].join(',');
+
+/**
+ * Determines the kind of a track based on its properties.
+ * @param {{kind?: string}} track - The track object to analyze.
+ * @returns {string|null} The kind of the track, or null if it cannot be determined.
+ */
+const trackKind = track => {
+    const kind = String(track?.kind || 'caption').toLowerCase();
+    if (/^(caption|captions|subtitle|subtitles)$/.test(kind)) return 'caption';
+    if (/^(audio|audios|music)$/.test(kind)) return 'audio';
+    return null;
+};
+
+/**
+ * Filters an array of tracks based on the user's language preferences.
+ * @param {{kind?: string}[]} tracks - The array of track objects to filter.
+ * @param {{audioTrackLanguages?: string | string[], captionTrackLanguages?: string | string[]}} settings - The user's language preference settings.
+ * @returns {Array} The filtered array of tracks that match the user's preferences.
+ */
+function filterTracksByLanguagePreferences(tracks, settings = DEFAULT_TRACK_LANGUAGE_PREFERENCES) {
+    const supportedTracks = (tracks || []).filter(track => trackKind(track));
+    const trackMatchesLanguages = (track, languages) => {
+        const preferences = new Set(normalizeTrackLanguageSetting(languages).toLowerCase().split(',').map(language => language.replace(/[^a-z0-9]+/g, '')).filter(Boolean));
+        const trackLanguageValues = track => [...new Set([track?.language, track?.lang, track?.label, track?.title, track?.name]
+            .filter(Boolean).flatMap(value => {
+                const text = String(value).toLowerCase();
+                return [text.replace(/[^a-z0-9]+/g, ''), ...text.split(/[^a-z0-9]+/).filter(Boolean)];
+            }))];
+        return !preferences.size || trackLanguageValues(track).some(value => preferences.has(value));
+    };
+    return supportedTracks.filter(track => {
+        const kind = trackKind(track);
+        const languages = kind === 'audio' ? settings.audioTrackLanguages : settings.captionTrackLanguages;
+        const sameKindTracks = supportedTracks.filter(candidate => trackKind(candidate) === kind);
+        return !normalizeTrackLanguageSetting(languages) || !sameKindTracks.some(candidate => trackMatchesLanguages(candidate, languages)) || trackMatchesLanguages(track, languages);
+    });
+}
 
 /***************************************************************
  * This function creates an overlay on the page and displays a list of episodes extracted from a website
@@ -1995,8 +2048,8 @@ async function extractEpisodes() {
                 if (link.referer) out += `#EXTVLCOPT:http-referrer=${link.referer}\n`;
                 previousReferer = link.referer || '';
             }
-            if (link?.tracks?.length) link.tracks.forEach(t => {
-                const type = t.kind?.startsWith('audio') ? 'AUDIO' : /^(caption|subtitle)s?/.test(t.kind) ? 'SUBTITLES' : null;
+            if (link?.tracks?.length) filterTracksByLanguagePreferences(link.tracks, anilinkDownloader.settings).forEach(t => {
+                const type = trackKind(t) === 'audio' ? 'AUDIO' : trackKind(t) === 'caption' ? 'SUBTITLES' : null;
                 if (type) out += `#EXT-X-MEDIA:TYPE=${type},GROUP-ID="${type.toLowerCase()}${episode.number}",NAME="${t.label || type}",DEFAULT=${t.default ? 'YES' : 'NO'},URI="${t.file}"\n`;
             });
             out += `#EXTINF:-1,${episode.filename.replaceAll('/', '|')}${SRC_IN_FN ? ` [${source}]` : ''}\n${link.stream}\n`;
@@ -3011,7 +3064,7 @@ class DownloadTask {
 }
 
 const DOWNLOADER_SITE_SETTING_KEYS = ['maxConcurrentTasks', 'defaultThreads', 'defaultSpeedLimitBps'];
-const DOWNLOADER_GLOBAL_SETTING_KEYS = ['preferredResolution', 'notifications', 'overwrite', 'historyLimit', 'historyCollapsed', 'subtitleDirectory', 'fabAlwaysVisible', 'keepPartialFiles'];
+const DOWNLOADER_GLOBAL_SETTING_KEYS = ['preferredResolution', 'notifications', 'overwrite', 'historyLimit', 'historyCollapsed', 'subtitleDirectory', 'fabAlwaysVisible', 'keepPartialFiles', 'audioTrackLanguages', 'captionTrackLanguages'];
 
 class Downloader {
     static formats = new Map();
@@ -3084,7 +3137,8 @@ class Downloader {
             historyCollapsed: true,
             subtitleDirectory: '',
             fabAlwaysVisible: false,
-            keepPartialFiles: true
+            keepPartialFiles: true,
+            ...DEFAULT_TRACK_LANGUAGE_PREFERENCES
         };
     }
 
@@ -3113,6 +3167,8 @@ class Downloader {
             settings.historyLimit = Math.min(100, Math.max(1, Number(settings.historyLimit) || 15));
             settings.subtitleDirectory = dlUtils.anlinkSafeDirectoryName(settings.subtitleDirectory);
             settings.fabAlwaysVisible = settings.fabAlwaysVisible === true;
+            settings.audioTrackLanguages = normalizeTrackLanguageSetting(settings.audioTrackLanguages, DEFAULT_TRACK_LANGUAGE_PREFERENCES.audioTrackLanguages);
+            settings.captionTrackLanguages = normalizeTrackLanguageSetting(settings.captionTrackLanguages, DEFAULT_TRACK_LANGUAGE_PREFERENCES.captionTrackLanguages);
             if (!Number.isFinite(settings.defaultSpeedLimitBps) || settings.defaultSpeedLimitBps <= 0) settings.defaultSpeedLimitBps = Infinity;
             if (!hasGlobalStore) GM_setValue(this.#globalStorageKey, Object.fromEntries(DOWNLOADER_GLOBAL_SETTING_KEYS.map(key => [key, settings[key]])));
             const history = Array.isArray(saved.history) ? saved.history.map(item => ['queued', 'preparing', 'downloading', 'paused'].includes(item.status) ? { ...item, status: 'interrupted' } : item) : [];
@@ -3141,6 +3197,8 @@ class Downloader {
         next.subtitleDirectory = dlUtils.anlinkSafeDirectoryName(next.subtitleDirectory);
         next.fabAlwaysVisible = next.fabAlwaysVisible === true;
         next.keepPartialFiles = next.keepPartialFiles !== false;
+        next.audioTrackLanguages = normalizeTrackLanguageSetting(next.audioTrackLanguages, DEFAULT_TRACK_LANGUAGE_PREFERENCES.audioTrackLanguages);
+        next.captionTrackLanguages = normalizeTrackLanguageSetting(next.captionTrackLanguages, DEFAULT_TRACK_LANGUAGE_PREFERENCES.captionTrackLanguages);
         if (!['off', 'completed', 'completed-and-failed', 'all'].includes(next.notifications)) next.notifications = 'completed-and-failed';
         this.#settings = next;
         this.#saveStore();
@@ -3168,7 +3226,8 @@ class Downloader {
         const task = this.addTask(record.filename, record.anime, record.url, {
             format: record.format, source: record.source || record.quality, threads: record.threads,    // backwards compatibility for old history records (record.quality)
             speedLimitBps: record.speedLimitBps, referer: record.referer,
-            preferredResolution: record.preferredResolution, subtitleDirectory: record.subtitleDirectory, tracks: record.tracks || []
+            preferredResolution: record.preferredResolution, subtitleDirectory: record.subtitleDirectory, tracks: record.tracks || [],
+            audioTrackLanguages: record.audioTrackLanguages, captionTrackLanguages: record.captionTrackLanguages
         });
         task._historyId = record.id;
         this.#history = this.#history.filter(item => item.id !== record.id && item.id !== task.id);
@@ -3254,6 +3313,8 @@ class Downloader {
             source: options.source,
             preferredResolution: Math.max(0, Number(options.preferredResolution ?? this.#settings.preferredResolution) || 0),
             subtitleDirectory: dlUtils.anlinkSafeDirectoryName(options.subtitleDirectory ?? this.#settings.subtitleDirectory),
+            audioTrackLanguages: normalizeTrackLanguageSetting(options.audioTrackLanguages, this.#settings.audioTrackLanguages),
+            captionTrackLanguages: normalizeTrackLanguageSetting(options.captionTrackLanguages, this.#settings.captionTrackLanguages),
             tracks: Array.isArray(options.tracks) ? options.tracks.map(track => ({ ...track })) : []
         };
         const task = new DownloadTask(this, filename, anime, url, normalizedOptions);
@@ -3434,7 +3495,8 @@ class Downloader {
         const record = {
             id: historyId, filename: task.filename, partialFilename: task._partialFilename || '', anime: task.anime, url: task.url, status: task.status,
             format: task.options.format, source: task.options.source || '', threads: task.options.threads,
-            preferredResolution: task.options.preferredResolution, subtitleDirectory: task.options.subtitleDirectory, tracks: task.options.tracks, speedLimitBps: task.options.speedLimitBps,
+            preferredResolution: task.options.preferredResolution, subtitleDirectory: task.options.subtitleDirectory, tracks: task.options.tracks,
+            audioTrackLanguages: task.options.audioTrackLanguages, captionTrackLanguages: task.options.captionTrackLanguages, speedLimitBps: task.options.speedLimitBps,
             referer: task.options.referer || '', logs: task.logs, stats: { ...task._stats }, updatedAt: Date.now()
         };
         this.#history = this.#history.filter(item => item.id !== historyId);
@@ -3448,7 +3510,8 @@ class Downloader {
         const record = {
             id: task._historyId || task.id, filename: task.filename, partialFilename: task._partialFilename || '', anime: task.anime, url: task.url, status: task.status,
             format: task.options.format, source: task.options.source || '', threads: task.options.threads,
-            preferredResolution: task.options.preferredResolution, subtitleDirectory: task.options.subtitleDirectory, tracks: task.options.tracks, speedLimitBps: task.options.speedLimitBps,
+            preferredResolution: task.options.preferredResolution, subtitleDirectory: task.options.subtitleDirectory, tracks: task.options.tracks,
+            audioTrackLanguages: task.options.audioTrackLanguages, captionTrackLanguages: task.options.captionTrackLanguages, speedLimitBps: task.options.speedLimitBps,
             referer: task.options.referer || '', logs: task.logs, stats: { ...task._stats }, updatedAt: Date.now()
         };
         this.#history = this.#history.filter(item => item.id !== record.id);
@@ -3675,7 +3738,7 @@ class Downloader {
     }
 
     async #downloadTracks(task) {
-        const tracks = (task.options.tracks || []).filter(track => track?.file && (track.kind || 'caption'));
+        const tracks = filterTracksByLanguagePreferences((task.options.tracks || []).filter(track => track?.file), task.options);
         if (!tracks.length) return;
         task._stats.phase = 'tracks';
         task._stats.trackIndex = 0;
@@ -4301,6 +4364,8 @@ class DownloaderUI {
                 <div><label>Default speed limit (KB/s, 0 = unlimited)</label><input name="defaultSpeedLimitBps" type="number" min="0" placeholder="0" value="${Number.isFinite(settings.defaultSpeedLimitBps) ? Math.round(settings.defaultSpeedLimitBps / 1024) : 0}"></div>
                 <div><label>Preferred stream resolution (360, 720, 1080, etc)</label><input name="preferredResolution" type="number" min="0" step="1" value="${settings.preferredResolution || ''}" placeholder="Auto"></div>
                 <div><label>Subtitle folder (blank = alongside video)</label><input name="subtitleDirectory" type="text" value="${escape(settings.subtitleDirectory || '')}" placeholder="Optional folder name">${window.showDirectoryPicker ? '<small>This feature might not be supported in your browser. See <a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/showDirectoryPicker#browser_compatibility" target="_blank">MDN</a> for more information.</small>' : ''}</div>
+                <div><label>Preferred audio languages</label><input name="audioTrackLanguages" type="text" value="${escape(settings.audioTrackLanguages)}" placeholder="jp,jpn,japanese"><small>Comma-separated language codes or names; blank keeps all audio tracks.</small></div>
+                <div><label>Preferred caption languages</label><input name="captionTrackLanguages" type="text" value="${escape(settings.captionTrackLanguages)}" placeholder="en,eng,enUS,english"><small>Comma-separated language codes or names; blank keeps all captions.</small></div>
                 <div style="display: flex; flex-direction: column;"><label style="margin-bottom: -4px;">Always show floating button</label><label style="display: flex; align-items: center; gap: 12px; background-color: #18211f; border: 1px solid #343c3a; border-radius: 6px; padding: 6px 10px; cursor: pointer;"><input name="fabAlwaysVisible" type="checkbox" ${settings.fabAlwaysVisible === true ? 'checked' : ''} onchange="this.nextElementSibling.textContent = this.checked ? 'True' : 'False'" style="accent-color: #3f51b5; width: 14px; height: 14px; margin: 0; cursor: pointer;"><span style="font-size: 14px; font-family: sans-serif; opacity: 0.85;">${settings.fabAlwaysVisible === true ? 'True' : 'False'}</span></label></div>
                 <div style="display: flex; flex-direction: column;"><label style="margin-bottom: -4px;">Keep partial files on failure</label><label style="display: flex; align-items: center; gap: 12px; background-color: #18211f; border: 1px solid #343c3a; border-radius: 6px; padding: 6px 10px; cursor: pointer;"><input name="keepPartialFiles" type="checkbox" ${settings.keepPartialFiles !== false ? 'checked' : ''} onchange="this.nextElementSibling.textContent = this.checked ? 'True' : 'False'" style="accent-color: #3f51b5; width: 14px; height: 14px; margin: 0; cursor: pointer;"><span style="font-size: 14px; font-family: sans-serif; opacity: 0.85;">${settings.keepPartialFiles !== false ? 'True' : 'False'}</span></label></div>
                 <div><label>Notifications</label><select name="notifications">
@@ -4327,6 +4392,7 @@ class DownloaderUI {
                     maxConcurrentTasks: +value('maxConcurrentTasks'), defaultThreads: +value('defaultThreads'), 
                     defaultSpeedLimitBps: +(value('defaultSpeedLimitBps') || 0) * 1024 || Infinity, 
                     preferredResolution: +value('preferredResolution') || 0, subtitleDirectory: value('subtitleDirectory'),
+                    audioTrackLanguages: value('audioTrackLanguages'), captionTrackLanguages: value('captionTrackLanguages'),
                     fabAlwaysVisible: checked('fabAlwaysVisible'), keepPartialFiles: checked('keepPartialFiles'), 
                     notifications: value('notifications'), historyLimit: +value('historyLimit')
                 });
