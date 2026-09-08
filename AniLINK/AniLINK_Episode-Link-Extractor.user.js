@@ -1933,7 +1933,8 @@ async function extractEpisodes() {
             let url, title, referer, tracks;
             if (isBatch) {
                 const playlistBody = buildPlaylist(selected);
-                const playlistUrl = await GM_fetch('https://xi.pe/', { method: 'POST', body: playlistBody }).then(r => r.text()).then(t => t.trim() + "?raw");
+                // const playlistUrl = await GM_fetch('https://xi.pe/', { method: 'POST', body: playlistBody }).then(r => r.text()).then(t => t.trim() + "?raw");
+                const playlistUrl = await GM_fetch('https://paste.rs/', { method: 'POST', body: playlistBody }).then(r => r.text()).then(t => t + '.m3u8');
                 GM_setClipboard(playlistUrl, "text", () => console.log('Playlist URL:', playlistUrl));
                 url = playlistUrl;
                 title = window._anilink_episodes?.[0]?.animeTitle || 'Anime';
