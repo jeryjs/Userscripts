@@ -84,8 +84,8 @@
 // ~~4. Fix toast's close button positioning when displaying error~~
 // ~~5. Fix keyboard input in modals.~~
 // 6. Work on the Todo in the downloader
-// 7. Make Play with a popover with support for more popular players.
-// 8. notifiicTION ICON
+// 7. Make "Play With" a popover with support for more popular players.
+// ~~8. notification icon (use script icon)~~
 // ~~9. DOnt remove partial files (add setting for this)~~
 // ~~10. Add track support setting to downloader defaulting to 'jp,jpn,japanese' for audio and 'en,eng,enUS,english' for captions (maybe handle for playlist export too?)~~
 
@@ -3528,7 +3528,8 @@ class Downloader {
         const message = task.status === 'completed' ? `${task.filename} finished.` : task.status === 'failed' ? `${task.filename} failed: ${task.error || 'unknown error'}` : `${task.filename}: ${task.status}.`;
         if (task.status === 'failed') showToast(`Download failed: ${dlUtils.anlinkEscapeHtml(task.filename)} — ${dlUtils.anlinkEscapeHtml(task.error || 'unknown error')}`);
         if (!shouldNotify) return;
-        if (typeof GM_notification === 'function') GM_notification({ title: 'AniLINK Downloader', text: message, timeout: 5000 });
+        const icon = GM_info?.script?.icon || GM_info?.scriptIcon || 'https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg';
+        if (typeof GM_notification === 'function') GM_notification({ title: 'AniLINK Downloader', text: message, image: icon, icon, timeout: 5000 });
         else showToast(message);
     }
 
