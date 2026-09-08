@@ -86,7 +86,7 @@
 // 6. Work on the Todo in the downloader
 // 7. Make Play with a popover with support for more popular players.
 // 8. notifiicTION ICON
-// 9. DOnt remove partial files (add setting for this)
+// ~~9. DOnt remove partial files (add setting for this)~~
 // 10. Add track support setting to downloader defaulting to 'jp,jpn,japanese' for audio and 'en,eng,enUS,english' for captions (maybe handle for playlist export too?)
 
 // track last version for managing backwards compatability for script updates
@@ -3011,7 +3011,7 @@ class DownloadTask {
 }
 
 const DOWNLOADER_SITE_SETTING_KEYS = ['maxConcurrentTasks', 'defaultThreads', 'defaultSpeedLimitBps'];
-const DOWNLOADER_GLOBAL_SETTING_KEYS = ['preferredResolution', 'notifications', 'overwrite', 'historyLimit', 'historyCollapsed', 'subtitleDirectory', 'fabAlwaysVisible'];
+const DOWNLOADER_GLOBAL_SETTING_KEYS = ['preferredResolution', 'notifications', 'overwrite', 'historyLimit', 'historyCollapsed', 'subtitleDirectory', 'fabAlwaysVisible', 'keepPartialFiles'];
 
 class Downloader {
     static formats = new Map();
@@ -3083,7 +3083,8 @@ class Downloader {
             historyLimit: 15,
             historyCollapsed: true,
             subtitleDirectory: '',
-            fabAlwaysVisible: false
+            fabAlwaysVisible: false,
+            keepPartialFiles: true
         };
     }
 
@@ -3139,6 +3140,7 @@ class Downloader {
         next.historyLimit = Math.min(100, Math.max(1, Math.floor(Number(next.historyLimit) || 15)));
         next.subtitleDirectory = dlUtils.anlinkSafeDirectoryName(next.subtitleDirectory);
         next.fabAlwaysVisible = next.fabAlwaysVisible === true;
+        next.keepPartialFiles = next.keepPartialFiles !== false;
         if (!['off', 'completed', 'completed-and-failed', 'all'].includes(next.notifications)) next.notifications = 'completed-and-failed';
         this.#settings = next;
         this.#saveStore();
@@ -3581,6 +3583,10 @@ class Downloader {
     async #discardPartialFile(task) {
         if (!this.#dirHandle || !task._partialFilename) {
             task._partialFilename = '';
+            return;
+        }
+        if (this.#settings.keepPartialFiles) {
+            task._log(`Partial file retained (keepPartialFiles=true): ${task._partialFilename}`, 'warning');
             return;
         }
         const partialFilename = task._partialFilename;
@@ -4296,6 +4302,7 @@ class DownloaderUI {
                 <div><label>Preferred stream resolution (360, 720, 1080, etc)</label><input name="preferredResolution" type="number" min="0" step="1" value="${settings.preferredResolution || ''}" placeholder="Auto"></div>
                 <div><label>Subtitle folder (blank = alongside video)</label><input name="subtitleDirectory" type="text" value="${escape(settings.subtitleDirectory || '')}" placeholder="Optional folder name">${window.showDirectoryPicker ? '<small>This feature might not be supported in your browser. See <a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/showDirectoryPicker#browser_compatibility" target="_blank">MDN</a> for more information.</small>' : ''}</div>
                 <div style="display: flex; flex-direction: column;"><label style="margin-bottom: -4px;">Always show floating button</label><label style="display: flex; align-items: center; gap: 12px; background-color: #18211f; border: 1px solid #343c3a; border-radius: 6px; padding: 6px 10px; cursor: pointer;"><input name="fabAlwaysVisible" type="checkbox" ${settings.fabAlwaysVisible === true ? 'checked' : ''} onchange="this.nextElementSibling.textContent = this.checked ? 'True' : 'False'" style="accent-color: #3f51b5; width: 14px; height: 14px; margin: 0; cursor: pointer;"><span style="font-size: 14px; font-family: sans-serif; opacity: 0.85;">${settings.fabAlwaysVisible === true ? 'True' : 'False'}</span></label></div>
+                <div style="display: flex; flex-direction: column;"><label style="margin-bottom: -4px;">Keep partial files on failure</label><label style="display: flex; align-items: center; gap: 12px; background-color: #18211f; border: 1px solid #343c3a; border-radius: 6px; padding: 6px 10px; cursor: pointer;"><input name="keepPartialFiles" type="checkbox" ${settings.keepPartialFiles !== false ? 'checked' : ''} onchange="this.nextElementSibling.textContent = this.checked ? 'True' : 'False'" style="accent-color: #3f51b5; width: 14px; height: 14px; margin: 0; cursor: pointer;"><span style="font-size: 14px; font-family: sans-serif; opacity: 0.85;">${settings.keepPartialFiles !== false ? 'True' : 'False'}</span></label></div>
                 <div><label>Notifications</label><select name="notifications">
                     <option value="off" ${settings.notifications==='off' ? 'selected' : '' }>Off</option>
                     <option value="completed" ${settings.notifications==='completed' ? 'selected' : '' }>Completed only</option>
@@ -4316,7 +4323,13 @@ class DownloaderUI {
             onConfirm: dialog => {
                 const value = name => dialog.querySelector(`[name="${name}"]`)?.value;
                 const checked = name => dialog.querySelector(`[name="${name}"]`)?.checked;
-                this.downloader.updateSettings({ maxConcurrentTasks: +value('maxConcurrentTasks'), defaultThreads: +value('defaultThreads'), defaultSpeedLimitBps: +(value('defaultSpeedLimitBps') || 0) * 1024 || Infinity, preferredResolution: +value('preferredResolution') || 0, subtitleDirectory: value('subtitleDirectory'), fabAlwaysVisible: checked('fabAlwaysVisible'), notifications: value('notifications'), historyLimit: +value('historyLimit') });
+                this.downloader.updateSettings({ 
+                    maxConcurrentTasks: +value('maxConcurrentTasks'), defaultThreads: +value('defaultThreads'), 
+                    defaultSpeedLimitBps: +(value('defaultSpeedLimitBps') || 0) * 1024 || Infinity, 
+                    preferredResolution: +value('preferredResolution') || 0, subtitleDirectory: value('subtitleDirectory'),
+                    fabAlwaysVisible: checked('fabAlwaysVisible'), keepPartialFiles: checked('keepPartialFiles'), 
+                    notifications: value('notifications'), historyLimit: +value('historyLimit')
+                });
                 AniLINKUI.updateFab();
                 this.refresh();
             }
