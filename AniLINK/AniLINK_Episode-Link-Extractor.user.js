@@ -160,14 +160,19 @@ const PLAYERS = Object.freeze([
         name: 'PotPlayer',
         icon: 'https://files.softicons.com/download/application-icons/daum-potplayer-icon-by-mustafahaydar/png/32x32/dpp.png',
         hint: 'Windows PotPlayer',
-        buildUrl: ({ url }) => `potplayer://${url}`
+        buildUrl: ({ url, referer }) => referer ? `potplayer://${url}/referer=${encodeURIComponent(referer)}` : `potplayer://${url}`
     },
     {
         id: 'infuse',
         name: 'Infuse (Apple)',
         icon: 'https://f.fameile.net/upload/2025/06/KMzYHp.png',
         hint: 'iOS / macOS Infuse',
-        buildUrl: ({ url }) => `infuse://control/play?url=${encodeURIComponent(url)}`
+        buildUrl: ({ url, title, tracks }) => {
+            const subTracks = tracks?.filter(t => /^caption/.test(t.kind)) || [];
+            const subParam = subTracks.length ? `&sub=${encodeURIComponent(subTracks.map(t => t.file).join(','))}` : '';
+            const filenameParam = title ? `&filename=${encodeURIComponent(title)}` : '';
+            return `infuse://x-callback-url/play?url=${encodeURIComponent(url)}${filenameParam}${subParam}`;
+        }
     },
     {
         id: 'kodi',
