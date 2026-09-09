@@ -3937,6 +3937,7 @@ class Downloader {
         const contentType = response?.contentType || dlUtils.anlinkParseHeaders(response?.responseHeaders || '').get('content-type') || '';
         const urlExtension = new URL(track.file).pathname.match(/\.([a-z0-9]{1,8})$/i)?.[1]?.toLowerCase();
         if (/mpegurl/.test(contentType) && /^(caption|subtitle)s?/i.test(track.kind || '')) return '.vtt';
+        if (/^(audio|music)$/i.test(track.kind || '') && /\.m3u8(?:$|\?)/i.test(track.file)) return '.m4a';
         if (urlExtension) return `.${urlExtension}`;
         if (/vtt|webvtt/.test(contentType)) return '.vtt';
         if (/subrip/.test(contentType)) return '.srt';
@@ -3944,14 +3945,16 @@ class Downloader {
         if (/ass|ssa/.test(contentType)) return '.ass';
         if (/audio\/mpeg/.test(contentType)) return '.mp3';
         if (/audio\/mp4/.test(contentType)) return '.m4a';
-        return /^(audio|music)/i.test(track.kind || '') ? '.bin' : '.vtt';
+        if (/audio\/(?:aac|adts|flac|ogg|opus|webm)/.test(contentType)) return `.${contentType.match(/audio\/([^;]+)/)?.[1]?.split('+')[0] || 'bin'}`;
+        return /^(audio|music)/i.test(track.kind || '') ? '.m4a' : '.vtt';
     }
 
     async #fetchTrack(task, track) {
         if (!/\.m3u8(?:$|\?)/i.test(track.file)) return this.#requestWithRetry(task, track.file, { responseType: 'arraybuffer' });
         const playlist = await this.#loadHlsPlaylist(task, track.file);
         const parsed = this.#parseHlsMediaPlaylist(playlist);
-        if (!parsed.jobs.length) throw new Error(`Subtitle playlist has no segments: ${track.file}`);
+        if (!parsed.jobs.length) throw new Error(`Track ($) playlist has no segments: ${track.file}`);
+        const isAudio = /^(audio|music)$/i.test(track.kind || '');
         const pieces = [];
         let previousRangeEnd = 0;
         for (const job of parsed.jobs) {
@@ -3959,6 +3962,17 @@ class Downloader {
             if (byteRange) previousRangeEnd = byteRange.end + 1;
             const response = await this.#requestWithRetry(task, new URL(job.uri, playlist.url).href, { headers: byteRange ? { Range: `bytes=${byteRange.start}-${byteRange.end}` } : {} });
             pieces.push(new Uint8Array(response.response || new ArrayBuffer(0)));
+        }
+        if (isAudio) {
+            const total = pieces.reduce((sum, piece) => sum + piece.byteLength, 0);
+            const merged = new Uint8Array(total);
+            let offset = 0;
+            for (const piece of pieces) {
+                merged.set(piece, offset);
+                offset += piece.byteLength;
+            }
+            task._log(`Audio HLS details: playlist=${track.file}; segments=${parsed.jobs.length}; outputBytes=${total}`);
+            return { response: merged, responseHeaders: 'Content-Type: application/octet-stream', contentType: 'application/octet-stream' };
         }
         const textPieces = pieces.map(bytes => new TextDecoder().decode(bytes));
         const merged = textPieces.map((text, index) => index ? text.replace(/^\uFEFF?WEBVTT[^\r\n]*(?:\r?\n[^\r\n]*)*?\r?\n\r?\n/i, '') : text).join('\n');
@@ -3968,8 +3982,22 @@ class Downloader {
     }
 
     async #downloadTracks(task) {
-        const tracks = filterTracksByLanguagePreferences((task.options.tracks || []).filter(track => track?.file), task.options);
-        if (!tracks.length) return;
+        const allTracks = (task.options.tracks || []).filter(track => track?.file);
+        const unsupportedTracks = allTracks.filter(track => !trackKind(track));
+        const supportedTracks = allTracks.filter(track => trackKind(track));
+        const tracks = filterTracksByLanguagePreferences(supportedTracks, task.options);
+
+        if (unsupportedTracks.length) {
+            task._log(`Skipped unsupported tracks: ${unsupportedTracks.map(t => `${t.kind || 'unknown kind'} - ${t.label || t.file || 'unnamed'}`).join(', ')}`, 'warning');
+        }
+        const skippedByLanguage = supportedTracks.filter(track => !tracks.includes(track));
+        if (skippedByLanguage.length) {
+            task._log(`Skipped tracks by language preference: ${skippedByLanguage.map(t => `${trackKind(t) || 'track'}=${t.label || 'unnamed'}`).join(', ')}`, 'info');
+        }
+        if (!tracks.length) {
+            task._log('No tracks matched language preferences; skipping track download.', 'info');
+            return;
+        }
         task._stats.phase = 'tracks';
         task._stats.trackIndex = 0;
         task._stats.trackTotal = tracks.length;
@@ -4254,10 +4282,12 @@ class Downloader {
             const selected = requested > 0 ? [...withHeights].sort((a, b) => Math.abs(a.height - requested) - Math.abs(b.height - requested) || a.height - b.height || (Number(b.BANDWIDTH) || 0) - (Number(a.BANDWIDTH) || 0))[0] : withHeights[0];
             task._stats.probedResolutions = withHeights.map(variant => variant.height).filter(Boolean);
             task._log(`HLS selection: requested=${requested > 0 ? `${requested}p` : 'auto'}; selected=${selected.height ? `${selected.height}p` : selected.NAME || 'unknown'}; url=${selected.uri}`);
-            return this.#loadHlsPlaylist(task, selected.uri, depth + 1);
+            const result = await this.#loadHlsPlaylist(task, selected.uri, depth + 1);
+            result.mediaTracks = [...(result.mediaTracks || []), ...mediaTracks];
+            return result;
         }
         task._log(`HLS media playlist: segments and encryption tags will be parsed from ${loaded.url}`);
-        return { url: loaded.url, lines };
+        return { url: loaded.url, lines, mediaTracks: [...mediaTracks] };
     }
 
     #parseHlsMediaPlaylist(playlist) {
@@ -4310,6 +4340,20 @@ class Downloader {
         const playlist = await this.#loadHlsPlaylist(task, task.url);
         const parsed = this.#parseHlsMediaPlaylist(playlist);
         task._log(`HLS media details: segments=${parsed.jobs.length}; ended=${parsed.ended}; contentType=application/vnd.apple.mpegurl`);
+
+        const hlsAudioTracks = (playlist.mediaTracks || [])
+            .filter(track => (track.TYPE || '').toUpperCase() === 'AUDIO' && track.URI)
+            .map(track => ({ file: track.URI, kind: 'audio', label: track.NAME || track.LANGUAGE || 'Audio' }));
+        const existingUrls = new Set((task.options.tracks || []).map(t => t.file));
+        for (const audioTrack of hlsAudioTracks) {
+            if (!existingUrls.has(audioTrack.file)) {
+                task.options.tracks.push(audioTrack);
+            }
+        }
+        if (hlsAudioTracks.length) {
+            task._log(`HLS audio tracks added to queue: ${hlsAudioTracks.map(t => `${t.label} -> ${t.file}`).join(' | ')}`);
+        }
+
         if (!parsed.ended && !task.options.allowLive) throw new Error('Live HLS playlists are not supported unless allowLive is enabled.');
         if (!parsed.jobs.length) throw new Error('No HLS segments found.');
         task._stats.contentType = 'application/vnd.apple.mpegurl';
