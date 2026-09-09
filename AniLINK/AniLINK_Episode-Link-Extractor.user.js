@@ -118,7 +118,7 @@
 // ~~8. notification icon (use script icon)~~
 // ~~9. DOnt remove partial files (add setting for this)~~
 // ~~10. Add track support setting to downloader defaulting to 'jp,jpn,japanese' for audio and 'en,eng,enUS,english' for captions (maybe handle for playlist export too?)~~
-// 11. move clear history button out of settings.
+// ~~11. move clear history button out of settings.~~
 
 // track last version for managing backwards compatability for script updates
 if (GM_info.script.version > GM_getValue('script_version', '0')) {
@@ -4575,7 +4575,7 @@ class DownloaderUI {
             </div>
             <div class="anilink-dl-body">
                 <section class="anilink-dl-section"><div class="anilink-dl-section-head"><span>Active downloads</span>${this.renderActiveActions(active)}</div><div data-region="active"></div></section>
-                <section class="anilink-dl-section"><div class="anilink-dl-section-head">History <button data-action="toggle-history">${this.historyOpen ? 'Collapse' : 'Expand'}</button></div><div data-region="history"></div></section>
+                <section class="anilink-dl-section"><div class="anilink-dl-section-head">History ${history.length ? '<button data-action="clear-history">Clear history</button> ' : ''}<span><button data-action="toggle-history">${this.historyOpen ? 'Collapse' : 'Expand'}</button></span></div><div data-region="history"></div></section>
             </div>
         `;
         const activeRegion = panel.querySelector('[data-region="active"]');
@@ -4723,7 +4723,6 @@ class DownloaderUI {
                     <option value="all" ${settings.notifications==='all' ? 'selected' : '' }>All state changes</option>
                 </select></div>
             </div>
-            <div class="anilink-dl-actions"><button type="button" data-action="clear-history">Clear history</button></div>
             <div class="anilink-dl-help">Need help? <a href="https://github.com/jeryjs/Userscripts/issues/new?title=%5BAniLINK%5D%20Downloader%20issue&body=%23%23%20Description%0A%0A%23%23%20Steps%20to%20reproduce%0A1.%20%0A2.%20%0A%0A%23%23%20Expected%20behavior%0A-%20Browser%3A%20%0A-%20Userscript%20manager%3A%20" target="_blank">Report an issue on GitHub</a></div>
         </div>`;
         const { modal } = createModal({
@@ -4745,12 +4744,6 @@ class DownloaderUI {
                 });
                 AniLINKUI.updateFab();
                 this.refresh();
-            }
-        });
-        modal.querySelector('[data-action="clear-history"]').addEventListener('click', () => {
-            if (confirm('Clear all completed and interrupted download history?')) {
-                this.downloader.clearHistory();
-                modal.remove();
             }
         });
     }
@@ -4789,6 +4782,10 @@ class DownloaderUI {
                 this.downloader.removeHistory(button.dataset.historyId);
             } else if (action === 'retry-history') {
                 this.downloader.retryHistory(button.closest('[data-history-id]').dataset.historyId).catch(error => showToast(`Retry failed: ${error.message || error}`));
+            } else if (action === 'clear-history') {
+                if (!confirm('Clear all completed and interrupted download history?')) return;
+                this.downloader.clearHistory();
+                this.refresh();
             } else if (action === 'task-settings') this.showTaskPopover(button.closest('[data-task-id]'));
         };
     }
