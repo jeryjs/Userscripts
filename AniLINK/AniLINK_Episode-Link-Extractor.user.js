@@ -113,7 +113,7 @@
 // 3. Add guide/tutorial in ui for stuff
 // ~~4. Fix toast's close button positioning when displaying error~~
 // ~~5. Fix keyboard input in modals.~~
-// 6. Improve download progress bar for non m3u8 downloads (mp4 has very less parts, and due to that progressbar jumps in big steps with slow updates, which is not a good UX... instead of using parts always prioritize using the total file size and downloaded size to calculate progress percentage and fallback to parts count only if the total file size is not available).
+// ~~6. Improve download progress bar for non m3u8 downloads (mp4 has very less parts, and due to that progressbar jumps in big steps with slow updates, which is not a good UX... instead of using parts always prioritize using the total file size and downloaded size to calculate progress percentage and fallback to parts count only if the total file size is not available).~~
 // ~~7. Make "Play With" a popover with support for more popular players.~~
 // ~~8. notification icon (use script icon)~~
 // ~~9. DOnt remove partial files (add setting for this)~~
@@ -3253,6 +3253,7 @@ class DownloadTask {
         this._cancelled = false;
         this._resumeResolvers = [];
         this._activeRequests = new Set();
+        this._requestProgress = new Map();
         this._pendingHlsWrites = new Map();
         this._nextHlsWrite = 0;
         this._hlsOutputOffset = 0;
@@ -4147,6 +4148,7 @@ class Downloader {
 
     async #requestWithRetry(task, url, options = {}) {
         for (let attempt = 0; ; attempt++) {
+            options.onprogress?.({ loaded: 0 });
             try {
                 task._log(`${options.method || 'GET'} ${url}${options.headers?.Range ? ` (${options.headers.Range})` : ''}`);
                 const response = await this.#request(task, url, options);
@@ -4189,16 +4191,29 @@ class Downloader {
         return task._throttleChain;
     }
 
-    #recordBytes(task, written, received = written) {
-        task._stats.bytesWritten += written;
-        task._stats.bytesReceived += received;
+    #emitProgress(task) {
         task._stats.lastProgressAt = Date.now();
         const now = performance.now();
-        task._samples.push({ timestamp: now, bytes: task._stats.bytesWritten });
+        task._samples.push({ timestamp: now, bytes: task._stats.bytesReceived });
         while (task._samples.length > 2 && now - task._samples[0].timestamp > 5000) task._samples.shift();
         const first = task._samples[0];
-        task._stats.speedBps = (task._stats.bytesWritten - first.bytes) / Math.max((now - first.timestamp) / 1000, 0.001);
+        task._stats.speedBps = (task._stats.bytesReceived - first.bytes) / Math.max((now - first.timestamp) / 1000, 0.001);
         task._emit('progress', task.stats);
+    }
+
+    #recordReceived(task, key, loaded) {
+        task._requestProgress.set(key, Math.max(0, Number(loaded) || 0));
+        task._stats.bytesReceived = task._stats.bytesWritten + [...task._requestProgress.values()].reduce((total, bytes) => total + bytes, 0);
+        this.#emitProgress(task);
+    }
+
+    #recordBytes(task, written, received = written, progressKey) {
+        task._stats.bytesWritten += written;
+        if (progressKey !== undefined) {
+            task._requestProgress.delete(progressKey);
+            task._stats.bytesReceived = task._stats.bytesWritten + [...task._requestProgress.values()].reduce((total, bytes) => total + bytes, 0);
+        } else task._stats.bytesReceived += received;
+        this.#emitProgress(task);
     }
 
     async #runWorkers(task, jobs, workerFn) {
@@ -4279,7 +4294,10 @@ class Downloader {
         const jobs = [];
         for (let start = 1; start < probe.totalSize; start += task.options.segmentSize) jobs.push({ start, end: Math.min(probe.totalSize - 1, start + task.options.segmentSize - 1) });
         await this.#runWorkers(task, jobs, async job => {
-            const response = await this.#requestWithRetry(task, task.url, { headers: { Range: `bytes=${job.start}-${job.end}` } });
+            const response = await this.#requestWithRetry(task, task.url, {
+                headers: { Range: `bytes=${job.start}-${job.end}` },
+                onprogress: details => this.#recordReceived(task, job.start, details.loaded)
+            });
             const range = dlUtils.anlinkParseHeaders(response.responseHeaders).get('content-range');
             const match = range?.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
             if (response.status !== 206 || !match || +match[1] !== job.start || +match[2] > job.end) throw new Error(`Invalid range response for bytes ${job.start}-${job.end}.`);
@@ -4287,7 +4305,7 @@ class Downloader {
             if (bytes.byteLength !== +match[2] - +match[1] + 1) throw new Error(`Incomplete range response for bytes ${job.start}-${job.end}.`);
             await this.#throttle(task, bytes.byteLength);
             await this.#writeAt(task, job.start, bytes);
-            this.#recordBytes(task, bytes.byteLength);
+            this.#recordBytes(task, bytes.byteLength, bytes.byteLength, job.start);
         });
         task._stats.completedSegments++;
         task._stats.totalSegments++;
@@ -4587,7 +4605,7 @@ class DownloaderUI {
         const completedParts = trackPhase ? stats.trackIndex : stats.completedSegments;
         const hasTotalParts = totalParts > 0;
         const percent = hasTotalSize
-            ? Math.min(100, stats.bytesWritten / stats.totalSize * 100)
+            ? Math.min(100, stats.bytesReceived / stats.totalSize * 100)
             : hasTotalParts
                 ? Math.min(100, completedParts / totalParts * 100)
                 : 0;
