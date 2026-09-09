@@ -165,7 +165,7 @@ const PLAYER_APPS = Object.freeze([
             const subfile = subTracks.length ? `&subfile=${safeBtoa(subTracks.map(t => t.file).join(';'))}` : '';
             return `${MPV_PROTOCOL}://play/${safeBtoa(stream)}/?v_title=${safeBtoa(title)}&cookies=${location.hostname}.txt&referrer=${safeBtoa(referer || location.href)}${subfile}`;
         },
-        toastHelp: 'Sent to MPV. If nothing happened, install latest version (v0.4.0+) of <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a>.'
+        toastHelp: 'Sent to MPV. If nothing happened, install latest version of <a href="https://github.com/akiirui/mpv-handler" target="_blank" style="color:#1976d2;">mpv-handler</a>.<br>Also, its recommended to install my <a href="https://github.com/jeryjs/Userscripts/raw/refs/heads/main/AniLINK/anilink-m3u8.lua" target="_blank" style="color:#1976d2;">anilink-m3u8.lua</a> script for better mpv support.'
     },
     {
         id: 'vlc',
@@ -245,6 +245,11 @@ class Episode {
         const firstLink = Object.values(this.links)[0];
         this.filename = `${this.animeTitle} - ${this.number.padStart(3, '0')}${this.epTitle ? ` - ${this.epTitle}` : ''}${SRC_IN_FN ? ` [${Object.keys(this.links)[0]}]` : ''}${firstLink?.type || ''}`;   // The formatted name of the episode, combining anime name, number and title and extension.
         this.title = this.epTitle ?? this.animeTitle;
+    }
+
+    getFilename(source) {
+        const link = this.links?.[source];
+        return `${this.animeTitle} - ${this.number.padStart(3, '0')}${this.epTitle ? ` - ${this.epTitle}` : ''}${SRC_IN_FN && source ? ` [${source}]` : ''}${link?.type || ''}`;
     }
 
     // Processes the links to ensure they are in right format and are absolute URLs.
@@ -1987,7 +1992,7 @@ async function extractEpisodes() {
                     if (!document.hidden) { reject(new Error('Could not launch player. The scheme may not have a registered handler, or the browser blocked the launch.')); }
                     else { resolve(); }
                 });
-            }, 1000);
+            }, 2000);
         });
 
         try {
@@ -2003,7 +2008,7 @@ async function extractEpisodes() {
                 referer = firstLink?.referer || location.origin;
             } else {
                 url = linkData.stream;
-                title = episode.filename || episode.animeTitle;
+                title = episode.getFilename(Object.keys(episode.links || {}).find(s => episode.links[s] === linkData) || Object.keys(episode.links || {})[0]) || episode.animeTitle;
                 referer = linkData.referer || location.href;
                 tracks = linkData.tracks || [];
             }
@@ -2171,7 +2176,7 @@ async function extractEpisodes() {
                         <label>
                             <input type="checkbox" class="anlink-episode-checkbox" />
                             <span class="player-epnum" title="Play episode"><img fill="#26a69a" class="anlink-preferred-player-icon hidden" alt='▶' style="width: 20px; height: 20px;" /><a>Ep ${ep.number.replace(/^0+/, '')}: </a></span>
-                            <a href="${ep.links[source].stream}" class="anlink-episode-link" download="${encodeURI(ep.filename)}" data-epnum="${ep.number}" data-ep=${encodeURI(JSON.stringify({ ...ep, links: undefined }))} >${ep.links[source].stream}</a>
+                            <a href="${ep.links[source].stream}" class="anlink-episode-link" download="${encodeURI(ep.getFilename(source))}" data-epnum="${ep.number}" data-ep=${encodeURI(JSON.stringify({ ...ep, links: undefined }))} >${ep.links[source].stream}</a>
                         </label>
                         ${hasSubs ? '<span class="anlink-subs-toggle" title="Shift+Click to toggle all episodes\' subtitles">🄰 Subs ▼</span>' : ''}
                     </div>
@@ -2301,9 +2306,13 @@ async function extractEpisodes() {
     };
 
     // Helper to get all selected episodes across all sources
+    function getEpisodeViewCards() {
+        return [...episodeViewContainer.querySelectorAll('.anlink-episode-card')];
+    }
+
     function getAllSelectedEpisodes(selectAllWhenEmpty = true) {
         if (layoutMode === 'episodes') {
-            const cards = [...episodeViewContainer.querySelectorAll('.anlink-episode-card')];
+            const cards = getEpisodeViewCards();
             const selected = {};
             const addCard = card => {
                 const source = card.dataset.source;
@@ -2347,10 +2356,10 @@ async function extractEpisodes() {
                 const type = trackKind(t) === 'audio' ? 'AUDIO' : trackKind(t) === 'caption' ? 'SUBTITLES' : null;
                 if (type) out += `#EXT-X-MEDIA:TYPE=${type},GROUP-ID="${type.toLowerCase()}${episode.number}",NAME="${t.label || type}",DEFAULT=${t.default ? 'YES' : 'NO'},URI="${t.file}"\n`;
             });
-            out += `#EXTINF:-1,${episode.filename.replaceAll('/', '|')}\n${link.stream}\n`;
+            out += `#EXTINF:-1,${episode.getFilename(source).replaceAll('/', '|')}\n${link.stream}\n`;
         };
         if (layoutMode === 'episodes') {
-            selected._episodeOrder.forEach(card => {
+            (selected._episodeOrder || getEpisodeViewCards()).forEach(card => {
                 const episode = card._episode, source = card.dataset.source, link = card._linkData;
                 if (episode && source && link?.stream) addEpisode(episode, link, source);
             });
@@ -2385,20 +2394,32 @@ async function extractEpisodes() {
         } catch (error) { showToast(`Could not start downloads: ${dlUtils?.anlinkEscapeHtml?.(error.message || error) || error}`); }
     }
 
+    function addEpisodeViewCards(cards, target) {
+        const tasks = cards.filter(card => card._episode && card._source && card._linkData?.stream)
+            .map(card => anilinkDownloaderUI.addEpisode(card._episode, card._source));
+        if (!tasks.length) return showToast('No downloadable source found');
+        AniLINKUI.animateDrop(target);
+        setTimeout(() => anilinkDownloaderUI.show(), 520);
+        showToast(`${tasks.length} episode${tasks.length === 1 ? '' : 's'} added to downloads.`);
+    }
+
     async function onDownloadSelected(btn) {
         try {
             const directorySelected = await anilinkDownloader.setDirectory();
             if (!directorySelected) return;
             let selected = getAllSelectedEpisodes(false);
             if (!Object.keys(selected).length) {
-                const allEpisodes = window._anilink_episodes || [];
+                const episodeViewCards = layoutMode === 'episodes' ? getEpisodeViewCards() : [];
+                const allEpisodes = episodeViewCards.length ? episodeViewCards.map(card => card._episode) : window._anilink_episodes || [];
                 if (!allEpisodes.length) return showToast('No episodes available to download');
                 const range = await showEpisodeRangeSelector(allEpisodes.length);
+                if (layoutMode === 'episodes') return addEpisodeViewCards(episodeViewCards.slice(range.start - 1, range.end), btn);
                 const episodes = allEpisodes.slice(range.start - 1, range.end);
                 const source = Object.keys(episodes[0]?.links || {})[0];
                 if (!source) return showToast('No downloadable source found');
                 return onDownloadEpisodes(episodes, source, btn);
             }
+            if (layoutMode === 'episodes') return addEpisodeViewCards(selected._episodeOrder, btn);
             const tasks = [];
             for (const [source, items] of Object.entries(selected)) {
                 const epNums = items.map(item => item.querySelector('[data-epnum]').dataset.epnum);
@@ -4550,7 +4571,7 @@ class DownloaderUI {
         const link = episode.links?.[source];
         if (!link?.stream) throw new Error(`Episode ${episode.number} has no stream for ${source}.`);
         const extension = link.type === '.m3u8' || link.type === 'm3u8' ? '.ts' : link.type || '.bin';
-        const filename = episode.filename.replace(/\.[^/.]+$/, extension);
+        const filename = episode.getFilename(source).replace(/\.[^/.]+$/, extension);
         const task = this.downloader.addTask(filename, episode.animeTitle, link.stream, {
             ...options, format: link.type, source: source, headers: options.headers, referer: link.referer, threads: options.threads,
             speedLimitBps: options.speedLimitBps, tracks: link.tracks || [], metadata: { episodeNumber: episode.number, source }
@@ -4575,7 +4596,7 @@ class DownloaderUI {
             </div>
             <div class="anilink-dl-body">
                 <section class="anilink-dl-section"><div class="anilink-dl-section-head"><span>Active downloads</span>${this.renderActiveActions(active)}</div><div data-region="active"></div></section>
-                <section class="anilink-dl-section"><div class="anilink-dl-section-head">History ${history.length ? '<button data-action="clear-history">Clear history</button> ' : ''}<span><button data-action="toggle-history">${this.historyOpen ? 'Collapse' : 'Expand'}</button></span></div><div data-region="history"></div></section>
+                <section class="anilink-dl-section"><div class="anilink-dl-section-head">History <span>${history.length ? '<button data-action="clear-history">Clear history</button> ' : ''}<button data-action="toggle-history">${this.historyOpen ? 'Collapse' : 'Expand'}</button></span></div><div data-region="history"></div></section>
             </div>
         `;
         const activeRegion = panel.querySelector('[data-region="active"]');
