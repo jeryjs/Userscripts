@@ -39,7 +39,9 @@
 // @match       https://animekaitv.to/*
 // @match       https://anikai.se/*
 // @match       https://anikoto.bz/*
-// @match       https://animesugetv.bz/*
+// @match       https://animesuge.tld/*
+// @match       https://animesuge.cz/*
+// @match       https://animesuge.re/*
 // @match       https://anikaitv.to/*
 // @match       https://hianimez.org/*
 // @match       https://anisuge.tv/*
@@ -49,7 +51,6 @@
 // @match       https://animesalt.cz/*
 // @match       https://animesalt.to/*
 // @match       https://aniwave.cz/*
-// @match       https://animesuge.re/*
 // @match       https://hianimetv.si/*
 // @match       https://aniwatch.ch/*
 // @match       https://anichi.to/*
@@ -60,6 +61,35 @@
 // @match       https://reanime.to/*
 // @match       https://reanime.cz/*
 // @match       https://anineko.to/watch/*
+// @connect     gofile.io
+// @connect     xin-cdn.xyz
+// @connect     owocdn.top
+// @connect     animeheaven.me
+// @connect     otaku-streamers.com
+// @connect     vidcache.net
+// @connect     megavid.buzz
+// @connect     megaplay.buzz
+// @connect     vidnest.fun
+// @connect     api-webs.com
+// @connect     mediacache.cc
+// @connect     imgnex.top
+// @connect     vidtube.site
+// @connect     akirax.buzz
+// @connect     norami.top
+// @connect     av1encodes.com
+// @connect     flixcloud.cc
+// @connect     enc-dec.app
+// @connect     bibiemb.xyz
+// @connect     otakuhg.site
+// @connect     otakuvid.online
+// @connect     playmogo.com
+// @connect     workers.dev
+// @connect     vivibebe.site
+// @connect     piltover.li
+// @connect     watami.win
+// @connect     xi.pe
+// @connect     paste.rs
+// @connect     *
 // @require     https://cdn.jsdelivr.net/npm/@trim21/gm-fetch@0.3.0
 // @grant       GM.xmlHttpRequest
 // @grant       GM.download
@@ -78,12 +108,12 @@
 // ==/UserScript==
 
 // TODO — temp tracker for v7 release
-// 1. Do full tampermonkey support audit.
+// 1. ~~Do full tampermonkey support audit.~~
 // 2. Add ts to mp4 transcoding support to downloader.
 // 3. Add guide/tutorial in ui for stuff
 // ~~4. Fix toast's close button positioning when displaying error~~
 // ~~5. Fix keyboard input in modals.~~
-// 6. Work on the Todo in the downloader
+// 6. Improve download progress bar for non m3u8 downloads (mp4 has very less parts, and due to that progressbar jumps in big steps with slow updates, which is not a good UX... instead of using parts always prioritize using the total file size and downloaded size to calculate progress percentage and fallback to parts count only if the total file size is not available).
 // ~~7. Make "Play With" a popover with support for more popular players.~~
 // ~~8. notification icon (use script icon)~~
 // ~~9. DOnt remove partial files (add setting for this)~~
@@ -120,7 +150,11 @@ const DEFAULT_TRACK_LANGUAGE_PREFERENCES = Object.freeze({
 const ANILINK_GITHUB_REPO = 'https://github.com/jeryjs/Userscripts/tree/main/AniLINK';
 const ANILINK_GITHUB_ISSUES = `https://github.com/jeryjs/Userscripts/issues/new`;
 const ANILINK_GREASYFORK_PAGE = 'https://greasyfork.org/en/scripts/492029-anilink-episode-link-extractor';
-const PLAYERS = Object.freeze([
+
+/**
+ * List of available player applications used for 'Play With' options
+ */
+const PLAYER_APPS = Object.freeze([
     {
         id: 'mpv-handler',
         name: 'MPV (mpv-handler)',
@@ -209,7 +243,7 @@ class Episode {
         this.links = this._processLinks(links);     // An object containing streaming links and tracks for each source: {"source1":{stream:"url", type:"m3u8|mp4", tracks:[{file:"url", kind:"caption|audio", label:"name"}]}}}
         this.thumbnail = thumbnail; // The URL of the episode's thumbnail image (if unavailable, then just any image is fine. Thumbnail property isnt really used in the script yet).
         const firstLink = Object.values(this.links)[0];
-        this.filename = `${this.animeTitle} - ${this.number.padStart(3, '0')}${this.epTitle ? ` - ${this.epTitle}` : ''}${firstLink?.type || ''}${SRC_IN_FN ? ` [${Object.keys(this.links)[0]}]` : ''}`;   // The formatted name of the episode, combining anime name, number and title and extension.
+        this.filename = `${this.animeTitle} - ${this.number.padStart(3, '0')}${this.epTitle ? ` - ${this.epTitle}` : ''}${SRC_IN_FN ? ` [${Object.keys(this.links)[0]}]` : ''}${firstLink?.type || ''}`;   // The formatted name of the episode, combining anime name, number and title and extension.
         this.title = this.epTitle ?? this.animeTitle;
     }
 
@@ -667,7 +701,7 @@ const Websites = [
     },
     {
         name: "Anikoto (and clones)",
-        url: ["anikototv.", 'anikoto.', 'animekai.org.in/', 'anixtv.me/', 'animixplay.cz/', 'animewave.to/', 'anix.best/', 'animesogo.to/', 'animesugez.tv/', 'aniwave.id/', 'animekai.se/', 'gogoanime.com.by/', 'animekaitv.to/', 'anikai.se/', 'anikoto.bz/', 'animesugetv.bz/', 'anikaitv.to/', 'hianimez.org/', 'anisuge.tv/', 'anisuge.se/', 'zorotv.cz/', 'hianimes.re/', 'animesalt.cz/', 'animesalt.to/', 'aniwave.cz/', 'animesuge.re/', 'hianimetv.si/', 'aniwatch.ch/', 'anichi.to/'],
+        url: ["anikototv.", 'anikoto.', 'animekai.org.in/', 'anixtv.me/', 'animixplay.cz/', 'animewave.to/', 'anix.best/', 'animesogo.to/', 'animesugez.tv/', 'aniwave.id/', 'animekai.se/', 'gogoanime.com.by/', 'animekaitv.to/', 'anikai.se/', 'anikoto.bz/', 'animesugetv.bz/', 'anikaitv.to/', 'hianimez.org/', 'anisuge.tv/', 'anisuge.se/', 'zorotv.cz/', 'hianimes.re/', 'animesalt.cz/', 'animesalt.to/', 'aniwave.cz/', 'animesuge.', 'hianimetv.si/', 'aniwatch.ch/', 'anichi.to/'],
         _chunkSize: 12,
         addStartButton: (id) => setInterval(() => {
             const target = _$('.d-flex.flex-row, .d-flex.head-left, .filter.name, .ep-view-tools, #w-episodes:not(.ep-mode-name)>.head, .ss-choice, .episode-list-search-box');
@@ -683,7 +717,7 @@ const Websites = [
             })();
             for (let i = 0; i < epElms.length; i += this._chunkSize)
                 yield* yieldEpisodesFromPromises(epElms.slice(i, i + this._chunkSize).map(async ep => {
-                    const epNum = ep.dataset.num; status.text = `Extracting Episodes ${(epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
+                    const epNum = ep.dataset.num.replace(/Episode|EP|Ep\s?/, ''); status.text = `Extracting Episodes ${(epNum - Math.min(this._chunkSize, epNum) + 1)} - ${epNum}...`;
                     const servers = await fetch(`/ajax/server/list?servers=${ep.dataset.ids}`, { "headers": { "x-requested-with": "XMLHttpRequest" } }).then(r => r.json().then(d => d.result)).then(t => (new DOMParser()).parseFromString(t, 'text/html')).then(doc => [..._$$('li, .server, .btn', doc)].map(e => ({ lid: e.dataset.linkId, name: `${e.closest('.type, .ps_-block').querySelector('label, .name, span[title]').textContent.trim()} - ${e.textContent.trim()}` }))).catch(e => showToast(`Failed to fetch servers for Ep ${epNum}`));
                     const links = {}, fetchSource = async s => { try { links[s.name] = await fetch(`/ajax/server?get=${s.lid}`, { "headers": { "x-requested-with": "XMLHttpRequest" } }).then(r => r.json().then(d => d.result)).then(async d => await Extractors.use(d.url)) } catch (e) { showToast(`Failed to fetch Ep ${epNum} from ${s.name}: ${e.message || e}`); } }; // megaplay.buzz, vidtube.site
                     if (srcCfg?.mode === 'single') { for (const key of srcCfg.sources) { const s = servers.find(srv => srv.name === key); if (s) { await fetchSource(s); if (Object.keys(links).length) break; } } }
@@ -1816,7 +1850,7 @@ async function extractEpisodes() {
     }
 
     function getPreferredPlayer() {
-        return PLAYERS.find(player => player.id === GM_getValue('preferred_player', 'mpv-handler')) || PLAYERS[0];
+        return PLAYER_APPS.find(player => player.id === GM_getValue('preferred_player', 'mpv-handler')) || PLAYER_APPS[0];
     }
 
     let _activePlayPopover = null;
@@ -1849,7 +1883,7 @@ async function extractEpisodes() {
             cancelClose();
             closeTimer = setTimeout(close, 180);
         };
-        PLAYERS.forEach(player => {
+        PLAYER_APPS.forEach(player => {
             const button = Object.assign(document.createElement('button'), { type: 'button', className: 'anlink-player-item' });
             button.setAttribute('aria-label', `Play with ${player.name}`);
             const icon = Object.assign(document.createElement('img'), { className: 'anlink-player-icon', alt: '', loading: 'lazy' });
@@ -1891,7 +1925,7 @@ async function extractEpisodes() {
         popover.addEventListener('mouseleave', scheduleClose);
         setTimeout(() => {
             AniLINKUI.root.addEventListener('click', outsideClick);
-            (playerButtons.get(preferredId) || playerButtons.get(PLAYERS[0].id))?.focus();
+            (playerButtons.get(preferredId) || playerButtons.get(PLAYER_APPS[0].id))?.focus();
         }, 0);
 
         _activePlayPopover = { popover, anchor: anchorEl, close };
@@ -2115,7 +2149,7 @@ async function extractEpisodes() {
                         <label>
                             <input type="checkbox" class="anlink-episode-checkbox" />
                             <span class="player-epnum" title="Play episode"><img fill="#26a69a" class="anlink-preferred-player-icon hidden" alt='▶' style="width: 20px; height: 20px;" /><a>Ep ${ep.number.replace(/^0+/, '')}: </a></span>
-                            <a href="${ep.links[source].stream}" class="anlink-episode-link" download="${encodeURI(ep.filename + (SRC_IN_FN ? ` [${source}]` : ''))}" data-epnum="${ep.number}" data-ep=${encodeURI(JSON.stringify({ ...ep, links: undefined }))} >${ep.links[source].stream}</a>
+                            <a href="${ep.links[source].stream}" class="anlink-episode-link" download="${encodeURI(ep.filename)}" data-epnum="${ep.number}" data-ep=${encodeURI(JSON.stringify({ ...ep, links: undefined }))} >${ep.links[source].stream}</a>
                         </label>
                         ${hasSubs ? '<span class="anlink-subs-toggle" title="Shift+Click to toggle all episodes\' subtitles">🄰 Subs ▼</span>' : ''}
                     </div>
@@ -2291,7 +2325,7 @@ async function extractEpisodes() {
                 const type = trackKind(t) === 'audio' ? 'AUDIO' : trackKind(t) === 'caption' ? 'SUBTITLES' : null;
                 if (type) out += `#EXT-X-MEDIA:TYPE=${type},GROUP-ID="${type.toLowerCase()}${episode.number}",NAME="${t.label || type}",DEFAULT=${t.default ? 'YES' : 'NO'},URI="${t.file}"\n`;
             });
-            out += `#EXTINF:-1,${episode.filename.replaceAll('/', '|')}${SRC_IN_FN ? ` [${source}]` : ''}\n${link.stream}\n`;
+            out += `#EXTINF:-1,${episode.filename.replaceAll('/', '|')}\n${link.stream}\n`;
         };
         if (layoutMode === 'episodes') {
             selected._episodeOrder.forEach(card => {
@@ -3083,7 +3117,6 @@ const AniLINKUI = (() => {
 
 
 // =============== DOWNLOADER ================= \\
-// TODO: Improve download progress bar for non m3u8 downloads (mp4 has very less parts, and due to that progressbar jumps in big steps with slow updates, which is not a good UX)
 const dlUtils = {
     anlinkGMRequest: (url, options = {}) => {
         const requestFn = typeof GM_xmlhttpRequest === 'function'
@@ -4477,7 +4510,7 @@ class DownloaderUI {
         const link = episode.links?.[source];
         if (!link?.stream) throw new Error(`Episode ${episode.number} has no stream for ${source}.`);
         const extension = link.type === '.m3u8' || link.type === 'm3u8' ? '.ts' : link.type || '.bin';
-        const filename = `${episode.animeTitle} - ${String(episode.number).padStart(3, '0')}${episode.epTitle ? ` - ${episode.epTitle}` : ''}${extension}${SRC_IN_FN ? ` [${source}]` : ''}`;
+        const filename = episode.filename.replace(/\.[^/.]+$/, extension);
         const task = this.downloader.addTask(filename, episode.animeTitle, link.stream, {
             ...options, format: link.type, source: source, headers: options.headers, referer: link.referer, threads: options.threads,
             speedLimitBps: options.speedLimitBps, tracks: link.tracks || [], metadata: { episodeNumber: episode.number, source }
