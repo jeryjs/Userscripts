@@ -1249,7 +1249,7 @@ async function extractEpisodes() {
         .anlink-header-buttons { position: relative; display: flex; gap: 10px; }
         .anlink-header-buttons button { border: 1px solid rgba(255,255,255,.12); border-radius: 7px; padding: 8px 12px; background: rgba(255,255,255,.05); color: #d4e7e4; cursor: pointer; font: 11px system-ui, sans-serif; transition: border-color .2s, background .2s, color .2s; }
         .anlink-header-buttons button:hover { border-color: #26a69a; background: rgba(38,166,154,.18); color: #7ce4d8; }
-        .anlink-play-popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 100; min-width: 230px; padding: 10px; border: 1px solid var(--anlink-glass-border); border-radius: 12px; background: var(--anlink-glass-bg); box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); animation: anlink-episode-popover-in .18s ease-out; }
+        .anlink-play-popover { position: fixed; z-index: 1002; min-width: 230px; max-height: calc(100vh - 16px); overflow-y: auto; padding: 10px; border: 1px solid var(--anlink-glass-border); border-radius: 12px; background: var(--anlink-glass-bg); box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); animation: anlink-episode-popover-in .18s ease-out; pointer-events: auto; }
         .anlink-play-heading { margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--anlink-glass-border-soft); color: #dffaf6; font: 600 12px/1.3 system-ui, sans-serif; }
         .anlink-player-list { display: flex; flex-direction: column; gap: 4px; }
         .anlink-player-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; background: rgba(255,255,255,.04); color: #d4e7e4; cursor: pointer; text-align: left; transition: background .2s, border-color .2s, transform .15s; }
@@ -1876,6 +1876,8 @@ async function extractEpisodes() {
             popover.removeEventListener('mouseenter', cancelClose);
             popover.removeEventListener('mouseleave', scheduleClose);
             popover.remove();
+            window.removeEventListener('resize', reposition);
+            linksContainer.removeEventListener('scroll', reposition);
             AniLINKUI.root.removeEventListener('click', outsideClick);
             if (_activePlayPopover?.popover === popover) _activePlayPopover = null;
         };
@@ -1907,9 +1909,29 @@ async function extractEpisodes() {
         });
         popover.append(heading, playerList);
 
-        const parent = anchorEl.closest('.anlink-header-buttons, .anlink-episode-card-actions, .anlink-episode-main') || anchorEl.parentElement || anchorEl;
-        if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
-        parent.appendChild(popover);
+        AniLINKUI.root.appendChild(popover);
+
+        const positionPopover = () => {
+            if (!popover.isConnected) return;
+            const anchorRect = anchorEl.getBoundingClientRect();
+            const popoverRect = popover.getBoundingClientRect();
+            const margin = 8;
+            const gap = 6;
+            let left = Math.min(anchorRect.right - popoverRect.width, window.innerWidth - popoverRect.width - margin);
+            let top = anchorRect.bottom + gap;
+
+            if (top + popoverRect.height > window.innerHeight - margin && anchorRect.top - gap - popoverRect.height >= margin)
+                top = anchorRect.top - gap - popoverRect.height;
+
+            left = Math.max(margin, left);
+            top = Math.max(margin, Math.min(top, window.innerHeight - popoverRect.height - margin));
+            popover.style.left = `${left}px`;
+            popover.style.top = `${top}px`;
+        };
+        const reposition = () => requestAnimationFrame(positionPopover);
+        window.addEventListener('resize', reposition);
+        linksContainer.addEventListener('scroll', reposition, { passive: true });
+        requestAnimationFrame(positionPopover);
 
         const outsideClick = event => {
             if (!popover.contains(event.target) && !anchorEl.contains(event.target)) close();
