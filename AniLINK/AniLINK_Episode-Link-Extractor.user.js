@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     6.33.5
+// @version     7.0.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -110,18 +110,53 @@
 // TODO — temp tracker for v7 release
 // 1. ~~Do full tampermonkey support audit.~~
 // 2. Add ts to mp4 transcoding support to downloader.
-// 3. Add guide/tutorial in ui for stuff
-// ~~4. Fix toast's close button positioning when displaying error~~
-// ~~5. Fix keyboard input in modals.~~
-// ~~6. Improve download progress bar for non m3u8 downloads (mp4 has very less parts, and due to that progressbar jumps in big steps with slow updates, which is not a good UX... instead of using parts always prioritize using the total file size and downloaded size to calculate progress percentage and fallback to parts count only if the total file size is not available).~~
-// ~~7. Make "Play With" a popover with support for more popular players.~~
-// ~~8. notification icon (use script icon)~~
-// ~~9. DOnt remove partial files (add setting for this)~~
-// ~~10. Add track support setting to downloader defaulting to 'jp,jpn,japanese' for audio and 'en,eng,enUS,english' for captions (maybe handle for playlist export too?)~~
-// ~~11. move clear history button out of settings.~~
+// 3. ~~Add guide/tutorial in ui for stuff~~
+// 4. ~~Fix toast's close button positioning when displaying error~~
+// 5. ~~Fix keyboard input in modals.~~
+// 6. ~~Improve download progress bar for non m3u8 downloads (mp4 has very less parts, and due to that progressbar jumps in big steps with slow updates, which is not a good UX... instead of using parts always prioritize using the total file size and downloaded size to calculate progress percentage and fallback to parts count only if the total file size is not available).~~
+// 7. ~~Make "Play With" a popover with support for more popular players.~~
+// 8. ~~notification icon (use script icon)~~
+// 9. ~~DOnt remove partial files (add setting for this)~~
+// 10. ~~Add track support setting to downloader defaulting to 'jp,jpn,japanese' for audio and 'en,eng,enUS,english' for captions (maybe handle for playlist export too?)~~
+// 11. ~~move clear history button out of settings.~~
 
 // track last version for managing backwards compatability for script updates
-if (GM_info.script.version > GM_getValue('script_version', '0')) {
+if (GM_info.script.version >= GM_getValue('script_version', '0')) {
+    if ((GM_getValue('script_version', '0') > '6.0.0') && (GM_getValue('script_version', '0') < '7.0.0')) {
+        // Create isolated shadow host for the update dialog to block page style interference
+        const dialogHost = document.createElement('div');
+        dialogHost.style.cssText = 'position: fixed; inset: 0; z-index: 10000;';
+        document.body.appendChild(dialogHost);
+        const dialogShadow = dialogHost.attachShadow({ mode: 'open' });
+        const dialog = Object.assign(document.createElement('dialog'), {
+            style: 'padding:20px;background:rgba(40,40,40,0.95);border:1px solid rgba(255,255,255,0.15);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.5);backdrop-filter:blur(12px);color:#e0e0e0;font:system-ui,sans-serif;text-align:left;',
+            innerHTML: `
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+                    <img src="${GM_info.script.icon}" alt="AniLINK Icon" style="width:36px;height:36px;border-radius:8px;">
+                    <a href="https://github.com/jeryjs/Userscripts/tree/main/AniLINK" target="_blank" style="color:#fff;text-decoration:underline;"><h3 style="margin:0;font-size:16px;font-weight:600;color:#fff;">AniLINK<span style="font-size:12px; top:-8px; position:relative;">v7</span>— Episode Link Extractor!</h3></a>
+                </div>
+                <p>Hey there~! AniLINK just got a <strong>major</strong> update which brings a ton of new stuff including:</p>
+                <ul style="margin:6px 0;padding-left:20px;line-height:1.5;list-style-type:disc;">
+                    <li>Built-in Downloader for batch downloading episodes.</li>
+                    <li>A new yet familiar user interface.</li>
+                    <li>Improved support for Mobile UI.</li>
+                    <li>Support for more media players.</li>
+                    <li>Support for more anime streaming sites.</li>
+                    <li>Improved error handling and notifications.</li>
+                    <li>Various bug fixes and performance improvements.</li>
+                </ul>
+                <p>Yup, you read that right—<strong style="color:#fff;">Built-in Downloader</strong> is now available! Go ahead and try it out!</p>
+                <p>And then I\'d like to hear your feedback!</p>
+                <div style="margin-top:16px;text-align:right;pointer:"><button onclick="this.parentElement.parentElement.close();" class="anlink-update-ok" style="background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:500;">Cool, I\'ll check it out!</button></div>
+            `
+        });
+        // Clean up the shadow host automatically when the dialog is closed (via button or Esc)
+        dialog.addEventListener('close', () => dialogHost.remove());
+        dialog.querySelector('.anlink-update-ok').addEventListener('click', () => { dialog.close(); showAniLINKInfoDialog(); });
+        dialogShadow.appendChild(dialog);
+        dialog.showModal();
+    }
+
     // migrate anilink_sources_* keys to new sources_config map format
     if (GM_getValue('script_version', '0') < '6.29.0') {
         const newConfig = Object.fromEntries(GM_listValues()
@@ -147,7 +182,7 @@ const DEFAULT_TRACK_LANGUAGE_PREFERENCES = Object.freeze({
     audioTrackLanguages: 'jp,jpn,japanese,en,eng,english',
     captionTrackLanguages: 'en,eng,enUS,english'
 });
-const ANILINK_GITHUB_REPO = 'https://github.com/jeryjs/Userscripts/tree/main/AniLINK';
+const ANILINK_GITHUB_REPO = 'https://github.com/jeryjs/Userscripts/blob/main/AniLINK';
 const ANILINK_GITHUB_ISSUES = `https://github.com/jeryjs/Userscripts/issues/new`;
 const ANILINK_GREASYFORK_PAGE = 'https://greasyfork.org/en/scripts/492029-anilink-episode-link-extractor';
 
@@ -706,7 +741,7 @@ const Websites = [
     },
     {
         name: "Anikoto (and clones)",
-        url: ["anikototv.", 'anikoto.', 'animekai.org.in/', 'anixtv.me/', 'animixplay.cz/', 'animewave.to/', 'anix.best/', 'animesogo.to/', 'animesugez.tv/', 'aniwave.id/', 'animekai.se/', 'gogoanime.com.by/', 'animekaitv.to/', 'anikai.se/', 'anikoto.bz/', 'animesugetv.bz/', 'anikaitv.to/', 'hianimez.org/', 'anisuge.tv/', 'anisuge.se/', 'zorotv.cz/', 'hianimes.re/', 'animesalt.cz/', 'animesalt.to/', 'aniwave.cz/', 'animesuge.', 'hianimetv.si/', 'aniwatch.ch/', 'anichi.to/'],
+        url: ['anikoto.site', "anikototv.to", "anikototv.", 'anikoto.net', 'anikoto.', 'animekai.org.in/', 'anixtv.me/', 'animixplay.cz/', 'animewave.to/', 'anix.best/', 'animesogo.to/', 'animesugez.tv/', 'aniwave.id/', 'animekai.se/', 'gogoanime.com.by/', 'animekaitv.to/', 'anikai.se/', 'anikoto.bz/', 'animesugetv.bz/', 'anikaitv.to/', 'hianimez.org/', 'anisuge.tv/', 'anisuge.se/', 'zorotv.cz/', 'hianimes.re/', 'animesalt.cz/', 'animesalt.to/', 'aniwave.cz/', 'animesuge.', 'hianimetv.si/', 'aniwatch.ch/', 'anichi.to/'],
         _chunkSize: 12,
         addStartButton: (id) => setInterval(() => {
             const target = _$('.d-flex.flex-row, .d-flex.head-left, .filter.name, .ep-view-tools, #w-episodes:not(.ep-mode-name)>.head, .ss-choice, .episode-list-search-box');
@@ -1234,6 +1269,7 @@ async function extractEpisodes() {
     // Flag to control extraction process
     let status = { isExtracting: true, text: 'Initializing...', stopped: false, error: null };
     const viewStorageKey = 'anilink_episode_view_mode';
+    /** @type {'sources' | 'episodes'} */
     let layoutMode = GM_getValue(viewStorageKey, 'sources') === 'episodes' ? 'episodes' : 'sources';
 
     // --- Materialize CSS Initialization ---
@@ -1276,24 +1312,24 @@ async function extractEpisodes() {
         .anlink-source-header i { margin-right: 8px; font: 700 22px/1 system-ui, sans-serif; transition: transform 0.3s ease-in-out; }
         .anlink-source-header i.rotate { transform: rotate(90deg); } /* Rotate class */
         .anlink-episode-list { list-style: none; padding-left: 0; margin-top: 0; overflow: hidden; transition: max-height 0.5s ease-in-out; } /* Transition for max-height */
-        .anlink-episode-item { margin-bottom: 5px; padding: 10px; border-bottom: 1px solid var(--anlink-glass-border-soft); display: flex; flex-direction: column; }
+        .anlink-episode-item { margin-bottom: 5px; padding: 10px; border-bottom: 1px solid var(--anlink-glass-border-soft); display: flex; flex-direction: column; user-select: none; }
         .anlink-episode-item:last-child { border-bottom: none; }
-        .anlink-episode-missing-count { margin-left:32px; margin-top: -22px; margin-bottom: 6px; color: #888; font-size:0.85em; user-select: none; }
+        .anlink-episode-missing-count { margin-left:32px; margin-top: -22px; margin-bottom: 6px; color: #888; font-size:0.85em; }
         .anlink-episode-main { display: flex; align-items: baseline; }
         .anlink-episode-main > label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: stretch; } /* Single line & Ellipsis for long links */
-        .anlink-episode-main > label > span { user-select: none; cursor: pointer; color: #26a69a; } /* Disable selecting the 'Ep: 1' prefix */
+        .anlink-episode-main > label > span { cursor: pointer; color: #26a69a; } /* Disable selecting the 'Ep: 1' prefix */
         .anlink-episode-main > label > span > img { vertical-align: middle; display: inline; }  /* Ensure the mpv icon is in the same line */
         .anlink-episode-checkbox { appearance: none; width: 20px; height: 20px; margin-right: 10px; margin-bottom: -5px; border: 1px solid #26a69a; border-radius: 4px; outline: none; cursor: pointer; transition: background-color 0.3s, border-color 0.3s; }
         .anlink-episode-checkbox:checked { background-color: #26a69a; border-color: #26a69a; }
         .anlink-episode-checkbox:checked::after { content: '✔'; display: block; color: white; font-size: 14px; text-align: center; line-height: 20px; animation: checkTilt 0.3s; }
-        .anlink-episode-link { color: #f4d36b; text-decoration: none; display: inline; }
+        .anlink-episode-link { color: #f4d36b; text-decoration: none; display: inline; user-select: all; }
         .anlink-episode-link:hover { color: #fff; }
-        .anlink-subs-toggle, .anlink-referrer { font-size: 0.85em; color: #888; cursor: pointer; margin-left: 10px; user-select: none; transition: color 0.2s; white-space: nowrap; }
+        .anlink-subs-toggle, .anlink-referrer { font-size: 0.85em; color: #888; cursor: pointer; margin-left: 10px; transition: color 0.2s; white-space: nowrap; }
         .anlink-subs-toggle:hover, .anlink-referrer:hover { color: #26a69a; }
         .anlink-subs-list { margin-left: 30px; margin-top: 5px; font-size: 0.9em; color: #bbb; max-height: 0; overflow: hidden; transition: max-height 0.3s ease-in-out; }
         .anlink-subs-list.expanded { max-height: 300px; }
-        .anlink-sub-item { padding: 2px 0; width: max-content; user-select: none; }
-        .anlink-sub-item a { color: #64b5f6; text-overflow: ellipsis; overflow: hidden; display: inline; user-select: text; }
+        .anlink-sub-item { padding: 2px 0; width: max-content; }
+        .anlink-sub-item a { color: #64b5f6; text-overflow: ellipsis; overflow: hidden; display: inline; user-select: all; }
         .anlink-sub-item a:hover { color: #90caf9; text-decoration: underline; }
         .hidden { display: none !important; }
         button[data-action] * { pointer-events: none; }
@@ -2780,7 +2816,7 @@ function showAniLINKInfoDialog() {
             .anlink-info-brand { display: grid; place-items: center; flex: none; width: 48px; height: 48px; border: 1px solid rgba(180,255,245,.2); border-radius: 15px; background: linear-gradient(135deg, rgba(38,166,154,.42), rgba(38,166,154,.08)); color: #b8fff5; font-size: 25px; box-shadow: 0 8px 24px rgba(38,166,154,.16); }
             .anlink-info-heading { min-width: 0; flex: 1; } .anlink-info-heading h2 { margin: 0; color: #f1fffc; font: 700 21px/1.2 system-ui, sans-serif; } .anlink-info-heading p { margin: 5px 0 0; color: #9eb4b1; font: 12px/1.4 system-ui, sans-serif; }
             .anlink-info-close { flex: none; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.12); border-radius: 10px; background: rgba(255,255,255,.05); color: #d9eeeb; cursor: pointer; font-size: 20px; line-height: 1; transition: border-color .2s, background .2s, transform .2s; } .anlink-info-close:hover { border-color: #26a69a; background: rgba(38,166,154,.18); transform: translateY(-2px); }
-            .anlink-info-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 18px 24px 0; padding: 5px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 12px; background: var(--anlink-glass-surface); }
+            .anlink-info-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 18px 24px 0; padding: 5px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 12px; background: var(--anlink-glass-surface); }
             .anlink-info-tab { min-height: 38px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #9eb4b1; cursor: pointer; font: 600 12px system-ui, sans-serif; transition: color .2s, background .2s, border-color .2s, transform .2s; } .anlink-info-tab:hover { color: #dffaf6; background: rgba(255,255,255,.06); } .anlink-info-tab.active { border-color: rgba(180,255,245,.18); background: rgba(38,166,154,.18); color: #9ff1e6; box-shadow: 0 4px 16px rgba(0,0,0,.12); }
             .anlink-info-content { min-height: 0; overflow-y: auto; padding: 22px 24px 24px; }
             .anlink-info-page { display: none; animation: anlink-info-fade-in .2s ease-out; } .anlink-info-page.active { display: block; }
@@ -2793,6 +2829,19 @@ function showAniLINKInfoDialog() {
             .anlink-info-form { display: grid; gap: 12px; } .anlink-info-field { display: grid; gap: 6px; } .anlink-info-field label { color: #a8c0bc; font: 600 11px system-ui, sans-serif; } .anlink-info-field input, .anlink-info-field textarea { width: 100%; border: 1px solid var(--anlink-glass-border-soft); border-radius: 9px; outline: none; background: var(--anlink-input-bg); color: #eefbf8; font: 13px/1.4 system-ui, sans-serif; transition: border-color .2s, box-shadow .2s; } .anlink-info-field input { padding: 10px 11px; } .anlink-info-field textarea { min-height: 86px; padding: 10px 11px; resize: vertical; } .anlink-info-field input:focus, .anlink-info-field textarea:focus { border-color: #26a69a; box-shadow: 0 0 0 3px rgba(38,166,154,.12); }
             .anlink-info-submit { justify-self: end; margin-top: 3px; padding: 10px 16px; border: 1px solid rgba(180,255,245,.2); border-radius: 9px; background: linear-gradient(135deg, rgba(38,166,154,.9), rgba(32,132,122,.82)); color: #fff; cursor: pointer; font: 600 12px system-ui, sans-serif; transition: transform .2s, box-shadow .2s, filter .2s; } .anlink-info-submit:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(38,166,154,.24); filter: brightness(1.08); }
             .anlink-info-footnote { margin: 0; color: #829794; font: 11px/1.45 system-ui, sans-serif; }
+            .anlink-info-guides { display: grid; gap: 10px; }
+            .anlink-info-guide { border: 1px solid var(--anlink-glass-border-soft); border-radius: 12px; background: var(--anlink-glass-surface); overflow: hidden; }
+            .anlink-info-guide-summary { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; color: #b4c9c5; font: 600 12px system-ui, sans-serif; cursor: pointer; list-style: none; transition: color .2s, background .2s; }
+            .anlink-info-guide-summary::-webkit-details-marker { display: none; }
+            .anlink-info-guide-summary::after { content: '+'; font-weight: 700; color: #9ff1e6; transition: transform .2s; }
+            .anlink-info-guide[open] .anlink-info-guide-summary { color: #9ff1e6; background: rgba(38,166,154,.08); }
+            .anlink-info-guide[open] .anlink-info-guide-summary::after { content: '−'; }
+            .anlink-info-guide-body { padding: 0 16px 16px; color: #91a7a4; font: 12px/1.6 system-ui, sans-serif; }
+            .anlink-info-guide-body p { margin: 0; }
+            .anlink-info-guide-body p + p { margin-top: 10px; }
+            .anlink-info-guide-body code { padding: 2px 6px; border-radius: 5px; background: rgba(0,0,0,.25); color: #b9f8ef; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+            .anlink-info-guide-body strong { color: #c1d7d3; }
+            .anlink-info-guide-body a { color: #9ff1e6; text-decoration: underline; }
             @media (max-width: 680px) { .anlink-info-backdrop { padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); } .anlink-info-dialog { width: 100%; max-height: 100%; border-radius: 20px; } .anlink-info-header { padding: 18px 16px 14px; } .anlink-info-tabs { margin-inline: 16px; } .anlink-info-content { padding: 18px 16px 20px; } .anlink-info-grid { grid-template-columns: 1fr; } .anlink-info-choice { grid-template-columns: 1fr; } .anlink-info-tab { min-height: 42px; } }
         `);
         showAniLINKInfoDialog.stylesReady = true;
@@ -2806,17 +2855,245 @@ function showAniLINKInfoDialog() {
     dialog.innerHTML = `
         <section class="anlink-info-dialog" role="dialog" aria-modal="true" aria-labelledby="anlink-info-title">
             <header class="anlink-info-header">
-                <div class="anlink-info-brand" aria-hidden="true">🔗</div>
+                <div class="anlink-info-brand" aria-hidden="true"><img src="${GM_info?.script?.icon || '❤️'}" alt="AniLINK Logo" style="width: 46px; height: 46px;"></div>
                 <div class="anlink-info-heading"><h2 id="anlink-info-title">AniLINK</h2><p>Extract, stream, and download episodes with ease.</p></div>
                 <button type="button" class="anlink-info-close" data-info-action="close" title="Close" aria-label="Close">×</button>
             </header>
             <nav class="anlink-info-tabs" aria-label="AniLINK information">
                 <button type="button" class="anlink-info-tab active" data-info-tab="about" aria-selected="true">About</button>
+                <button type="button" class="anlink-info-tab" data-info-tab="guides" aria-selected="false">Guides</button>
                 <button type="button" class="anlink-info-tab" data-info-tab="request" aria-selected="false">Request</button>
                 <button type="button" class="anlink-info-tab" data-info-tab="issue" aria-selected="false">Report</button>
             </nav>
             <div class="anlink-info-content">
-                <section class="anlink-info-page active" data-info-page="about"><div class="anlink-info-hero"><span class="anlink-info-hero-icon" aria-hidden="true">✨</span><div><h3>Your anime, your workflow.</h3><p>AniLINK turns supported episode pages into direct links, convenient playlists, and downloads managed right from the browser.</p></div></div><div class="anlink-info-grid"><div class="anlink-info-card"><strong>Direct links</strong><span>Find episode streams grouped by quality and source.</span></div><div class="anlink-info-card"><strong>Instant playback</strong><span>Send episodes and playlists directly to MPV.</span></div><div class="anlink-info-card"><strong>Batch downloads</strong><span>Queue episodes and manage progress in one place.</span></div></div><div class="anlink-info-meta"><span><strong>Version</strong> ${version}</span><span><strong>License</strong> MIT</span><span><strong>Made with ♡ by</strong> JeryJs</span></div>                <div class="anlink-info-links"><a class="anlink-info-link" href="${ANILINK_GITHUB_REPO}" target="_blank">${GITHUB_SVG} GitHub</a><a class="anlink-info-link" href="${ANILINK_GREASYFORK_PAGE}" target="_blank">${GREASYFORK_SVG} GreasyFork</a></div><p class="anlink-info-note">AniLINK is intended for personal use. Please follow the laws and terms that apply in your region.</p></section>
+                <section class="anlink-info-page active" data-info-page="about"><div class="anlink-info-hero"><span class="anlink-info-hero-icon" aria-hidden="true">✨</span><div><h3>Direct links, playlists, and downloads.</h3><p>AniLINK pulls streams out of supported anime pages so you can stop copy-pasting URLs and start watching.</p></div></div><div class="anlink-info-grid"><div class="anlink-info-card"><strong>Direct links</strong><span>Episode streams grouped by quality and source. Pick what you need.</span></div><div class="anlink-info-card"><strong>Instant playback</strong><span>Send episodes and playlists straight to MPV with one click.</span></div><div class="anlink-info-card"><strong>Batch downloads</strong><span>Queue episodes and manage downloads in the background.</span></div></div><div class="anlink-info-meta"><span><strong>Version</strong> ${version}</span><span><strong>License</strong> MIT</span><span><strong>Made with ♡ by</strong> JeryJs</span></div>                <div class="anlink-info-links"><a class="anlink-info-link" href="${ANILINK_GITHUB_REPO}" target="_blank">${GITHUB_SVG} GitHub</a><a class="anlink-info-link" href="${ANILINK_GREASYFORK_PAGE}" target="_blank">${GREASYFORK_SVG} GreasyFork</a></div><p class="anlink-info-note">AniLINK is intended for personal use. Please follow the laws and terms that apply in your region.</p></section>
+                <section class="anlink-info-page" data-info-page="guides">
+                    <div class="anlink-info-guides">
+                        <aside><small><i>Demos: <a href="https://imgur.com/a/79urhGf" target="_blank" rel="noopener">https://imgur.com/a/79urhGf</a></i></small></aside>
+                        <details class="anlink-info-guide">
+                            <summary class="anlink-info-guide-summary">Start Button?</summary>
+                            <div class="anlink-info-guide-body">
+                                <p>Okay, the main entry point is through the "Extract Episodes" menu command in the script menu accessible via the browser's extension in the toolbar.</p>
+                                <p>Also as a second method, most sites will have a custom button like "Extract Episode Links" or "Generate Episode links" typically added next to the episode list in their watch/info page. If you don't see a button, then it probably doesn't exist so just run from the script menu.</p>
+                            </div>
+                        </details>
+                        <details class="anlink-info-guide">
+                            <summary class="anlink-info-guide-summary">What other sites are supported?</summary>
+                            <div class="anlink-info-guide-body">
+                                <p>Here's a table below showing the currently supported sites:<br><small><i>(I might not update this section too often, so check the <a href="${ANILINK_GITHUB_REPO}/README.md" target="_blank">README</a> for the most up-to-date list)</i></small></p>
+                                <table>
+                                    <thead><tr><th><strong>Name</strong></th><th><strong>Domain(s)</strong></th><th><strong>Has start button?</strong></th></tr></thead>
+                                    <tbody>
+                                        ${Object.entries(Websites).map(([_, site]) => {
+                                            const domains = [...new Set(site.url.map(d => d.replace(/\/$/, '')).filter(d => /^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$/.test(d)))];
+                                            const link = (d, extraIdx) => `<a href="https://${d}" target="_blank" rel="noopener">${extraIdx ? `${extraIdx}` : d}</a>`;
+                                            const formatted = domains.length > 3 ? domains.slice(0, 3).map(d => link(d, false)).join(', ') + ', ' + domains.slice(3).map((d, idx) => link(d, idx+4)).join(', ') : domains.map(d => link(d, false)).join(', ');
+                                            return `<tr><td><strong>${site.name}</strong></td><td>${formatted}</td><td style="text-align: center;">${site.addStartButton ? '✅' : '❌'}</td></tr>`;
+                                        }).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </details>
+                        <details class="anlink-info-guide">
+                            <summary class="anlink-info-guide-summary">Exporting playlists</summary>
+                            <div class="anlink-info-guide-body">
+                                <p>The 'Export Playlist' feature is meant to save the extracted lists into a text file (.m3u8) that can be opened with media players like VLC or MPV.</p>
+                                <p>It's ideal if you want to have the comfort of having all animes in your downloads folder, but not have it take any space (its just a few KBs)—your media player will stream the episodes directly from the source.</p>
+                                <p><strong>Note:</strong> Some sites may have restrictions on cross-origin requests, which can prevent the playlist from working properly. MPV is the primarily supported media player and installing my <a href="https://github.com/jeryjs/Userscripts/raw/refs/heads/main/AniLINK/anilink-m3u8.lua" target="_blank">anilink-m3u8.lua</a> script in MPV will fully resolve all such issues.</p>
+                            </div>
+                        </details>
+                        <details class="anlink-info-guide">
+                            <summary class="anlink-info-guide-summary">Downloading episodes</summary>
+                            <div class="anlink-info-guide-body">
+                                <p><strong>Using the Built-in Downloader:</strong></p>
+                                <ol>
+                                    <li>Select episodes using checkboxes (or leave none selected to download all)</li>
+                                    <li>Click the <strong>Download</strong> button in the header</li>
+                                    <li>Choose your download directory (uses File System Access API)</li>
+                                    <li>Configure settings: threads, speed limit, audio/subtitle preferences</li>
+                                    <li>Monitor progress in the downloader panel</li>
+                                </ol>
+                                <p><strong>Features:</strong></p>
+                                <ul>
+                                    <li>Multi-threaded downloading for faster speeds</li>
+                                    <li>Speed limiting to avoid hogging bandwidth</li>
+                                    <li>Automatic retry on failed segments</li>
+                                    <li>Pause/resume/cancel support</li>
+                                    <li>Subtitle track selection and merging</li>
+                                </ul>
+                                <p><strong>Note:</strong> The downloader works best in <strong>Chromium-based browsers</strong> (Edge, Chrome, Opera). Firefox and similar browsers may hit limitations with cross-origin downloads due to browser security restrictions.</p>
+                                <p><strong>Fallback:</strong> If the built-in downloader fails, use the <strong>Copy</strong> button to get links and paste them into your browser or download manager (IDM, FDM, etc.).</p>
+                            </div>
+                        </details>
+                        <details class="anlink-info-guide">
+                            <summary class="anlink-info-guide-summary">Playing with External Players</summary>
+                            <div class="anlink-info-guide-body">
+                                <p><strong>Single Episode:</strong> Hover over an episode card and click the play button (▶), or click the episode number in Source View.</p>
+                                <p><strong>Batch Playback:</strong> Select multiple episodes and click <strong>Play With → MPV</strong> to send a playlist.</p>
+                                <p><strong>Supported Players:</strong></p>
+                                <ul>${PLAYER_APPS.map(player => `<li><strong>${player.name}:</strong> ${player.description}</li>`).join('')}</ul>
+                                <p><strong>Setting Preferred Player:</strong> The last player you use becomes your default. Click the player badge (★) in the Play With popover to set it.</p>
+                            </div>
+                        </details>
+                        <details class="anlink-info-guide">
+                            <summary class="anlink-info-guide-summary">MPV integration</summary>
+                            <div class="anlink-info-guide-body">
+                                <p>MPV is the recommended player for use with AniLINK. It supports custom headers, subtitle tracks, and playlist streaming with full support.</p><p><strong>Step 1: Install mpv-handler</strong><br>
+                                Install the <a href="https://github.com/akiirui/mpv-handler" target="_blank">mpv-handler</a> browser extension. This allows AniLINK to send links directly to MPV via the <code>mpv://</code> protocol.</p><p><strong>Step 2: Install the AniLINK MPV script</strong><br>
+                                Download <a href="https://github.com/jeryjs/Userscripts/raw/refs/heads/main/AniLINK/anilink-m3u8.lua" target="_blank">anilink-m3u8.lua</a> and place it in your MPV <code>scripts</code> folder (usually <code>~/.config/mpv/scripts/</code> on Linux, <code>%APPDATA%\mpv\scripts\</code> on Windows, or <code>~/.config/mpv/scripts/</code> on macOS).</p><p><strong>What this script does:</strong></p>
+                                <ul>
+                                    <li>Automatically resolves cross-origin restrictions by forwarding the required <code>Referer</code> and <code>Origin</code> headers.</li>
+                                    <li>Handles HLS playlists (.m3u8) that would otherwise fail to load directly in MPV.</li>
+                                    <li>Supports embedded subtitle tracks (SRT, ASS, VTT) passed from AniLINK.</li>
+                                    <li>Enables batch playback of exported .m3u8 playlists.</li>
+                                </ul><p><strong>How to use:</strong></p>
+                                <ul>
+                                    <li>Extract episodes from any supported site.</li>
+                                    <li>Click <strong>Play With → MPV (mpv-handler)</strong> on individual episodes, or use <strong>Play All</strong> to send the entire playlist.</li>
+                                    <li>For playlists, use the <strong>Export</strong> button to save a .m3u8 file, then open it in MPV or drag it into an open MPV window.</li>
+                                </ul><p><strong>Troubleshooting:</strong></p>
+                                <ul>
+                                    <li>If clicking Play With does nothing, ensure mpv-handler is installed and the browser extension is enabled.</li>
+                                    <li>If the video doesn't load or shows 403/404 errors, make sure <code>anilink-m3u8.lua</code> is correctly placed in the scripts folder and restart MPV.</li>
+                                    <li>On Windows, if MPV isn't found, reinstall MPV and check <strong>"Add to PATH"</strong> during setup, or manually set the MPV path in mpv-handler settings.</li>
+                                    <li>For subtitle issues, ensure the source actually provides tracks. AniLINK will only pass tracks when they are detected during extraction.</li>
+                                </ul><p><strong>Protocol versions:</strong><br>
+                                You can toggle between <code>mpv-handler</code> (standard) and <code>mpv-handler-debug</code> (verbose console output) in the script settings if you need to debug connection issues.</p>
+                            </div>
+                        </details>
+                        <details class="anlink-info-guide">
+                            <summary class="anlink-info-guide-summary">Browser Compatibility</summary>
+                            <div class="anlink-info-guide-body">
+                                <p><strong>Chromium-based browsers (Edge, Chrome, Opera, Brave):</strong> ✅ Full support</p>
+                                <ul>
+                                    <li>Downloads, MPV launching, and playlist export all work perfectly</li>
+                                    <li>Built-in downloader with multi-threading and progress tracking is fully functional</li>
+                                    <li>File System Access API available for direct folder selection</li>
+                                    <li>Best overall experience</li>
+                                </ul><p><strong>Firefox and derivatives:</strong> ⚠️ Partial support</p>
+                                <ul>
+                                    <li>Cross-origin download handling is restricted by browser security policies</li>
+                                    <li>The built-in downloader may not work for some sources</li>
+                                    <li>If downloads fail or filenames are incorrect, use the <strong>Copy</strong> button and paste into browser or download manager</li>
+                                    <li>For MPV, copy the link and launch MPV manually</li>
+                                    <li>Consider installing <a href="https://violentmonkey.github.io/get-it/" target="_blank" rel="noopener noreferrer"><strong>Violentmonkey</strong></a> or <strong>Tampermonkey</strong> for better GM API support</li>
+                                </ul><p><strong>Safari:</strong> ⚠️ Limited support</p>
+                                <ul>
+                                    <li>WebKit restrictions limit some features</li>
+                                    <li>Playlist export and MPV launching should work</li>
+                                    <li>Downloads may require manual intervention</li>
+                                    <li>Consider using a Chromium-based browser for full functionality</li>
+                                </ul><p><strong>Mobile browsers:</strong> ⚠️ Limited support</p>
+                                <ul>
+                                    <li>File System Access API is unavailable on most mobile browsers</li>
+                                    <li>Downloads fall back to browser's native behavior</li>
+                                    <li>For best experience, use desktop browser or dedicated apps</li>
+                                </ul>
+                                <p><strong>💡 Recommendation:</strong> For the full AniLINK experience, use a <strong>Chromium-based browser</strong> (Edge or Chrome recommended) with Tampermonkey or Violentmonkey.</p>
+                            </div>
+                        </details>
+                        <details class="anlink-info-guide">
+                            <summary class="anlink-info-guide-summary">Understanding the Interface</summary>
+                            <div class="anlink-info-guide-body">
+                                <p><strong>Source View:</strong> Episodes are grouped by streaming source (e.g., Kiwi, Megaplay). Each source section can be collapsed/expanded. Click the source name or chevron to toggle.</p>
+                                <p><strong>Episode View:</strong> A grid of episode cards showing thumbnail previews. Hover over cards to see quick actions (download, play, copy).</p>
+                                <p><strong>Selection:</strong> Checkboxes allow you to select specific episodes for batch operations. Shift+Click source headers to select all episodes in that source.</p>
+                                <p><strong>Header Buttons:</strong></p>
+                                <ul>
+                                    <li><strong>Copy:</strong> Copy all selected episode links to clipboard</li>
+                                    <li><strong>Export:</strong> Download as .m3u8 playlist file</li>
+                                    <li><strong>Download:</strong> Queue selected episodes to the built-in downloader</li>
+                                    <li><strong>Play With ▼:</strong> Send to external media player (MPV, VLC, etc.)</li>
+                                </ul>
+                                <p><strong>Source Priority:</strong> In Episode View, use the "Source order" button to reorder sources. The first available source is shown on each card.</p>
+                            </div>
+                        </details>
+                        <details class="anlink-info-guide">
+                            <summary class="anlink-info-guide-summary">Tips and Tricks</summary>
+                            <div class="anlink-info-guide-body">
+                                <p><strong>Keyboard Shortcuts:</strong></p>
+                                <ul>
+                                    <li><kbd>Tab</kbd> / <kbd>Shift+Tab</kbd> - Navigate between elements</li>
+                                    <li><kbd>Enter</kbd> - Confirm actions in dialogs</li>
+                                    <li><kbd>Esc</kbd> - Close dialogs</li>
+                                    <li><kbd>↑</kbd> / <kbd>↓</kbd> - Adjust episode range values</li>
+                                    <li><kbd>Shift+Click</kbd> on source header - Select/deselect all episodes in that source</li>
+                                    <li><kbd>Shift+Click</kbd> on Subs toggle - Toggle all episode subtitles</li>
+                                </ul>
+                                <p><strong>Source Preferences:</strong></p>
+                                <ul>
+                                    <li>Drag and drop sources in the Source Preferences modal to reorder priority</li>
+                                    <li>Use <strong>Single</strong> mode to automatically pick the first available source</li>
+                                    <li>Use <strong>Multi</strong> mode to extract from all selected sources</li>
+                                    <li>Preferences are saved per-site and persist across sessions</li>
+                                </ul>
+                                <p><strong>Episode View Features:</strong></p>
+                                <ul>
+                                    <li>Hover over cards to see quick actions (download, play, copy)</li>
+                                    <li>Thumbnail preview plays on hover (if available)</li>
+                                    <li>Use the seek bar to scrub through previews</li>
+                                    <li>Source order button controls which source appears on each card</li>
+                                </ul>
+                                <p><strong>Downloader Tips:</strong></p>
+                                <ul>
+                                    <li>Adjust thread count based on your connection (higher = faster but more bandwidth)</li>
+                                    <li>Use speed limiting if you need to browse while downloading</li>
+                                    <li>Enable "Keep partial files" in settings to resume interrupted downloads</li>
+                                    <li>Set a subtitle directory to organize subtitles separately</li>
+                                </ul>
+                                <p><strong>Workflow Suggestions:</strong></p>
+                                <ul>
+                                    <li><strong>For binge-watching:</strong> Export playlist → Open in MPV → Let it play through</li>
+                                    <li><strong>For offline viewing:</strong> Select all episodes → Download → Watch from downloader</li>
+                                    <li><strong>For sharing:</strong> Copy links → Share with friends (they'll need their own extraction)</li>
+                                </ul>
+                            </div>
+                        </details>
+                        <details class="anlink-info-guide">
+                            <summary class="anlink-info-guide-summary">Troubleshooting</summary>
+                            <div class="anlink-info-guide-body">
+                                <p><strong>No episodes found / Extraction fails:</strong></p>
+                                <ul>
+                                    <li>Refresh the page and try again</li>
+                                    <li>Check if the site is supported (see About tab)</li>
+                                    <li>Some pages hide links behind logins or anti-bot checks</li>
+                                    <li>Open browser console (F12) to see detailed error messages</li>
+                                </ul><p><strong>Download stuck or very slow:</strong></p>
+                                <ul>
+                                    <li>Check your network connection</li>
+                                    <li>Some servers throttle connections - try a different source or quality</li>
+                                    <li>Reduce thread count in downloader settings</li>
+                                    <li>Try downloading during off-peak hours</li>
+                                </ul><p><strong>MPV won't open or shows errors:</strong></p>
+                                <ul>
+                                    <li>Verify MPV is installed and accessible from terminal/command prompt</li>
+                                    <li>On Windows, reinstall MPV and check <strong>"Add to PATH"</strong> during setup</li>
+                                    <li>Check mpv-handler extension is enabled in browser</li>
+                                    <li>Try using <code>mpv-handler-debug</code> protocol for verbose output</li>
+                                    <li>Ensure <code>anilink-m3u8.lua</code> is correctly placed in MPV scripts folder</li>
+                                </ul><p><strong>Playlist doesn't work in VLC:</strong></p>
+                                <ul>
+                                    <li>Install <a href="https://github.com/milouz-corp/VLC-web-protocol" target="_blank">VLC-web-protocol</a> extension</li>
+                                    <li>Or use MPV with the Lua script for better compatibility</li>
+                                    <li>Some sources may have expired URLs - re-export the playlist</li>
+                                </ul><p><strong>Subtitle issues:</strong></p>
+                                <ul>
+                                    <li>Not all sources provide subtitles - AniLINK only shows what's available</li>
+                                    <li>Check track language preferences in settings</li>
+                                    <li>For MPV, ensure <code>anilink-m3u8.lua</code> is installed</li>
+                                    <li>Some subtitle formats may require conversion</li>
+                                </ul><p><strong>Script not working on a supported site:</strong></p>
+                                <ul>
+                                    <li>The site may have changed its layout - check for script updates</li>
+                                    <li>Open an issue on <a href="${ANILINK_GITHUB_ISSUES}" target="_blank">GitHub</a> with the site URL and browser console errors</li>
+                                    <li>Temporarily disable other userscripts that might conflict</li>
+                                </ul>
+
+                                <p><strong>Still having issues?</strong> Check the <strong>Report</strong> tab to submit a bug report, or visit the <a href="${ANILINK_GITHUB_REPO}" target="_blank">GitHub repository</a> for more help.</p>
+                            </div>
+                        </details>
+                    </div>
+                </section>
                 <section class="anlink-info-page" data-info-page="request"><div class="anlink-info-choice"><button type="button" class="active" data-request-kind="site">🌐 Request a site</button><button type="button" data-request-kind="feature">✨ Suggest a feature</button></div><div class="anlink-info-form"><div class="anlink-info-field"><label for="anlink-request-title">Title</label><input id="anlink-request-title" data-info-field="request-title" type="text" placeholder="Which site should AniLINK support?"></div><div class="anlink-info-field"><label for="anlink-request-details">Details</label><textarea id="anlink-request-details" data-info-field="request-details" placeholder="Tell me what you would like to see and include useful links or examples."></textarea></div><button type="button" class="anlink-info-submit" data-info-action="open-request">Open request form ↗</button><p class="anlink-info-footnote">This opens a prefilled GitHub issue so the request can be discussed and tracked.</p></div></section>
                 <section class="anlink-info-page" data-info-page="issue"><div class="anlink-info-choice"><button type="button" class="active" data-issue-kind="bug">🐞 Bug report</button><button type="button" data-issue-kind="downloader">⇩ Downloader issue</button></div><div class="anlink-info-form"><div class="anlink-info-field"><label for="anlink-issue-title">Title</label><input id="anlink-issue-title" data-info-field="issue-title" type="text" placeholder="What went wrong?"></div><div class="anlink-info-field"><label for="anlink-issue-description">Description</label><textarea id="anlink-issue-description" data-info-field="issue-description" placeholder="Describe the problem and what you expected to happen."></textarea></div><div class="anlink-info-field"><label for="anlink-issue-steps">Steps to reproduce</label><textarea id="anlink-issue-steps" data-info-field="issue-steps" placeholder="1. ...&#10;2. ..."></textarea></div><button type="button" class="anlink-info-submit" data-info-action="open-issue">Open issue form ↗</button><p class="anlink-info-footnote">Please include the affected site, browser, and userscript manager when possible.</p></div></section>
             </div>
@@ -2839,6 +3116,7 @@ function showAniLINKInfoDialog() {
     };
     const selectKind = (selector, attribute, value) => dialog.querySelectorAll(selector).forEach(button => button.classList.toggle('active', button.dataset[attribute] === value));
 
+    dialog.querySelectorAll('.anlink-info-guide').forEach(detail => detail.addEventListener('toggle', () => { if (detail.open) dialog.querySelectorAll('.anlink-info-guide').forEach(other => { if (other !== detail && other.open) other.open = false; }); }));
     dialog.querySelectorAll('[data-info-tab]').forEach(tab => tab.addEventListener('click', () => switchPage(tab.dataset.infoTab)));
     dialog.querySelectorAll('[data-request-kind]').forEach(button => button.addEventListener('click', () => {
         selectKind('[data-request-kind]', 'requestKind', button.dataset.requestKind);
@@ -3836,7 +4114,7 @@ class Downloader {
         const message = task.status === 'completed' ? `${task.filename} finished.` : task.status === 'failed' ? `${task.filename} failed: ${task.error || 'unknown error'}` : `${task.filename}: ${task.status}.`;
         if (task.status === 'failed') showToast(`Download failed: ${dlUtils.anlinkEscapeHtml(task.filename)} — ${dlUtils.anlinkEscapeHtml(task.error || 'unknown error')}`);
         if (!shouldNotify) return;
-        const icon = GM_info?.script?.icon || GM_info?.scriptIcon || 'https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg';
+        const icon = GM_info?.script?.icon || 'https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg';
         if (typeof GM_notification === 'function') GM_notification({ title: 'AniLINK Downloader', text: message, image: icon, icon, timeout: 5000 });
         else showToast(message);
     }
