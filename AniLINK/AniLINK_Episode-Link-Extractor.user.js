@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     7.0.0
+// @version     7.1.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -87,10 +87,12 @@
 // @connect     vivibebe.site
 // @connect     piltover.li
 // @connect     watami.win
+// @connect     cdnjs.cloudflare.com
 // @connect     xi.pe
 // @connect     paste.rs
 // @connect     *
 // @require     https://cdn.jsdelivr.net/npm/@trim21/gm-fetch@0.3.0
+// @require     https://cdnjs.cloudflare.com/ajax/libs/mux.js/7.1.0/mux.js
 // @grant       GM.xmlHttpRequest
 // @grant       GM.download
 // @grant       GM_xmlhttpRequest
@@ -179,8 +181,8 @@ const UNSUPPORTED_DOWNLOAD_URL_PATTERNS = [
     /^https:\/\/megap\..*$/i
 ];
 const DEFAULT_TRACK_LANGUAGE_PREFERENCES = Object.freeze({
-    audioTrackLanguages: 'jp,jpn,japanese,en,eng,english',
-    captionTrackLanguages: 'en,eng,enUS,english'
+    audioTrackLanguages: 'japanese,jpn,jap,english,eng,en',
+    captionTrackLanguages: 'enUS,english,eng,en'
 });
 const ANILINK_GITHUB_REPO = 'https://github.com/jeryjs/Userscripts/blob/main/AniLINK';
 const ANILINK_GITHUB_ISSUES = `https://github.com/jeryjs/Userscripts/issues/new`;
@@ -3579,6 +3581,10 @@ class DownloadTask {
             trackIndex: 0,
             trackTotal: 0,
             trackLabel: '',
+            trackBytesReceived: 0,
+            trackBytesTotal: 0,
+            conversionBytes: 0,
+            conversionTotal: 0,
             format: options.format,
             contentType: '',
             startedAt: null,
@@ -3650,7 +3656,7 @@ class DownloadTask {
 }
 
 const DOWNLOADER_SITE_SETTING_KEYS = ['maxConcurrentTasks', 'defaultThreads', 'defaultSpeedLimitBps'];
-const DOWNLOADER_GLOBAL_SETTING_KEYS = ['preferredResolution', 'notifications', 'overwrite', 'historyLimit', 'historyCollapsed', 'subtitleDirectory', 'fabAlwaysVisible', 'keepPartialFiles', 'audioTrackLanguages', 'captionTrackLanguages'];
+const DOWNLOADER_GLOBAL_SETTING_KEYS = ['preferredResolution', 'notifications', 'overwrite', 'historyLimit', 'historyCollapsed', 'subtitleDirectory', 'fabAlwaysVisible', 'keepPartialFiles', 'convertTsToMp4', 'audioTrackLanguages', 'captionTrackLanguages'];
 
 class Downloader {
     static formats = new Map();
@@ -3665,6 +3671,7 @@ class Downloader {
     #globalStorageKey;
     #history = [];
     #listeners = new Map();
+    #muxJsPromise = null;
 
     constructor() {
         // Shared mental context: Keeping this isolated allows seamless UI integration later.
@@ -3724,6 +3731,7 @@ class Downloader {
             subtitleDirectory: '',
             fabAlwaysVisible: false,
             keepPartialFiles: true,
+            convertTsToMp4: true,
             ...DEFAULT_TRACK_LANGUAGE_PREFERENCES
         };
     }
@@ -3753,6 +3761,7 @@ class Downloader {
             settings.historyLimit = Math.min(100, Math.max(1, Number(settings.historyLimit) || 15));
             settings.subtitleDirectory = dlUtils.anlinkSafeDirectoryName(settings.subtitleDirectory);
             settings.fabAlwaysVisible = settings.fabAlwaysVisible === true;
+            settings.convertTsToMp4 = settings.convertTsToMp4 !== false;
             settings.audioTrackLanguages = normalizeTrackLanguageSetting(settings.audioTrackLanguages, DEFAULT_TRACK_LANGUAGE_PREFERENCES.audioTrackLanguages);
             settings.captionTrackLanguages = normalizeTrackLanguageSetting(settings.captionTrackLanguages, DEFAULT_TRACK_LANGUAGE_PREFERENCES.captionTrackLanguages);
             if (!Number.isFinite(settings.defaultSpeedLimitBps) || settings.defaultSpeedLimitBps <= 0) settings.defaultSpeedLimitBps = Infinity;
@@ -3783,6 +3792,7 @@ class Downloader {
         next.subtitleDirectory = dlUtils.anlinkSafeDirectoryName(next.subtitleDirectory);
         next.fabAlwaysVisible = next.fabAlwaysVisible === true;
         next.keepPartialFiles = next.keepPartialFiles !== false;
+        next.convertTsToMp4 = next.convertTsToMp4 !== false;
         next.audioTrackLanguages = normalizeTrackLanguageSetting(next.audioTrackLanguages, DEFAULT_TRACK_LANGUAGE_PREFERENCES.audioTrackLanguages);
         next.captionTrackLanguages = normalizeTrackLanguageSetting(next.captionTrackLanguages, DEFAULT_TRACK_LANGUAGE_PREFERENCES.captionTrackLanguages);
         if (!['off', 'completed', 'completed-and-failed', 'all'].includes(next.notifications)) next.notifications = 'completed-and-failed';
@@ -3813,7 +3823,7 @@ class Downloader {
             format: record.format, source: record.source || record.quality, threads: record.threads,    // backwards compatibility for old history records (record.quality)
             speedLimitBps: record.speedLimitBps, referer: record.referer,
             preferredResolution: record.preferredResolution, subtitleDirectory: record.subtitleDirectory, tracks: record.tracks || [],
-            audioTrackLanguages: record.audioTrackLanguages, captionTrackLanguages: record.captionTrackLanguages
+            audioTrackLanguages: record.audioTrackLanguages, captionTrackLanguages: record.captionTrackLanguages, convertTsToMp4: record.convertTsToMp4
         });
         task._historyId = record.id;
         this.#history = this.#history.filter(item => item.id !== record.id && item.id !== task.id);
@@ -3882,6 +3892,9 @@ class Downloader {
     addTask(filename, anime, url, options = {}) {
         if (!url) throw new TypeError('A download URL is required.');
         const inferredFormat = options.format || options.type || new URL(url).pathname.split('.').pop() || 'bin';
+        const convertTsToMp4 = options.convertTsToMp4 ?? this.#settings.convertTsToMp4;
+        const isTsSource = /^(?:m3u8|hls|ts)$/i.test(String(inferredFormat).replace(/^\./, '')) || /\.(?:m3u8|ts)(?:$|\?)/i.test(url);
+        const outputFilename = convertTsToMp4 && isTsSource ? filename.replace(/\.[^/.]+$/, '.mp4') : filename;
         const normalizedOptions = {
             threads: Math.max(1, Math.floor(options.threads ?? this.#settings.defaultThreads)),
             segmentSize: Math.max(256 * 1024, Math.floor(options.segmentSize ?? 8 * 1024 * 1024)),
@@ -3901,9 +3914,10 @@ class Downloader {
             subtitleDirectory: dlUtils.anlinkSafeDirectoryName(options.subtitleDirectory ?? this.#settings.subtitleDirectory),
             audioTrackLanguages: normalizeTrackLanguageSetting(options.audioTrackLanguages, this.#settings.audioTrackLanguages),
             captionTrackLanguages: normalizeTrackLanguageSetting(options.captionTrackLanguages, this.#settings.captionTrackLanguages),
+            convertTsToMp4: convertTsToMp4 === true,
             tracks: Array.isArray(options.tracks) ? options.tracks.map(track => ({ ...track })) : []
         };
-        const task = new DownloadTask(this, filename, anime, url, normalizedOptions);
+        const task = new DownloadTask(this, outputFilename, anime, url, normalizedOptions);
         this.#tasks.set(task.id, task);
         task.on('status', () => this.#persistTask(task));
         task.on('status', () => this.#settings.notifications === 'all' && !['completed', 'failed'].includes(task.status) && this.#notifyTask(task));
@@ -3999,7 +4013,11 @@ class Downloader {
         return {
             id: task.id, filename: task.filename, anime: task.anime, url: task.url, status: task.status,
             ...task._stats, elapsedMs, elapsed: dlUtils.anlinkFormatDuration(elapsedMs), filesize: task.filesize,
-            totalsize: task.totalsize, speed: task.speed, eta: task.eta, activeRequests: task._activeRequests.size,
+            totalsize: task.totalsize, trackFilesize: dlUtils.anlinkFormatBytes(task._stats.trackBytesReceived), 
+            trackTotalsize: task._stats.trackBytesTotal ? dlUtils.anlinkFormatBytes(task._stats.trackBytesTotal) : '?', 
+            conversionFilesize: dlUtils.anlinkFormatBytes(task._stats.conversionBytes), 
+            conversionTotalsize: task._stats.conversionTotal ? dlUtils.anlinkFormatBytes(task._stats.conversionTotal) : '?', 
+            speed: task.speed, eta: task.eta, activeRequests: task._activeRequests.size,
             paused: task._paused, cancelled: task._cancelled, now
         };
     }
@@ -4023,6 +4041,7 @@ class Downloader {
             else if (task.options.format === 'mpd' || /\.mpd(?:$|\?)/i.test(task.url)) throw new Error('DASH (.mpd) is not implemented yet; register a format handler before starting this task.');
             else await this.#runDirect(task);
             if (task._cancelled) throw Object.assign(new Error('Download cancelled'), { name: 'AbortError' });
+            if (task.options.convertTsToMp4 && this.#isTsDownload(task)) await this.#convertTsToMp4(task);
             await this.#closeWriter(task);
             await this.#finalizeFile(task);
             await this.#downloadTracks(task);
@@ -4082,7 +4101,7 @@ class Downloader {
             id: historyId, filename: task.filename, partialFilename: task._partialFilename || '', anime: task.anime, url: task.url, status: task.status,
             format: task.options.format, source: task.options.source || '', threads: task.options.threads,
             preferredResolution: task.options.preferredResolution, subtitleDirectory: task.options.subtitleDirectory, tracks: task.options.tracks,
-            audioTrackLanguages: task.options.audioTrackLanguages, captionTrackLanguages: task.options.captionTrackLanguages, speedLimitBps: task.options.speedLimitBps,
+            audioTrackLanguages: task.options.audioTrackLanguages, captionTrackLanguages: task.options.captionTrackLanguages, convertTsToMp4: task.options.convertTsToMp4, speedLimitBps: task.options.speedLimitBps,
             referer: task.options.referer || '', logs: task.logs, stats: { ...task._stats }, updatedAt: Date.now()
         };
         this.#history = this.#history.filter(item => item.id !== historyId);
@@ -4097,7 +4116,7 @@ class Downloader {
             id: task._historyId || task.id, filename: task.filename, partialFilename: task._partialFilename || '', anime: task.anime, url: task.url, status: task.status,
             format: task.options.format, source: task.options.source || '', threads: task.options.threads,
             preferredResolution: task.options.preferredResolution, subtitleDirectory: task.options.subtitleDirectory, tracks: task.options.tracks,
-            audioTrackLanguages: task.options.audioTrackLanguages, captionTrackLanguages: task.options.captionTrackLanguages, speedLimitBps: task.options.speedLimitBps,
+            audioTrackLanguages: task.options.audioTrackLanguages, captionTrackLanguages: task.options.captionTrackLanguages, convertTsToMp4: task.options.convertTsToMp4, speedLimitBps: task.options.speedLimitBps,
             referer: task.options.referer || '', logs: task.logs, stats: { ...task._stats }, updatedAt: Date.now()
         };
         this.#history = this.#history.filter(item => item.id !== record.id);
@@ -4290,6 +4309,245 @@ class Downloader {
         } finally { setTimeout(() => URL.revokeObjectURL(objectUrl), 60000); }
     }
 
+    #isTsDownload(task) {
+        return /^(?:m3u8|hls|ts)$/i.test(task.options.format) || /\.(?:m3u8|ts)(?:$|\?)/i.test(task.url);
+    }
+
+    async #getMuxJs() {
+        if (!this.#muxJsPromise) this.#muxJsPromise = (async () => {
+            const preloadedMux = globalThis.muxjs;
+            if (preloadedMux?.mp4?.Transmuxer && preloadedMux.mp4.probe?.tracks) return preloadedMux;
+            const url = 'https://cdnjs.cloudflare.com/ajax/libs/mux.js/7.1.0/mux.js';
+            const response = await dlUtils.anlinkGMRequest(url, { responseType: 'text', timeout: 30000 }).promise;
+            if (response.status < 200 || response.status >= 300 || typeof response.response !== 'string') throw new Error(`Could not load mux.js (${response.status || 'network error'}).`);
+            const scope = { window, self: null };
+            scope.self = scope;
+            const mux = Function('globalThis', `${response.response}\nreturn globalThis.muxjs;`).call(scope, scope);
+            if (!mux?.mp4?.Transmuxer || !mux.mp4.probe?.tracks) throw new Error('The loaded mux.js build does not expose the required MP4 transmuxer.');
+            return mux;
+        })().catch(error => { this.#muxJsPromise = null; throw error; });
+        return this.#muxJsPromise;
+    }
+
+    #concatBytes(parts) {
+        const total = parts.reduce((sum, part) => sum + (part?.byteLength || 0), 0);
+        const result = new Uint8Array(total);
+        let offset = 0;
+        for (const part of parts) { if (part?.byteLength) result.set(part, offset); offset += part?.byteLength || 0; }
+        return result;
+    }
+
+    #mp4Boxes(data) {
+        const boxes = [];
+        for (let offset = 0; offset + 8 <= data.byteLength;) {
+            const size = new DataView(data.buffer, data.byteOffset + offset, 4).getUint32(0);
+            const end = size > 1 ? offset + size : data.byteLength;
+            if (end <= offset || end > data.byteLength) break;
+            boxes.push({ type: String.fromCharCode(...data.subarray(offset + 4, offset + 8)), data: data.subarray(offset + 8, end) });
+            offset = end;
+        }
+        return boxes;
+    }
+
+    #mp4Box(type, payloads) {
+        const payload = this.#concatBytes(payloads);
+        const result = new Uint8Array(payload.byteLength + 8);
+        new DataView(result.buffer).setUint32(0, result.byteLength);
+        result.set([...type].map(character => character.charCodeAt(0)), 4);
+        result.set(payload, 8);
+        return result;
+    }
+
+    #patchMp4TrackId(data, from, to, boxTypes) {
+        const result = new Uint8Array(data);
+        const containers = new Set(['moov', 'mvex', 'trak', 'mdia', 'minf', 'stbl', 'moof', 'traf']);
+        const walk = (start, end) => {
+            for (let offset = start; offset + 8 <= end;) {
+                const size = new DataView(result.buffer, offset, 4).getUint32(0);
+                const boxEnd = size > 1 ? offset + size : end;
+                if (boxEnd <= offset || boxEnd > end) break;
+                const type = String.fromCharCode(...result.subarray(offset + 4, offset + 8));
+                const payload = offset + 8;
+                if (boxTypes.has(type)) {
+                    const idOffset = payload + (type === 'tkhd' && result[payload] === 1 ? 20 : type === 'tkhd' ? 12 : 4);
+                    if (idOffset + 4 <= boxEnd && new DataView(result.buffer).getUint32(idOffset) === from) new DataView(result.buffer).setUint32(idOffset, to);
+                }
+                if (containers.has(type)) walk(payload, boxEnd);
+                offset = boxEnd;
+            }
+        };
+        walk(0, result.byteLength);
+        return result;
+    }
+
+    #combineMp4InitSegments(segments) {
+        const first = this.#mp4Boxes(segments[0].init);
+        const ftyp = first.find(box => box.type === 'ftyp');
+        const moovs = segments.map(segment => this.#mp4Boxes(segment.init).find(box => box.type === 'moov')).filter(Boolean);
+        if (!ftyp || !moovs.length) throw new Error('mux.js did not produce a valid MP4 initialization segment.');
+        const children = this.#mp4Boxes(moovs[0].data);
+        const tracks = [], trex = [];
+        for (const moov of moovs) for (const child of this.#mp4Boxes(moov.data)) {
+            if (child.type === 'trak') tracks.push(this.#mp4Box(child.type, [child.data]));
+            else if (child.type === 'mvex') for (const box of this.#mp4Boxes(child.data)) if (box.type === 'trex') trex.push(this.#mp4Box(box.type, [box.data]));
+        }
+        const moovChildren = children.filter(child => child.type !== 'trak' && child.type !== 'mvex').map(child => this.#mp4Box(child.type, [child.data]));
+        return this.#concatBytes([this.#mp4Box(ftyp.type, [ftyp.data]), this.#mp4Box('moov', [...moovChildren, ...tracks, this.#mp4Box('mvex', trex)])]);
+    }
+
+    #tsPacketPayload(packet) {
+        let offset = 4;
+        if ((packet[3] & 0x30) > 0x10) offset += packet[4] + 1;
+        return packet.subarray(offset);
+    }
+
+    #findTsAudioPids(bytes) {
+        let pmtPid = null, section;
+        for (let offset = 0; offset + 188 <= bytes.byteLength && (!pmtPid || !section); offset += 188) {
+            const packet = bytes.subarray(offset, offset + 188);
+            if (packet[0] !== 0x47) continue;
+            const pid = (packet[1] & 0x1f) << 8 | packet[2];
+            const payload = this.#tsPacketPayload(packet);
+            if (pid === 0 && packet[1] & 0x40) {
+                const start = payload[0] + 1;
+                pmtPid = (payload[start + 10] & 0x1f) << 8 | payload[start + 11];
+            } else if (pmtPid !== null && pid === pmtPid && packet[1] & 0x40) {
+                const start = payload[0] + 1;
+                const length = (payload[start + 1] & 0x0f) << 8 | payload[start + 2];
+                if (payload.byteLength - start >= length + 3) section = new Uint8Array(payload.subarray(start, start + length + 3));
+            }
+        }
+        if (pmtPid === null || !section) return { pmtPid, audioPids: [], entries: [] };
+        const entries = [];
+        const programInfoLength = (section[10] & 0x0f) << 8 | section[11];
+        for (let offset = 12 + programInfoLength, end = 3 + ((section[1] & 0x0f) << 8 | section[2]) - 4; offset + 5 <= end;) {
+            const descriptorLength = (section[offset + 3] & 0x0f) << 8 | section[offset + 4];
+            entries.push({ streamType: section[offset], pid: (section[offset + 1] & 0x1f) << 8 | section[offset + 2], bytes: section.slice(offset, offset + 5 + descriptorLength) });
+            offset += 5 + descriptorLength;
+        }
+        return { pmtPid, section, entries, audioPids: entries.filter(entry => entry.streamType === 0x0f).map(entry => entry.pid) };
+    }
+
+    #filterTsForAudio(bytes, program, audioPid) {
+        const entry = program.entries.find(candidate => candidate.pid === audioPid && candidate.streamType === 0x0f);
+        if (!entry) throw new Error(`Embedded audio PID ${audioPid} is not an AAC track.`);
+        const programInfoLength = (program.section[10] & 0x0f) << 8 | program.section[11];
+        const sectionLength = 9 + programInfoLength + entry.bytes.byteLength + 4;
+        const section = new Uint8Array(3 + sectionLength);
+        section.set(program.section.subarray(0, 12 + programInfoLength));
+        section[1] = 0xb0 | (sectionLength >>> 8);
+        section[2] = sectionLength & 0xff;
+        section.set(entry.bytes, 12 + programInfoLength);
+        const packet = new Uint8Array(188);
+        packet.fill(0xff);
+        packet.set([0x47, 0x40 | program.pmtPid >>> 8, program.pmtPid & 0xff, 0x10], 0);
+        packet[4] = 0;
+        packet.set(section, 5);
+        const packets = [];
+        let pmtWritten = false;
+        for (let offset = 0; offset + 188 <= bytes.byteLength; offset += 188) {
+            const source = bytes.subarray(offset, offset + 188);
+            if (source[0] !== 0x47) continue;
+            const pid = (source[1] & 0x1f) << 8 | source[2];
+            if (pid === 0) packets.push(new Uint8Array(source));
+            else if (pid === program.pmtPid && !pmtWritten && source[1] & 0x40) { packet[3] = 0x10 | source[3] & 0x0f; packets.push(new Uint8Array(packet)); pmtWritten = true; }
+            else if (pid === audioPid) packets.push(new Uint8Array(source));
+        }
+        if (!pmtWritten || !packets.some(candidate => ((candidate[1] & 0x1f) << 8 | candidate[2]) === audioPid)) throw new Error(`Embedded audio PID ${audioPid} contains no usable AAC data.`);
+        return this.#concatBytes(packets);
+    }
+
+    async #readTaskBytes(task) {
+        if (!this.#dirHandle) return this.#concatBytes([...task._memoryParts.entries()].sort(([first], [second]) => first - second).map(([, bytes]) => bytes));
+        return new Uint8Array(await (await task._fileHandle.getFile()).arrayBuffer());
+    }
+
+    async #writeTaskBytes(task, bytes) {
+        if (!this.#dirHandle) task._memoryParts = new Map([[0, bytes]]);
+        else { const writer = await task._fileHandle.createWritable({ keepExistingData: false }); await writer.write(bytes); await writer.close(); }
+    }
+
+    async #transmux(task, mux, bytes, label) {
+        return new Promise((resolve, reject) => {
+            const output = { init: null, data: [] };
+            const transmuxer = new mux.mp4.Transmuxer({ remux: true });
+            let settled = false;
+            const fail = error => { if (!settled) { settled = true; reject(error); } };
+            transmuxer.on('data', event => { if (event.initSegment) output.init = new Uint8Array(event.initSegment); if (event.data) output.data.push(new Uint8Array(event.data)); });
+            transmuxer.on('log', event => task._log(`${label}: ${event.message || JSON.stringify(event)}`, event.level || 'info'));
+            transmuxer.on('done', () => { if (settled) return; settled = true; output.data.length ? resolve(output) : reject(new Error(`${label} produced no MP4 media data.`)); });
+            try {
+                for (let offset = 0; offset < bytes.byteLength; offset += 1024 * 1024) {
+                    const chunk = bytes.subarray(offset, Math.min(bytes.byteLength, offset + 1024 * 1024));
+                    transmuxer.push(chunk);
+                    if (task._stats.phase === 'converting') { task._stats.conversionBytes = Math.min(task._stats.conversionTotal, task._stats.conversionBytes + chunk.byteLength); task._emit('progress', task.stats); }
+                }
+                transmuxer.flush();
+            } catch (error) { fail(error); }
+        });
+    }
+
+    async #convertTsToMp4(task) {
+        await this.#closeWriter(task);
+        const input = await this.#readTaskBytes(task);
+        task._stats.phase = 'converting';
+        task._stats.conversionBytes = 0;
+        task._stats.conversionTotal = input.byteLength;
+        task._emit('progress', task.stats);
+        try {
+            const mux = await this.#getMuxJs();
+            const program = this.#findTsAudioPids(input);
+            const outputs = [await this.#transmux(task, mux, input, 'Main TS')];
+            const mainAudio = mux.mp4.probe.tracks(outputs[0].init || new Uint8Array()).some(track => track.type === 'audio');
+            for (const audioPid of (mainAudio ? program.audioPids.slice(1) : program.audioPids)) outputs.push(await this.#transmux(task, mux, this.#filterTsForAudio(input, program, audioPid), `Embedded audio ${audioPid}`));
+
+            const audioTracks = filterTracksByLanguagePreferences((task.options.tracks || []).filter(track => trackKind(track) === 'audio'), task.options);
+            task._stats.phase = audioTracks.length ? 'tracks' : 'converting';
+            task._stats.trackIndex = 0;
+            task._stats.trackTotal = audioTracks.length;
+            task._stats.trackLabel = '';
+            task._embeddedTrackFiles = new Set();
+            for (const track of audioTracks) {
+                task._stats.trackLabel = track.label || 'audio';
+                task._trackProgress = new Map();
+                task._stats.trackBytesReceived = task._stats.trackBytesTotal = 0;
+                task._emit('progress', task.stats);
+                const response = await this.#fetchTrack(task, track);
+                outputs.push(await this.#transmux(task, mux, new Uint8Array(response.response || new ArrayBuffer(0)), `Audio track ${track.label || track.file}`));
+                task._embeddedTrackFiles.add(track.file);
+                task._stats.trackIndex++;
+                task._stats.trackLabel = '';
+                task._emit('progress', task.stats);
+            }
+            const usedIds = new Set(mux.mp4.probe.tracks(outputs[0].init).map(track => track.id));
+            let nextId = Math.max(0, ...usedIds) + 1;
+            for (const output of outputs.slice(1)) {
+                const track = mux.mp4.probe.tracks(output.init).find(candidate => candidate.type === 'audio');
+                if (!track) throw new Error('An audio transmux result did not contain an audio track.');
+                if (track.id === 0 || usedIds.has(track.id)) {
+                    output.init = this.#patchMp4TrackId(output.init, track.id, nextId, new Set(['tkhd', 'trex']));
+                    output.data = output.data.map(data => this.#patchMp4TrackId(data, track.id, nextId, new Set(['tfhd'])));
+                    track.id = nextId++;
+                }
+                usedIds.add(track.id);
+            }
+            const mp4 = this.#concatBytes([this.#combineMp4InitSegments(outputs), ...outputs.flatMap(output => output.data)]);
+            await this.#writeTaskBytes(task, mp4);
+            task._stats.bytesWritten = task._stats.bytesReceived = mp4.byteLength;
+            task._stats.totalSize = mp4.byteLength;
+            task._stats.completedSegments = task._stats.totalSegments = 1;
+            task._stats.contentType = 'video/mp4';
+            task._stats.phase = 'main';
+            task._stats.trackLabel = '';
+            task._stats.conversionBytes = task._stats.conversionTotal;
+            task._log(`Converted TS to MP4: inputBytes=${input.byteLength}; outputBytes=${mp4.byteLength}; audioTracks=${outputs.length - 1}`);
+            task._emit('progress', task.stats);
+        } catch (error) {
+            task._log(`TS to MP4 conversion failed: ${error.message || error}`, 'error');
+            throw new Error(`TS to MP4 conversion failed: ${error.message || error}`);
+        }
+    }
+
     #trackExtension(track, response) {
         const contentType = response?.contentType || dlUtils.anlinkParseHeaders(response?.responseHeaders || '').get('content-type') || '';
         const urlExtension = new URL(track.file).pathname.match(/\.([a-z0-9]{1,8})$/i)?.[1]?.toLowerCase();
@@ -4306,19 +4564,36 @@ class Downloader {
         return /^(audio|music)/i.test(track.kind || '') ? '.m4a' : '.vtt';
     }
 
+    #recordTrackProgress(task, key, loaded, total = 0) {
+        task._trackProgress ||= new Map();
+        task._trackProgress.set(key, { loaded: Math.max(0, Number(loaded) || 0), total: Math.max(0, Number(total) || 0) });
+        task._stats.trackBytesReceived = [...task._trackProgress.values()].reduce((sum, progress) => sum + progress.loaded, 0);
+        task._stats.trackBytesTotal = [...task._trackProgress.values()].reduce((sum, progress) => sum + progress.total, 0);
+        this.#emitProgress(task);
+    }
+
     async #fetchTrack(task, track) {
-        if (!/\.m3u8(?:$|\?)/i.test(track.file)) return this.#requestWithRetry(task, track.file, { responseType: 'arraybuffer' });
+        const trackKey = `track:${track.file}`;
+        if (!/\.m3u8(?:$|\?)/i.test(track.file)) {
+            const response = await this.#requestWithRetry(task, track.file, { responseType: 'arraybuffer', onprogress: details => this.#recordTrackProgress(task, trackKey, details.loaded, details.total) });
+            const bytes = new Uint8Array(response.response || new ArrayBuffer(0));
+            this.#recordTrackProgress(task, trackKey, bytes.byteLength, Number(dlUtils.anlinkParseHeaders(response.responseHeaders).get('content-length')) || bytes.byteLength);
+            return response;
+        }
         const playlist = await this.#loadHlsPlaylist(task, track.file);
         const parsed = this.#parseHlsMediaPlaylist(playlist);
-        if (!parsed.jobs.length) throw new Error(`Track ($) playlist has no segments: ${track.file}`);
+        if (!parsed.jobs.length) throw new Error(`Track (${track.label || track.file}) playlist has no segments: ${track.file}`);
         const isAudio = /^(audio|music)$/i.test(track.kind || '');
         const pieces = [];
         let previousRangeEnd = 0;
-        for (const job of parsed.jobs) {
+        for (const [index, job] of parsed.jobs.entries()) {
             const byteRange = this.#parseHlsRange(job.range, previousRangeEnd);
             if (byteRange) previousRangeEnd = byteRange.end + 1;
-            const response = await this.#requestWithRetry(task, new URL(job.uri, playlist.url).href, { headers: byteRange ? { Range: `bytes=${byteRange.start}-${byteRange.end}` } : {} });
-            pieces.push(new Uint8Array(response.response || new ArrayBuffer(0)));
+            const jobKey = `${trackKey}:${index}`;
+            const response = await this.#requestWithRetry(task, new URL(job.uri, playlist.url).href, { headers: byteRange ? { Range: `bytes=${byteRange.start}-${byteRange.end}` } : {}, onprogress: details => this.#recordTrackProgress(task, jobKey, details.loaded, details.total) });
+            const bytes = new Uint8Array(response.response || new ArrayBuffer(0));
+            this.#recordTrackProgress(task, jobKey, bytes.byteLength, Number(dlUtils.anlinkParseHeaders(response.responseHeaders).get('content-length')) || bytes.byteLength);
+            pieces.push(bytes);
         }
         if (isAudio) {
             const total = pieces.reduce((sum, piece) => sum + piece.byteLength, 0);
@@ -4351,16 +4626,18 @@ class Downloader {
         if (skippedByLanguage.length) {
             task._log(`Skipped tracks by language preference: ${skippedByLanguage.map(t => `${trackKind(t) || 'track'}=${t.label || 'unnamed'}`).join(', ')}`, 'info');
         }
-        if (!tracks.length) {
-            task._log('No tracks matched language preferences; skipping track download.', 'info');
+        const tracksToDownload = tracks.filter(track => !(trackKind(track) === 'audio' && task._embeddedTrackFiles?.has(track.file)));
+        if (tracks.length !== tracksToDownload.length) task._log(`Embedded ${tracks.length - tracksToDownload.length} selected audio track${tracks.length - tracksToDownload.length === 1 ? '' : 's'} in MP4.`);
+        if (!tracksToDownload.length) {
+            task._log(tracks.length ? 'All selected tracks are already embedded in the MP4.' : 'No tracks matched language preferences; skipping track download.', 'info');
             return;
         }
         task._stats.phase = 'tracks';
         task._stats.trackIndex = 0;
-        task._stats.trackTotal = tracks.length;
+        task._stats.trackTotal = tracksToDownload.length;
         task._stats.trackLabel = '';
         task._emit('progress', task.stats);
-        task._log(`Episode tracks: ${tracks.map(track => `${track.kind || 'track'}=${track.label || 'unnamed'} -> ${track.file}`).join(' | ')}`);
+        task._log(`Episode tracks: ${tracksToDownload.map(track => `${track.kind || 'track'}=${track.label || 'unnamed'} -> ${track.file}`).join(' | ')}`);
         const extension = task.filename.match(/\.[^.]+$/)?.[0] || '';
         const stem = extension ? task.filename.slice(0, -extension.length) : task.filename;
         const usedNames = new Set();
@@ -4378,8 +4655,10 @@ class Downloader {
                 return;
             }
         }
-        for (const track of tracks) {
+        for (const track of tracksToDownload) {
             task._stats.trackLabel = track.label || track.kind || 'track';
+            task._trackProgress = new Map();
+            task._stats.trackBytesReceived = task._stats.trackBytesTotal = 0;
             task._emit('progress', task.stats);
             try {
                 const response = await this.#fetchTrack(task, track);
@@ -4901,16 +5180,23 @@ class DownloaderUI {
 
     getProgressState(task, stats) {
         const trackPhase = stats.phase === 'tracks';
+        const conversionPhase = stats.phase === 'converting';
         const hasTotalSize = !trackPhase && stats.totalSize > 0;
+        const hasTrackSize = trackPhase && stats.trackBytesTotal > 0;
+        const hasConversionSize = conversionPhase && stats.conversionTotal > 0;
         const totalParts = trackPhase ? stats.trackTotal : stats.totalSegments;
         const completedParts = trackPhase ? stats.trackIndex : stats.completedSegments;
         const hasTotalParts = totalParts > 0;
-        const percent = hasTotalSize
+        const percent = hasConversionSize
+            ? Math.min(100, stats.conversionBytes / stats.conversionTotal * 100)
+            : hasTrackSize
+                ? Math.min(100, stats.trackBytesReceived / stats.trackBytesTotal * 100)
+                : hasTotalSize
             ? Math.min(100, stats.bytesReceived / stats.totalSize * 100)
             : hasTotalParts
                 ? Math.min(100, completedParts / totalParts * 100)
                 : 0;
-        return { trackPhase, percent, indeterminate: task.status === 'downloading' && !hasTotalSize && !hasTotalParts };
+        return { trackPhase, conversionPhase, percent, indeterminate: task.status === 'downloading' && !hasConversionSize && !hasTrackSize && !hasTotalSize && !hasTotalParts };
     }
 
     renderTask(task) {
@@ -4941,19 +5227,19 @@ class DownloaderUI {
     updateTaskCard(task, card) {
         const stats = task.stats;
         const progressState = this.getProgressState(task, stats);
-        const { trackPhase, percent, indeterminate } = progressState;
+        const { trackPhase, conversionPhase, percent, indeterminate } = progressState;
         const progress = card.querySelector('.anilink-dl-progress');
         progress?.classList.toggle('track-phase', trackPhase);
         progress?.classList.toggle('indeterminate', indeterminate);
         const bar = progress?.querySelector('span');
         if (bar) bar.style.width = indeterminate ? '38%' : `${percent}%`;
         const status = card.querySelector('.anilink-dl-status');
-        const displayStatus = stats.phase === 'tracks' ? 'tracks' : stats.phase === 'track-error' ? 'track error' : task.status;
+        const displayStatus = conversionPhase ? 'converting' : stats.phase === 'tracks' ? 'tracks' : stats.phase === 'track-error' ? 'track error' : task.status;
         if (status) { status.className = `anilink-dl-status ${task.status}`; status.textContent = displayStatus; }
-        const fields = { size: `${stats.filesize} / ${stats.totalsize}`, speed: stats.speed, eta: `ETA ${stats.eta}`, parts: trackPhase ? `Tracks ${stats.trackIndex}/${stats.trackTotal}` : `Parts ${stats.completedSegments}/${stats.totalSegments || '?'}` };
+        const fields = { size: conversionPhase ? `${stats.conversionFilesize} / ${stats.conversionTotalsize}` : trackPhase ? `${stats.trackFilesize} / ${stats.trackTotalsize}` : `${stats.filesize} / ${stats.totalsize}`, speed: stats.speed, eta: `ETA ${stats.eta}`, parts: conversionPhase ? `Conversion ${Math.round(percent)}%` : trackPhase ? `Tracks ${stats.trackIndex}/${stats.trackTotal}` : `Parts ${stats.completedSegments}/${stats.totalSegments || '?'}` };
         for (const [name, value] of Object.entries(fields)) if (card.querySelector(`[data-field="${name}"]`)) card.querySelector(`[data-field="${name}"]`).textContent = value;
         const phase = card.querySelector('[data-field="phase"]');
-        if (phase) { phase.hidden = !trackPhase; phase.textContent = stats.trackLabel ? `Downloading ${stats.trackLabel}` : 'Preparing tracks'; }
+        if (phase) { phase.hidden = !trackPhase && !conversionPhase; phase.textContent = conversionPhase ? `Converting TS to MP4 (${Math.round(percent)}%)` : stats.trackLabel ? `Downloading ${stats.trackLabel}` : 'Preparing tracks'; }
         const logsHeader = card.querySelector('.anilink-dl-log summary');
         if (logsHeader) logsHeader.textContent = `Logs (${task.logs.length})`;
         const logs = card.querySelector('[data-field="logs"]');
@@ -5017,6 +5303,7 @@ class DownloaderUI {
                 <div><label>Preferred caption languages</label><input name="captionTrackLanguages" type="text" value="${escape(settings.captionTrackLanguages)}" placeholder="en,eng,enUS,english"><small>Comma-separated language codes or names; blank keeps all captions.</small></div>
                 <div style="display: flex; flex-direction: column;"><label style="margin-bottom: -4px;">Always show floating button</label><label style="display: flex; align-items: center; gap: 12px; background-color: #18211f; border: 1px solid #343c3a; border-radius: 6px; padding: 6px 10px; cursor: pointer;"><input name="fabAlwaysVisible" type="checkbox" ${settings.fabAlwaysVisible === true ? 'checked' : ''} onchange="this.nextElementSibling.textContent = this.checked ? 'True' : 'False'" style="accent-color: #3f51b5; width: 14px; height: 14px; margin: 0; cursor: pointer;"><span style="font-size: 14px; font-family: sans-serif; opacity: 0.85;">${settings.fabAlwaysVisible === true ? 'True' : 'False'}</span></label></div>
                 <div style="display: flex; flex-direction: column;"><label style="margin-bottom: -4px;">Keep partial files on failure</label><label style="display: flex; align-items: center; gap: 12px; background-color: #18211f; border: 1px solid #343c3a; border-radius: 6px; padding: 6px 10px; cursor: pointer;"><input name="keepPartialFiles" type="checkbox" ${settings.keepPartialFiles !== false ? 'checked' : ''} onchange="this.nextElementSibling.textContent = this.checked ? 'True' : 'False'" style="accent-color: #3f51b5; width: 14px; height: 14px; margin: 0; cursor: pointer;"><span style="font-size: 14px; font-family: sans-serif; opacity: 0.85;">${settings.keepPartialFiles !== false ? 'True' : 'False'}</span></label></div>
+                <div style="display: flex; flex-direction: column;"><label style="margin-bottom: -4px;">Convert downloads to MP4</label><label style="display: flex; align-items: center; gap: 12px; background-color: #18211f; border: 1px solid #343c3a; border-radius: 6px; padding: 6px 10px; cursor: pointer;"><input name="convertTsToMp4" type="checkbox" ${settings.convertTsToMp4 !== false ? 'checked' : ''} onchange="this.nextElementSibling.textContent = this.checked ? 'True' : 'False'" style="accent-color: #3f51b5; width: 14px; height: 14px; margin: 0; cursor: pointer;"><span style="font-size: 14px; font-family: sans-serif; opacity: 0.85;">${settings.convertTsToMp4 !== false ? 'True' : 'False'}</span></label><small>Lossless remux; selected audio tracks are embedded and captions remain sidecar files.</small></div>
                 <div><label>Notifications</label><select name="notifications">
                     <option value="off" ${settings.notifications==='off' ? 'selected' : '' }>Off</option>
                     <option value="completed" ${settings.notifications==='completed' ? 'selected' : '' }>Completed only</option>
@@ -5040,7 +5327,7 @@ class DownloaderUI {
                     defaultSpeedLimitBps: +(value('defaultSpeedLimitBps') || 0) * 1024 || Infinity, 
                     preferredResolution: +value('preferredResolution') || 0, subtitleDirectory: value('subtitleDirectory'),
                     audioTrackLanguages: value('audioTrackLanguages'), captionTrackLanguages: value('captionTrackLanguages'),
-                    fabAlwaysVisible: checked('fabAlwaysVisible'), keepPartialFiles: checked('keepPartialFiles'), 
+                    fabAlwaysVisible: checked('fabAlwaysVisible'), keepPartialFiles: checked('keepPartialFiles'), convertTsToMp4: checked('convertTsToMp4'),
                     notifications: value('notifications'), historyLimit: +value('historyLimit')
                 });
                 AniLINKUI.updateFab();
