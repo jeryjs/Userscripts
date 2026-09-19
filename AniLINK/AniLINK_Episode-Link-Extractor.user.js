@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     7.1.1
+// @version     7.1.2
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -108,19 +108,6 @@
 // @downloadURL https://update.greasyfork.org/scripts/492029/AniLINK%20-%20Episode%20Link%20Extractor.user.js
 // @updateURL https://update.greasyfork.org/scripts/492029/AniLINK%20-%20Episode%20Link%20Extractor.meta.js
 // ==/UserScript==
-
-// TODO — temp tracker for v7 release
-// 1. ~~Do full tampermonkey support audit.~~
-// 2. Add ts to mp4 transcoding support to downloader.
-// 3. ~~Add guide/tutorial in ui for stuff~~
-// 4. ~~Fix toast's close button positioning when displaying error~~
-// 5. ~~Fix keyboard input in modals.~~
-// 6. ~~Improve download progress bar for non m3u8 downloads (mp4 has very less parts, and due to that progressbar jumps in big steps with slow updates, which is not a good UX... instead of using parts always prioritize using the total file size and downloaded size to calculate progress percentage and fallback to parts count only if the total file size is not available).~~
-// 7. ~~Make "Play With" a popover with support for more popular players.~~
-// 8. ~~notification icon (use script icon)~~
-// 9. ~~DOnt remove partial files (add setting for this)~~
-// 10. ~~Add track support setting to downloader defaulting to 'jp,jpn,japanese' for audio and 'en,eng,enUS,english' for captions (maybe handle for playlist export too?)~~
-// 11. ~~move clear history button out of settings.~~
 
 // track last version for managing backwards compatability for script updates
 if (GM_info.script.version >= GM_getValue('script_version', '0')) {
@@ -2933,7 +2920,7 @@ function showAniLINKInfoDialog() {
                                 <p><strong>Single Episode:</strong> Hover over an episode card and click the play button (▶), or click the episode number in Source View.</p>
                                 <p><strong>Batch Playback:</strong> Select multiple episodes and click <strong>Play With → MPV</strong> to send a playlist.</p>
                                 <p><strong>Supported Players:</strong></p>
-                                <ul>${PLAYER_APPS.map(player => `<li><strong>${player.name}:</strong> ${player.description}</li>`).join('')}</ul>
+                                <ul>${PLAYER_APPS.map(player => `<li><strong>${player.name}:</strong> ${player.hint}</li>`).join('')}</ul>
                                 <p><strong>Setting Preferred Player:</strong> The last player you use becomes your default. Click the player badge (★) in the Play With popover to set it.</p>
                             </div>
                         </details>
@@ -3042,6 +3029,7 @@ function showAniLINKInfoDialog() {
                                     <li>Use speed limiting if you need to browse while downloading</li>
                                     <li>Enable "Keep partial files" in settings to resume interrupted downloads</li>
                                     <li>Set a subtitle directory to organize subtitles separately</li>
+                                    <li>For TS-based HLS downloads, you can enable TS-to-MP4 remuxing in downloader settings if you prefer MP4 output.</li>
                                 </ul>
                                 <p><strong>Workflow Suggestions:</strong></p>
                                 <ul>
@@ -4350,17 +4338,52 @@ class Downloader {
         const parsed = this.#parseHlsMediaPlaylist(playlist);
         if (!parsed.jobs.length) throw new Error(`Track (${track.label || track.file}) playlist has no segments: ${track.file}`);
         const isAudio = /^(audio|music)$/i.test(track.kind || '');
-        const pieces = [];
+
+        // Prepare jobs with byte ranges (sequential calculation like main video)
         let previousRangeEnd = 0;
-        for (const [index, job] of parsed.jobs.entries()) {
+        const jobs = parsed.jobs.map((job, index) => {
             const byteRange = this.#parseHlsRange(job.range, previousRangeEnd);
             if (byteRange) previousRangeEnd = byteRange.end + 1;
-            const jobKey = `${trackKey}:${index}`;
-            const response = await this.#requestWithRetry(task, new URL(job.uri, playlist.url).href, { headers: byteRange ? { Range: `bytes=${byteRange.start}-${byteRange.end}` } : {}, onprogress: details => this.#recordTrackProgress(task, jobKey, details.loaded, details.total) });
-            const bytes = new Uint8Array(response.response || new ArrayBuffer(0));
-            this.#recordTrackProgress(task, jobKey, bytes.byteLength, Number(dlUtils.anlinkParseHeaders(response.responseHeaders).get('content-length')) || bytes.byteLength);
-            pieces.push(bytes);
-        }
+            return { ...job, index, byteRange, url: new URL(job.uri, playlist.url).href };
+        });
+
+        // Download segments in parallel using the threads setting (same pattern as #runWorkers)
+        const pieces = new Array(jobs.length);
+        let nextJob = 0;
+        const maxThreads = Math.min(task.options.threads, Math.max(1, jobs.length));
+
+        const worker = async () => {
+            while (true) {
+                await task._waitForResume();
+                if (task._cancelled) throw Object.assign(new Error('Download cancelled'), { name: 'AbortError' });
+                const index = nextJob++;
+                if (index >= jobs.length) return;
+                const job = jobs[index];
+                const jobKey = `${trackKey}:${job.index}`;
+                while (true) {
+                    try {
+                        const response = await this.#requestWithRetry(task, job.url, {
+                            headers: job.byteRange ? { Range: `bytes=${job.byteRange.start}-${job.byteRange.end}` } : {},
+                            onprogress: details => this.#recordTrackProgress(task, jobKey, details.loaded, details.total)
+                        });
+                        const bytes = new Uint8Array(response.response || new ArrayBuffer(0));
+                        this.#recordTrackProgress(task, jobKey, bytes.byteLength, Number(dlUtils.anlinkParseHeaders(response.responseHeaders).get('content-length')) || bytes.byteLength);
+                        pieces[job.index] = bytes;
+                        break;
+                    } catch (error) {
+                        if (error.name === 'AbortError' && task._paused && !task._cancelled) { await task._waitForResume(); continue; }
+                        throw error;
+                    }
+                }
+            }
+        };
+
+        await Promise.allSettled(Array.from({ length: maxThreads }, worker));
+
+        // Check for failures
+        const missing = pieces.findIndex(p => !p);
+        if (missing !== -1) throw new Error(`Failed to download track segment ${missing}: ${track.file}`);
+
         if (isAudio) {
             const total = pieces.reduce((sum, piece) => sum + piece.byteLength, 0);
             const merged = new Uint8Array(total);

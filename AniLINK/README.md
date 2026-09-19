@@ -81,6 +81,8 @@ Typical workflow:
 When audio or caption tracks are available, AniLINK can save tracks matching your language preferences. The defaults favour Japanese audio and English captions, and you can set a separate subtitle directory if you prefer to keep them organised.
 
 The downloader does not currently process DASH `.mpd` files. For those sources, use an external player or copy the link to a tool that supports DASH.
+
+For TS-based HLS downloads, AniLINK can optionally remux the finished file to MP4; you can toggle this in the downloader settings.
 </details>
 
 ### Browser support and download fallback
@@ -114,6 +116,8 @@ The **Play With** popover can launch an episode or a playlist in the player you 
 MPV is the recommended option, especially for HLS links and exported playlists. Install [mpv-handler](https://github.com/akiirui/mpv-handler), then place [`anilink-m3u8.lua`](https://github.com/jeryjs/Userscripts/raw/refs/heads/main/AniLINK/anilink-m3u8.lua) in MPV's `scripts` folder. The Lua script helps MPV forward the headers that some sources require and makes AniLINK playlists much less troublesome.
 
 If clicking a player does nothing, install or enable the relevant protocol handler and check that the player itself is installed. For MPV on Windows, also make sure MPV is available to `mpv-handler` or configure its path in the handler settings. The last player you use becomes the preferred player in AniLINK.
+
+If you need to debug MPV connection issues, you can switch the script to use `mpv-handler-debug` instead of `mpv-handler` for verbose console output; this is exposed in the script data settings.
 </details>
 
 ### Troubleshooting
@@ -137,7 +141,7 @@ Still stuck? Open the **Report** tab in AniLINK and include the affected site, b
 
 - **Source View:** Sources are grouped into collapsible sections. Use the source preferences button to reorder them or switch between single and multi-source extraction.
 - **Episode View:** Episodes appear as cards with thumbnails, previews when available, source information, and quick buttons for copying, playing, and downloading.
-- **Selection:** Checkboxes power the batch actions. `Shift`-clicking a source header selects or clears the episodes in that source.
+- **Selection:** Checkboxes power the batch actions. `Shift`-clicking a source header selects or clears the episodes in that source. `Shift`-clicking the **Subs** toggle switches subtitles for all episodes at once.
 - **Export:** Saves a small `.m3u8` playlist file. It stores links, not video files, so the player still needs internet access when it plays.
 - **About → Guides:** The in-app guide has the longer site, player, browser, and troubleshooting notes without making the main interface noisy.
 
