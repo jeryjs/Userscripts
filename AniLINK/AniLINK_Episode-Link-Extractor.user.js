@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     7.1.0
+// @version     7.1.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -3671,7 +3671,6 @@ class Downloader {
     #globalStorageKey;
     #history = [];
     #listeners = new Map();
-    #muxJsPromise = null;
 
     constructor() {
         // Shared mental context: Keeping this isolated allows seamless UI integration later.
@@ -3701,6 +3700,7 @@ class Downloader {
     }
 
     get directoryName() { return this.#dirHandle?.name || ''; }
+    get directoryHandle() { return this.#dirHandle; }
     get tasks() { return [...this.#tasks.values()]; }
     get history() { return [...this.#history]; }
     get settings() { return { ...this.#settings }; }
@@ -4041,8 +4041,9 @@ class Downloader {
             else if (task.options.format === 'mpd' || /\.mpd(?:$|\?)/i.test(task.url)) throw new Error('DASH (.mpd) is not implemented yet; register a format handler before starting this task.');
             else await this.#runDirect(task);
             if (task._cancelled) throw Object.assign(new Error('Download cancelled'), { name: 'AbortError' });
-            if (task.options.convertTsToMp4 && this.#isTsDownload(task)) await this.#convertTsToMp4(task);
-            await this.#closeWriter(task);
+            const mp4Converter = new Mp4Converter(this);
+            if (task.options.convertTsToMp4 && this.#isTsDownload(task)) await mp4Converter.convertTsToMp4(task);
+            await this.closeWriter(task);
             await this.#finalizeFile(task);
             await this.#downloadTracks(task);
             task._stats.finishedAt = Date.now();
@@ -4062,7 +4063,7 @@ class Downloader {
                 task._stats.errors.push(task._stats.error);
                 task._stats.finishedAt = Date.now();
                 task._setStatus('failed');
-                await this.#closeWriter(task);
+                await this.closeWriter(task);
                 await this.#discardPartialFile(task);
                 task._log(task._partialFilename ? `Partial file could not be removed: ${task.filepath}` : `Failed download; partial file removed or no file was created: ${task._stats.error}`, 'error');
                 task._emit('error', error);
@@ -4070,7 +4071,7 @@ class Downloader {
             }
             throw error;
         } finally {
-            await this.#closeWriter(task);
+            await this.closeWriter(task);
             task._emit('settled', task);
         }
     }
@@ -4313,241 +4314,6 @@ class Downloader {
         return /^(?:m3u8|hls|ts)$/i.test(task.options.format) || /\.(?:m3u8|ts)(?:$|\?)/i.test(task.url);
     }
 
-    async #getMuxJs() {
-        if (!this.#muxJsPromise) this.#muxJsPromise = (async () => {
-            const preloadedMux = globalThis.muxjs;
-            if (preloadedMux?.mp4?.Transmuxer && preloadedMux.mp4.probe?.tracks) return preloadedMux;
-            const url = 'https://cdnjs.cloudflare.com/ajax/libs/mux.js/7.1.0/mux.js';
-            const response = await dlUtils.anlinkGMRequest(url, { responseType: 'text', timeout: 30000 }).promise;
-            if (response.status < 200 || response.status >= 300 || typeof response.response !== 'string') throw new Error(`Could not load mux.js (${response.status || 'network error'}).`);
-            const scope = { window, self: null };
-            scope.self = scope;
-            const mux = Function('globalThis', `${response.response}\nreturn globalThis.muxjs;`).call(scope, scope);
-            if (!mux?.mp4?.Transmuxer || !mux.mp4.probe?.tracks) throw new Error('The loaded mux.js build does not expose the required MP4 transmuxer.');
-            return mux;
-        })().catch(error => { this.#muxJsPromise = null; throw error; });
-        return this.#muxJsPromise;
-    }
-
-    #concatBytes(parts) {
-        const total = parts.reduce((sum, part) => sum + (part?.byteLength || 0), 0);
-        const result = new Uint8Array(total);
-        let offset = 0;
-        for (const part of parts) { if (part?.byteLength) result.set(part, offset); offset += part?.byteLength || 0; }
-        return result;
-    }
-
-    #mp4Boxes(data) {
-        const boxes = [];
-        for (let offset = 0; offset + 8 <= data.byteLength;) {
-            const size = new DataView(data.buffer, data.byteOffset + offset, 4).getUint32(0);
-            const end = size > 1 ? offset + size : data.byteLength;
-            if (end <= offset || end > data.byteLength) break;
-            boxes.push({ type: String.fromCharCode(...data.subarray(offset + 4, offset + 8)), data: data.subarray(offset + 8, end) });
-            offset = end;
-        }
-        return boxes;
-    }
-
-    #mp4Box(type, payloads) {
-        const payload = this.#concatBytes(payloads);
-        const result = new Uint8Array(payload.byteLength + 8);
-        new DataView(result.buffer).setUint32(0, result.byteLength);
-        result.set([...type].map(character => character.charCodeAt(0)), 4);
-        result.set(payload, 8);
-        return result;
-    }
-
-    #patchMp4TrackId(data, from, to, boxTypes) {
-        const result = new Uint8Array(data);
-        const containers = new Set(['moov', 'mvex', 'trak', 'mdia', 'minf', 'stbl', 'moof', 'traf']);
-        const walk = (start, end) => {
-            for (let offset = start; offset + 8 <= end;) {
-                const size = new DataView(result.buffer, offset, 4).getUint32(0);
-                const boxEnd = size > 1 ? offset + size : end;
-                if (boxEnd <= offset || boxEnd > end) break;
-                const type = String.fromCharCode(...result.subarray(offset + 4, offset + 8));
-                const payload = offset + 8;
-                if (boxTypes.has(type)) {
-                    const idOffset = payload + (type === 'tkhd' && result[payload] === 1 ? 20 : type === 'tkhd' ? 12 : 4);
-                    if (idOffset + 4 <= boxEnd && new DataView(result.buffer).getUint32(idOffset) === from) new DataView(result.buffer).setUint32(idOffset, to);
-                }
-                if (containers.has(type)) walk(payload, boxEnd);
-                offset = boxEnd;
-            }
-        };
-        walk(0, result.byteLength);
-        return result;
-    }
-
-    #combineMp4InitSegments(segments) {
-        const first = this.#mp4Boxes(segments[0].init);
-        const ftyp = first.find(box => box.type === 'ftyp');
-        const moovs = segments.map(segment => this.#mp4Boxes(segment.init).find(box => box.type === 'moov')).filter(Boolean);
-        if (!ftyp || !moovs.length) throw new Error('mux.js did not produce a valid MP4 initialization segment.');
-        const children = this.#mp4Boxes(moovs[0].data);
-        const tracks = [], trex = [];
-        for (const moov of moovs) for (const child of this.#mp4Boxes(moov.data)) {
-            if (child.type === 'trak') tracks.push(this.#mp4Box(child.type, [child.data]));
-            else if (child.type === 'mvex') for (const box of this.#mp4Boxes(child.data)) if (box.type === 'trex') trex.push(this.#mp4Box(box.type, [box.data]));
-        }
-        const moovChildren = children.filter(child => child.type !== 'trak' && child.type !== 'mvex').map(child => this.#mp4Box(child.type, [child.data]));
-        return this.#concatBytes([this.#mp4Box(ftyp.type, [ftyp.data]), this.#mp4Box('moov', [...moovChildren, ...tracks, this.#mp4Box('mvex', trex)])]);
-    }
-
-    #tsPacketPayload(packet) {
-        let offset = 4;
-        if ((packet[3] & 0x30) > 0x10) offset += packet[4] + 1;
-        return packet.subarray(offset);
-    }
-
-    #findTsAudioPids(bytes) {
-        let pmtPid = null, section;
-        for (let offset = 0; offset + 188 <= bytes.byteLength && (!pmtPid || !section); offset += 188) {
-            const packet = bytes.subarray(offset, offset + 188);
-            if (packet[0] !== 0x47) continue;
-            const pid = (packet[1] & 0x1f) << 8 | packet[2];
-            const payload = this.#tsPacketPayload(packet);
-            if (pid === 0 && packet[1] & 0x40) {
-                const start = payload[0] + 1;
-                pmtPid = (payload[start + 10] & 0x1f) << 8 | payload[start + 11];
-            } else if (pmtPid !== null && pid === pmtPid && packet[1] & 0x40) {
-                const start = payload[0] + 1;
-                const length = (payload[start + 1] & 0x0f) << 8 | payload[start + 2];
-                if (payload.byteLength - start >= length + 3) section = new Uint8Array(payload.subarray(start, start + length + 3));
-            }
-        }
-        if (pmtPid === null || !section) return { pmtPid, audioPids: [], entries: [] };
-        const entries = [];
-        const programInfoLength = (section[10] & 0x0f) << 8 | section[11];
-        for (let offset = 12 + programInfoLength, end = 3 + ((section[1] & 0x0f) << 8 | section[2]) - 4; offset + 5 <= end;) {
-            const descriptorLength = (section[offset + 3] & 0x0f) << 8 | section[offset + 4];
-            entries.push({ streamType: section[offset], pid: (section[offset + 1] & 0x1f) << 8 | section[offset + 2], bytes: section.slice(offset, offset + 5 + descriptorLength) });
-            offset += 5 + descriptorLength;
-        }
-        return { pmtPid, section, entries, audioPids: entries.filter(entry => entry.streamType === 0x0f).map(entry => entry.pid) };
-    }
-
-    #filterTsForAudio(bytes, program, audioPid) {
-        const entry = program.entries.find(candidate => candidate.pid === audioPid && candidate.streamType === 0x0f);
-        if (!entry) throw new Error(`Embedded audio PID ${audioPid} is not an AAC track.`);
-        const programInfoLength = (program.section[10] & 0x0f) << 8 | program.section[11];
-        const sectionLength = 9 + programInfoLength + entry.bytes.byteLength + 4;
-        const section = new Uint8Array(3 + sectionLength);
-        section.set(program.section.subarray(0, 12 + programInfoLength));
-        section[1] = 0xb0 | (sectionLength >>> 8);
-        section[2] = sectionLength & 0xff;
-        section.set(entry.bytes, 12 + programInfoLength);
-        const packet = new Uint8Array(188);
-        packet.fill(0xff);
-        packet.set([0x47, 0x40 | program.pmtPid >>> 8, program.pmtPid & 0xff, 0x10], 0);
-        packet[4] = 0;
-        packet.set(section, 5);
-        const packets = [];
-        let pmtWritten = false;
-        for (let offset = 0; offset + 188 <= bytes.byteLength; offset += 188) {
-            const source = bytes.subarray(offset, offset + 188);
-            if (source[0] !== 0x47) continue;
-            const pid = (source[1] & 0x1f) << 8 | source[2];
-            if (pid === 0) packets.push(new Uint8Array(source));
-            else if (pid === program.pmtPid && !pmtWritten && source[1] & 0x40) { packet[3] = 0x10 | source[3] & 0x0f; packets.push(new Uint8Array(packet)); pmtWritten = true; }
-            else if (pid === audioPid) packets.push(new Uint8Array(source));
-        }
-        if (!pmtWritten || !packets.some(candidate => ((candidate[1] & 0x1f) << 8 | candidate[2]) === audioPid)) throw new Error(`Embedded audio PID ${audioPid} contains no usable AAC data.`);
-        return this.#concatBytes(packets);
-    }
-
-    async #readTaskBytes(task) {
-        if (!this.#dirHandle) return this.#concatBytes([...task._memoryParts.entries()].sort(([first], [second]) => first - second).map(([, bytes]) => bytes));
-        return new Uint8Array(await (await task._fileHandle.getFile()).arrayBuffer());
-    }
-
-    async #writeTaskBytes(task, bytes) {
-        if (!this.#dirHandle) task._memoryParts = new Map([[0, bytes]]);
-        else { const writer = await task._fileHandle.createWritable({ keepExistingData: false }); await writer.write(bytes); await writer.close(); }
-    }
-
-    async #transmux(task, mux, bytes, label) {
-        return new Promise((resolve, reject) => {
-            const output = { init: null, data: [] };
-            const transmuxer = new mux.mp4.Transmuxer({ remux: true });
-            let settled = false;
-            const fail = error => { if (!settled) { settled = true; reject(error); } };
-            transmuxer.on('data', event => { if (event.initSegment) output.init = new Uint8Array(event.initSegment); if (event.data) output.data.push(new Uint8Array(event.data)); });
-            transmuxer.on('log', event => task._log(`${label}: ${event.message || JSON.stringify(event)}`, event.level || 'info'));
-            transmuxer.on('done', () => { if (settled) return; settled = true; output.data.length ? resolve(output) : reject(new Error(`${label} produced no MP4 media data.`)); });
-            try {
-                for (let offset = 0; offset < bytes.byteLength; offset += 1024 * 1024) {
-                    const chunk = bytes.subarray(offset, Math.min(bytes.byteLength, offset + 1024 * 1024));
-                    transmuxer.push(chunk);
-                    if (task._stats.phase === 'converting') { task._stats.conversionBytes = Math.min(task._stats.conversionTotal, task._stats.conversionBytes + chunk.byteLength); task._emit('progress', task.stats); }
-                }
-                transmuxer.flush();
-            } catch (error) { fail(error); }
-        });
-    }
-
-    async #convertTsToMp4(task) {
-        await this.#closeWriter(task);
-        const input = await this.#readTaskBytes(task);
-        task._stats.phase = 'converting';
-        task._stats.conversionBytes = 0;
-        task._stats.conversionTotal = input.byteLength;
-        task._emit('progress', task.stats);
-        try {
-            const mux = await this.#getMuxJs();
-            const program = this.#findTsAudioPids(input);
-            const outputs = [await this.#transmux(task, mux, input, 'Main TS')];
-            const mainAudio = mux.mp4.probe.tracks(outputs[0].init || new Uint8Array()).some(track => track.type === 'audio');
-            for (const audioPid of (mainAudio ? program.audioPids.slice(1) : program.audioPids)) outputs.push(await this.#transmux(task, mux, this.#filterTsForAudio(input, program, audioPid), `Embedded audio ${audioPid}`));
-
-            const audioTracks = filterTracksByLanguagePreferences((task.options.tracks || []).filter(track => trackKind(track) === 'audio'), task.options);
-            task._stats.phase = audioTracks.length ? 'tracks' : 'converting';
-            task._stats.trackIndex = 0;
-            task._stats.trackTotal = audioTracks.length;
-            task._stats.trackLabel = '';
-            task._embeddedTrackFiles = new Set();
-            for (const track of audioTracks) {
-                task._stats.trackLabel = track.label || 'audio';
-                task._trackProgress = new Map();
-                task._stats.trackBytesReceived = task._stats.trackBytesTotal = 0;
-                task._emit('progress', task.stats);
-                const response = await this.#fetchTrack(task, track);
-                outputs.push(await this.#transmux(task, mux, new Uint8Array(response.response || new ArrayBuffer(0)), `Audio track ${track.label || track.file}`));
-                task._embeddedTrackFiles.add(track.file);
-                task._stats.trackIndex++;
-                task._stats.trackLabel = '';
-                task._emit('progress', task.stats);
-            }
-            const usedIds = new Set(mux.mp4.probe.tracks(outputs[0].init).map(track => track.id));
-            let nextId = Math.max(0, ...usedIds) + 1;
-            for (const output of outputs.slice(1)) {
-                const track = mux.mp4.probe.tracks(output.init).find(candidate => candidate.type === 'audio');
-                if (!track) throw new Error('An audio transmux result did not contain an audio track.');
-                if (track.id === 0 || usedIds.has(track.id)) {
-                    output.init = this.#patchMp4TrackId(output.init, track.id, nextId, new Set(['tkhd', 'trex']));
-                    output.data = output.data.map(data => this.#patchMp4TrackId(data, track.id, nextId, new Set(['tfhd'])));
-                    track.id = nextId++;
-                }
-                usedIds.add(track.id);
-            }
-            const mp4 = this.#concatBytes([this.#combineMp4InitSegments(outputs), ...outputs.flatMap(output => output.data)]);
-            await this.#writeTaskBytes(task, mp4);
-            task._stats.bytesWritten = task._stats.bytesReceived = mp4.byteLength;
-            task._stats.totalSize = mp4.byteLength;
-            task._stats.completedSegments = task._stats.totalSegments = 1;
-            task._stats.contentType = 'video/mp4';
-            task._stats.phase = 'main';
-            task._stats.trackLabel = '';
-            task._stats.conversionBytes = task._stats.conversionTotal;
-            task._log(`Converted TS to MP4: inputBytes=${input.byteLength}; outputBytes=${mp4.byteLength}; audioTracks=${outputs.length - 1}`);
-            task._emit('progress', task.stats);
-        } catch (error) {
-            task._log(`TS to MP4 conversion failed: ${error.message || error}`, 'error');
-            throw new Error(`TS to MP4 conversion failed: ${error.message || error}`);
-        }
-    }
-
     #trackExtension(track, response) {
         const contentType = response?.contentType || dlUtils.anlinkParseHeaders(response?.responseHeaders || '').get('content-type') || '';
         const urlExtension = new URL(track.file).pathname.match(/\.([a-z0-9]{1,8})$/i)?.[1]?.toLowerCase();
@@ -4572,7 +4338,7 @@ class Downloader {
         this.#emitProgress(task);
     }
 
-    async #fetchTrack(task, track) {
+    async fetchTrack(task, track) {
         const trackKey = `track:${track.file}`;
         if (!/\.m3u8(?:$|\?)/i.test(track.file)) {
             const response = await this.#requestWithRetry(task, track.file, { responseType: 'arraybuffer', onprogress: details => this.#recordTrackProgress(task, trackKey, details.loaded, details.total) });
@@ -4661,7 +4427,7 @@ class Downloader {
             task._stats.trackBytesReceived = task._stats.trackBytesTotal = 0;
             task._emit('progress', task.stats);
             try {
-                const response = await this.#fetchTrack(task, track);
+                const response = await this.fetchTrack(task, track);
                 const label = dlUtils.anlinkSafeFilename(track.label || track.kind || 'track').replace(/\.[^.]+$/, '') || 'track';
                 const trackExtension = this.#trackExtension(track, response);
                 let trackFilename = `${stem}.${label}${trackExtension}`;
@@ -4690,7 +4456,7 @@ class Downloader {
         task._emit('progress', task.stats);
     }
 
-    async #closeWriter(task) {
+    async closeWriter(task) {
         if (!task._writer) return;
         try {
             await task._writeChain;
@@ -5032,6 +4798,253 @@ class Downloader {
             });
             await task._writeChain;
         });
+    }
+}
+
+class Mp4Converter {
+    #muxJsPromise = null;
+    #dirHandle = null;
+
+    /** @param {Downloader} downloader */
+    constructor(downloader) { 
+        this.downloader = downloader;
+        this.#dirHandle = downloader.directoryHandle;
+    }
+
+    async #getMuxJs() {
+        if (!this.#muxJsPromise) this.#muxJsPromise = (async () => {
+            const preloadedMux = globalThis.muxjs;
+            if (preloadedMux?.mp4?.Transmuxer && preloadedMux.mp4.probe?.tracks) return preloadedMux;
+            const url = 'https://cdnjs.cloudflare.com/ajax/libs/mux.js/7.1.0/mux.js';
+            const response = await dlUtils.anlinkGMRequest(url, { responseType: 'text', timeout: 30000 }).promise;
+            if (response.status < 200 || response.status >= 300 || typeof response.response !== 'string') throw new Error(`Could not load mux.js (${response.status || 'network error'}).`);
+            const scope = { window, self: null };
+            scope.self = scope;
+            const mux = Function('globalThis', `${response.response}\nreturn globalThis.muxjs;`).call(scope, scope);
+            if (!mux?.mp4?.Transmuxer || !mux.mp4.probe?.tracks) throw new Error('The loaded mux.js build does not expose the required MP4 transmuxer.');
+            return mux;
+        })().catch(error => { this.#muxJsPromise = null; throw error; });
+        return this.#muxJsPromise;
+    }
+
+    #concatBytes(parts) {
+        const total = parts.reduce((sum, part) => sum + (part?.byteLength || 0), 0);
+        const result = new Uint8Array(total);
+        let offset = 0;
+        for (const part of parts) { if (part?.byteLength) result.set(part, offset); offset += part?.byteLength || 0; }
+        return result;
+    }
+
+    #mp4Boxes(data) {
+        const boxes = [];
+        for (let offset = 0; offset + 8 <= data.byteLength;) {
+            const size = new DataView(data.buffer, data.byteOffset + offset, 4).getUint32(0);
+            const end = size > 1 ? offset + size : data.byteLength;
+            if (end <= offset || end > data.byteLength) break;
+            boxes.push({ type: String.fromCharCode(...data.subarray(offset + 4, offset + 8)), data: data.subarray(offset + 8, end) });
+            offset = end;
+        }
+        return boxes;
+    }
+
+    #mp4Box(type, payloads) {
+        const payload = this.#concatBytes(payloads);
+        const result = new Uint8Array(payload.byteLength + 8);
+        new DataView(result.buffer).setUint32(0, result.byteLength);
+        result.set([...type].map(character => character.charCodeAt(0)), 4);
+        result.set(payload, 8);
+        return result;
+    }
+
+    #patchMp4TrackId(data, from, to, boxTypes) {
+        const result = new Uint8Array(data);
+        const containers = new Set(['moov', 'mvex', 'trak', 'mdia', 'minf', 'stbl', 'moof', 'traf']);
+        const walk = (start, end) => {
+            for (let offset = start; offset + 8 <= end;) {
+                const size = new DataView(result.buffer, offset, 4).getUint32(0);
+                const boxEnd = size > 1 ? offset + size : end;
+                if (boxEnd <= offset || boxEnd > end) break;
+                const type = String.fromCharCode(...result.subarray(offset + 4, offset + 8));
+                const payload = offset + 8;
+                if (boxTypes.has(type)) {
+                    const idOffset = payload + (type === 'tkhd' && result[payload] === 1 ? 20 : type === 'tkhd' ? 12 : 4);
+                    if (idOffset + 4 <= boxEnd && new DataView(result.buffer).getUint32(idOffset) === from) new DataView(result.buffer).setUint32(idOffset, to);
+                }
+                if (containers.has(type)) walk(payload, boxEnd);
+                offset = boxEnd;
+            }
+        };
+        walk(0, result.byteLength);
+        return result;
+    }
+
+    #combineMp4InitSegments(segments) {
+        const first = this.#mp4Boxes(segments[0].init);
+        const ftyp = first.find(box => box.type === 'ftyp');
+        const moovs = segments.map(segment => this.#mp4Boxes(segment.init).find(box => box.type === 'moov')).filter(Boolean);
+        if (!ftyp || !moovs.length) throw new Error('mux.js did not produce a valid MP4 initialization segment.');
+        const children = this.#mp4Boxes(moovs[0].data);
+        const tracks = [], trex = [];
+        for (const moov of moovs) for (const child of this.#mp4Boxes(moov.data)) {
+            if (child.type === 'trak') tracks.push(this.#mp4Box(child.type, [child.data]));
+            else if (child.type === 'mvex') for (const box of this.#mp4Boxes(child.data)) if (box.type === 'trex') trex.push(this.#mp4Box(box.type, [box.data]));
+        }
+        const moovChildren = children.filter(child => child.type !== 'trak' && child.type !== 'mvex').map(child => this.#mp4Box(child.type, [child.data]));
+        return this.#concatBytes([this.#mp4Box(ftyp.type, [ftyp.data]), this.#mp4Box('moov', [...moovChildren, ...tracks, this.#mp4Box('mvex', trex)])]);
+    }
+
+    #tsPacketPayload(packet) {
+        let offset = 4;
+        if ((packet[3] & 0x30) > 0x10) offset += packet[4] + 1;
+        return packet.subarray(offset);
+    }
+
+    #findTsAudioPids(bytes) {
+        let pmtPid = null, section;
+        for (let offset = 0; offset + 188 <= bytes.byteLength && (!pmtPid || !section); offset += 188) {
+            const packet = bytes.subarray(offset, offset + 188);
+            if (packet[0] !== 0x47) continue;
+            const pid = (packet[1] & 0x1f) << 8 | packet[2];
+            const payload = this.#tsPacketPayload(packet);
+            if (pid === 0 && packet[1] & 0x40) {
+                const start = payload[0] + 1;
+                pmtPid = (payload[start + 10] & 0x1f) << 8 | payload[start + 11];
+            } else if (pmtPid !== null && pid === pmtPid && packet[1] & 0x40) {
+                const start = payload[0] + 1;
+                const length = (payload[start + 1] & 0x0f) << 8 | payload[start + 2];
+                if (payload.byteLength - start >= length + 3) section = new Uint8Array(payload.subarray(start, start + length + 3));
+            }
+        }
+        if (pmtPid === null || !section) return { pmtPid, audioPids: [], entries: [] };
+        const entries = [];
+        const programInfoLength = (section[10] & 0x0f) << 8 | section[11];
+        for (let offset = 12 + programInfoLength, end = 3 + ((section[1] & 0x0f) << 8 | section[2]) - 4; offset + 5 <= end;) {
+            const descriptorLength = (section[offset + 3] & 0x0f) << 8 | section[offset + 4];
+            entries.push({ streamType: section[offset], pid: (section[offset + 1] & 0x1f) << 8 | section[offset + 2], bytes: section.slice(offset, offset + 5 + descriptorLength) });
+            offset += 5 + descriptorLength;
+        }
+        return { pmtPid, section, entries, audioPids: entries.filter(entry => entry.streamType === 0x0f).map(entry => entry.pid) };
+    }
+
+    #filterTsForAudio(bytes, program, audioPid) {
+        const entry = program.entries.find(candidate => candidate.pid === audioPid && candidate.streamType === 0x0f);
+        if (!entry) throw new Error(`Embedded audio PID ${audioPid} is not an AAC track.`);
+        const programInfoLength = (program.section[10] & 0x0f) << 8 | program.section[11];
+        const sectionLength = 9 + programInfoLength + entry.bytes.byteLength + 4;
+        const section = new Uint8Array(3 + sectionLength);
+        section.set(program.section.subarray(0, 12 + programInfoLength));
+        section[1] = 0xb0 | (sectionLength >>> 8);
+        section[2] = sectionLength & 0xff;
+        section.set(entry.bytes, 12 + programInfoLength);
+        const packet = new Uint8Array(188);
+        packet.fill(0xff);
+        packet.set([0x47, 0x40 | program.pmtPid >>> 8, program.pmtPid & 0xff, 0x10], 0);
+        packet[4] = 0;
+        packet.set(section, 5);
+        const packets = [];
+        let pmtWritten = false;
+        for (let offset = 0; offset + 188 <= bytes.byteLength; offset += 188) {
+            const source = bytes.subarray(offset, offset + 188);
+            if (source[0] !== 0x47) continue;
+            const pid = (source[1] & 0x1f) << 8 | source[2];
+            if (pid === 0) packets.push(new Uint8Array(source));
+            else if (pid === program.pmtPid && !pmtWritten && source[1] & 0x40) { packet[3] = 0x10 | source[3] & 0x0f; packets.push(new Uint8Array(packet)); pmtWritten = true; }
+            else if (pid === audioPid) packets.push(new Uint8Array(source));
+        }
+        if (!pmtWritten || !packets.some(candidate => ((candidate[1] & 0x1f) << 8 | candidate[2]) === audioPid)) throw new Error(`Embedded audio PID ${audioPid} contains no usable AAC data.`);
+        return this.#concatBytes(packets);
+    }
+
+    async #readTaskBytes(task) {
+        if (!this.#dirHandle) return this.#concatBytes([...task._memoryParts.entries()].sort(([first], [second]) => first - second).map(([, bytes]) => bytes));
+        return new Uint8Array(await (await task._fileHandle.getFile()).arrayBuffer());
+    }
+
+    async #writeTaskBytes(task, bytes) {
+        if (!this.#dirHandle) task._memoryParts = new Map([[0, bytes]]);
+        else { const writer = await task._fileHandle.createWritable({ keepExistingData: false }); await writer.write(bytes); await writer.close(); }
+    }
+
+    async #transmux(task, mux, bytes, label) {
+        return new Promise((resolve, reject) => {
+            const output = { init: null, data: [] };
+            const transmuxer = new mux.mp4.Transmuxer({ remux: true });
+            let settled = false;
+            const fail = error => { if (!settled) { settled = true; reject(error); } };
+            transmuxer.on('data', event => { if (event.initSegment) output.init = new Uint8Array(event.initSegment); if (event.data) output.data.push(new Uint8Array(event.data)); });
+            transmuxer.on('log', event => task._log(`${label}: ${event.message || JSON.stringify(event)}`, event.level || 'info'));
+            transmuxer.on('done', () => { if (settled) return; settled = true; output.data.length ? resolve(output) : reject(new Error(`${label} produced no MP4 media data.`)); });
+            try {
+                for (let offset = 0; offset < bytes.byteLength; offset += 1024 * 1024) {
+                    const chunk = bytes.subarray(offset, Math.min(bytes.byteLength, offset + 1024 * 1024));
+                    transmuxer.push(chunk);
+                    if (task._stats.phase === 'converting') { task._stats.conversionBytes = Math.min(task._stats.conversionTotal, task._stats.conversionBytes + chunk.byteLength); task._emit('progress', task.stats); }
+                }
+                transmuxer.flush();
+            } catch (error) { fail(error); }
+        });
+    }
+
+    /**@param {DownloadTask} task  */
+    async convertTsToMp4(task) {
+        await this.downloader.closeWriter(task);
+        const input = await this.#readTaskBytes(task);
+        task._stats.phase = 'converting';
+        task._stats.conversionBytes = 0;
+        task._stats.conversionTotal = input.byteLength;
+        task._emit('progress', task.stats);
+        try {
+            const mux = await this.#getMuxJs();
+            const program = this.#findTsAudioPids(input);
+            const outputs = [await this.#transmux(task, mux, input, 'Main TS')];
+            const mainAudio = mux.mp4.probe.tracks(outputs[0].init || new Uint8Array()).some(track => track.type === 'audio');
+            for (const audioPid of (mainAudio ? program.audioPids.slice(1) : program.audioPids)) outputs.push(await this.#transmux(task, mux, this.#filterTsForAudio(input, program, audioPid), `Embedded audio ${audioPid}`));
+
+            const audioTracks = filterTracksByLanguagePreferences((task.options.tracks || []).filter(track => trackKind(track) === 'audio'), task.options);
+            task._stats.phase = audioTracks.length ? 'tracks' : 'converting';
+            task._stats.trackIndex = 0;
+            task._stats.trackTotal = audioTracks.length;
+            task._stats.trackLabel = '';
+            task._embeddedTrackFiles = new Set();
+            for (const track of audioTracks) {
+                task._stats.trackLabel = track.label || 'audio';
+                task._trackProgress = new Map();
+                task._stats.trackBytesReceived = task._stats.trackBytesTotal = 0;
+                task._emit('progress', task.stats);
+                const response = await this.downloader.fetchTrack(task, track);
+                outputs.push(await this.#transmux(task, mux, new Uint8Array(response.response || new ArrayBuffer(0)), `Audio track ${track.label || track.file}`));
+                task._embeddedTrackFiles.add(track.file);
+                task._stats.trackIndex++;
+                task._stats.trackLabel = '';
+                task._emit('progress', task.stats);
+            }
+            const usedIds = new Set(mux.mp4.probe.tracks(outputs[0].init).map(track => track.id));
+            let nextId = Math.max(0, ...usedIds) + 1;
+            for (const output of outputs.slice(1)) {
+                const track = mux.mp4.probe.tracks(output.init).find(candidate => candidate.type === 'audio');
+                if (!track) throw new Error('An audio transmux result did not contain an audio track.');
+                if (track.id === 0 || usedIds.has(track.id)) {
+                    output.init = this.#patchMp4TrackId(output.init, track.id, nextId, new Set(['tkhd', 'trex']));
+                    output.data = output.data.map(data => this.#patchMp4TrackId(data, track.id, nextId, new Set(['tfhd'])));
+                    track.id = nextId++;
+                }
+                usedIds.add(track.id);
+            }
+            const mp4 = this.#concatBytes([this.#combineMp4InitSegments(outputs), ...outputs.flatMap(output => output.data)]);
+            await this.#writeTaskBytes(task, mp4);
+            task._stats.bytesWritten = task._stats.bytesReceived = mp4.byteLength;
+            task._stats.totalSize = mp4.byteLength;
+            task._stats.completedSegments = task._stats.totalSegments = 1;
+            task._stats.contentType = 'video/mp4';
+            task._stats.phase = 'main';
+            task._stats.trackLabel = '';
+            task._stats.conversionBytes = task._stats.conversionTotal;
+            task._log(`Converted TS to MP4: inputBytes=${input.byteLength}; outputBytes=${mp4.byteLength}; audioTracks=${outputs.length - 1}`);
+            task._emit('progress', task.stats);
+        } catch (error) {
+            task._log(`TS to MP4 conversion failed: ${error.message || error}`, 'error');
+            throw new Error(`TS to MP4 conversion failed: ${error.message || error}`);
+        }
     }
 }
 
