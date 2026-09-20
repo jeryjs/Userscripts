@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     7.1.3
+// @version     7.1.4
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -173,10 +173,6 @@ const ENABLE_GLASS_BLUR = GM_getValue('enable_glass_blur', false); // Whether to
 const UNSUPPORTED_DOWNLOAD_URL_PATTERNS = [
     /^https:\/\/megap\..*$/i
 ];
-const DEFAULT_TRACK_LANGUAGE_PREFERENCES = Object.freeze({
-    audioTrackLanguages: 'japanese,jpn,jap,english,eng,en',
-    captionTrackLanguages: 'enUS,english,eng,en'
-});
 const ANILINK_GITHUB_REPO = 'https://github.com/jeryjs/Userscripts/blob/main/AniLINK';
 const ANILINK_GITHUB_ISSUES = `https://github.com/jeryjs/Userscripts/issues/new`;
 const ANILINK_GREASYFORK_PAGE = 'https://greasyfork.org/en/scripts/492029-anilink-episode-link-extractor';
@@ -1231,7 +1227,7 @@ const trackKind = track => {
  * @param {{audioTrackLanguages?: string | string[], captionTrackLanguages?: string | string[]}} settings - The user's language preference settings.
  * @returns {Array} The filtered array of tracks that match the user's preferences.
  */
-function filterTracksByLanguagePreferences(tracks, settings = DEFAULT_TRACK_LANGUAGE_PREFERENCES) {
+function filterTracksByLanguagePreferences(tracks, settings) {
     const supportedTracks = (tracks || []).filter(track => trackKind(track));
     const trackMatchesLanguages = (track, languages) => {
         const preferences = new Set(normalizeTrackLanguageSetting(languages).toLowerCase().split(',').map(language => language.replace(/[^a-z0-9]+/g, '')).filter(Boolean));
@@ -3728,11 +3724,12 @@ class Downloader {
             overwrite: true,
             historyLimit: 15,
             historyCollapsed: true,
-            subtitleDirectory: '',
+            subtitleDirectory: 'subs',
             fabAlwaysVisible: false,
             keepPartialFiles: true,
             convertTsToMp4: true,
-            ...DEFAULT_TRACK_LANGUAGE_PREFERENCES
+            audioTrackLanguages: "japanese,jpn,ja,english,eng,en",
+            captionTrackLanguages: "enUS,english,eng,en",
         };
     }
 
@@ -3762,8 +3759,8 @@ class Downloader {
             settings.subtitleDirectory = dlUtils.anlinkSafeDirectoryName(settings.subtitleDirectory);
             settings.fabAlwaysVisible = settings.fabAlwaysVisible === true;
             settings.convertTsToMp4 = settings.convertTsToMp4 !== false;
-            settings.audioTrackLanguages = normalizeTrackLanguageSetting(settings.audioTrackLanguages, DEFAULT_TRACK_LANGUAGE_PREFERENCES.audioTrackLanguages);
-            settings.captionTrackLanguages = normalizeTrackLanguageSetting(settings.captionTrackLanguages, DEFAULT_TRACK_LANGUAGE_PREFERENCES.captionTrackLanguages);
+            settings.audioTrackLanguages = normalizeTrackLanguageSetting(settings.audioTrackLanguages);
+            settings.captionTrackLanguages = normalizeTrackLanguageSetting(settings.captionTrackLanguages);
             if (!Number.isFinite(settings.defaultSpeedLimitBps) || settings.defaultSpeedLimitBps <= 0) settings.defaultSpeedLimitBps = Infinity;
             if (!hasGlobalStore) GM_setValue(this.#globalStorageKey, Object.fromEntries(DOWNLOADER_GLOBAL_SETTING_KEYS.map(key => [key, settings[key]])));
             const history = Array.isArray(saved.history) ? saved.history.map(item => ['queued', 'preparing', 'downloading', 'paused'].includes(item.status) ? { ...item, status: 'interrupted' } : item) : [];
@@ -3793,8 +3790,8 @@ class Downloader {
         next.fabAlwaysVisible = next.fabAlwaysVisible === true;
         next.keepPartialFiles = next.keepPartialFiles !== false;
         next.convertTsToMp4 = next.convertTsToMp4 !== false;
-        next.audioTrackLanguages = normalizeTrackLanguageSetting(next.audioTrackLanguages, DEFAULT_TRACK_LANGUAGE_PREFERENCES.audioTrackLanguages);
-        next.captionTrackLanguages = normalizeTrackLanguageSetting(next.captionTrackLanguages, DEFAULT_TRACK_LANGUAGE_PREFERENCES.captionTrackLanguages);
+        next.audioTrackLanguages = normalizeTrackLanguageSetting(next.audioTrackLanguages);
+        next.captionTrackLanguages = normalizeTrackLanguageSetting(next.captionTrackLanguages);
         if (!['off', 'completed', 'completed-and-failed', 'all'].includes(next.notifications)) next.notifications = 'completed-and-failed';
         this.#settings = next;
         this.#saveStore();
@@ -5080,6 +5077,326 @@ class Mp4Converter {
             task._log(`TS to MP4 conversion failed: ${error.message || error}`, 'error');
             throw new Error(`TS to MP4 conversion failed: ${error.message || error}`);
         }
+    }
+}
+
+// Experiment: Work in progress; not implemented; never gonna be implemented!
+class MKVConverter {
+    constructor(downloader) { this.downloader = downloader; }
+
+    #concat(parts) {
+        const size = parts.reduce((total, part) => total + (part?.byteLength || 0), 0);
+        const result = new Uint8Array(size);
+        let offset = 0;
+        for (const part of parts) { if (part?.byteLength) result.set(part, offset); offset += part?.byteLength || 0; }
+        return result;
+    }
+
+    #u32(data, offset) { return new DataView(data.buffer, data.byteOffset + offset, 4).getUint32(0); }
+    #i32(data, offset) { return new DataView(data.buffer, data.byteOffset + offset, 4).getInt32(0); }
+    #u64(data, offset) { return Number(new DataView(data.buffer, data.byteOffset + offset, 8).getBigUint64(0)); }
+    #u24(data, offset) { return (data[offset] << 16) | (data[offset + 1] << 8) | data[offset + 2]; }
+
+    #boxes(data, start = 0, end = data.byteLength) {
+        const result = [];
+        for (let offset = start; offset + 8 <= end;) {
+            let size = this.#u32(data, offset);
+            const type = String.fromCharCode(...data.subarray(offset + 4, offset + 8));
+            let header = 8;
+            if (size === 1) { if (offset + 16 > end) break; size = this.#u64(data, offset + 8); header = 16; }
+            else if (!size) size = end - offset;
+            if (size < header || offset + size > end) break;
+            result.push({ type, start: offset, end: offset + size, data: data.subarray(offset + header, offset + size) });
+            offset += size;
+        }
+        return result;
+    }
+
+    #child(box, type) { return this.#boxes(box?.data || new Uint8Array()).find(candidate => candidate.type === type); }
+    #scan(data, type, start = 0) {
+        for (let offset = start; offset + 8 <= data.byteLength; offset++) {
+            if (String.fromCharCode(...data.subarray(offset + 4, offset + 8)) !== type) continue;
+            let size = this.#u32(data, offset);
+            let header = 8;
+            if (size === 1) { if (offset + 16 > data.byteLength) continue; size = this.#u64(data, offset + 8); header = 16; }
+            if (size >= header && offset + size <= data.byteLength) return { type, start: offset, end: offset + size, data: data.subarray(offset + header, offset + size) };
+        }
+        return null;
+    }
+
+    #uint(value) {
+        value = Math.max(0, Math.floor(Number(value) || 0));
+        if (!value) return new Uint8Array([0]);
+        const bytes = [];
+        while (value) { bytes.unshift(value & 255); value = Math.floor(value / 256); }
+        return new Uint8Array(bytes);
+    }
+
+    #vint(value) {
+        value = Math.max(0, Math.floor(Number(value) || 0));
+        for (let bytes = 1; bytes <= 8; bytes++) {
+            const limit = 2 ** (7 * bytes) - 1;
+            if (value < limit) {
+                const result = new Uint8Array(bytes);
+                let number = value + 2 ** (7 * bytes);
+                for (let i = bytes - 1; i >= 0; i--) { result[i] = number & 255; number = Math.floor(number / 256); }
+                return result;
+            }
+        }
+        return new Uint8Array([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+    }
+
+    #element(id, payload) {
+        const bytes = id.match(/../g).map(value => parseInt(value, 16));
+        return this.#concat([new Uint8Array(bytes), this.#vint(payload.byteLength), payload]);
+    }
+
+    #master(id, children) { return this.#element(id, this.#concat(children)); }
+    #text(value) { return new TextEncoder().encode(String(value ?? '')); }
+    #float(value) { const result = new Uint8Array(8); new DataView(result.buffer).setFloat64(0, Number(value) || 0); return result; }
+
+    #descriptorConfig(data) {
+        for (let i = 4; i + 2 < data.byteLength; i++) {
+            if (data[i] !== 0x05) continue;
+            let length = 0, cursor = i + 1, byte;
+            do { if (cursor >= data.byteLength) break; byte = data[cursor++]; length = (length << 7) | (byte & 0x7f); } while (byte & 0x80);
+            if (cursor + length <= data.byteLength) return data.slice(cursor, cursor + length);
+        }
+        return null;
+    }
+
+    #language(mdhd) {
+        if (!mdhd) return '';
+        const version = mdhd.data[0];
+        const offset = version === 1 ? 32 : 20;
+        if (offset + 2 > mdhd.data.byteLength) return '';
+        const value = (mdhd.data[offset] << 8) | mdhd.data[offset + 1];
+        return String.fromCharCode(((value >> 10) & 31) + 96, ((value >> 5) & 31) + 96, (value & 31) + 96).replace(/`/g, '');
+    }
+
+    #parseMp4Tracks(bytes) {
+        const top = this.#boxes(bytes);
+        const moov = top.find(box => box.type === 'moov');
+        if (!moov) throw new Error('The input is not a valid MP4 file (missing moov).');
+        const tracks = [];
+        for (const trak of this.#boxes(moov.data).filter(box => box.type === 'trak')) {
+            const tkhd = this.#child(trak, 'tkhd');
+            const mdia = this.#child(trak, 'mdia');
+            const mdhd = this.#child(mdia, 'mdhd');
+            const hdlr = this.#child(mdia, 'hdlr');
+            const minf = this.#child(mdia, 'minf');
+            const stbl = this.#child(minf, 'stbl');
+            if (!tkhd || !mdhd || !hdlr || !stbl) continue;
+            const trackIdOffset = tkhd.data[0] === 1 ? 20 : 12;
+            const track = {
+                id: this.#u32(tkhd.data, trackIdOffset), type: String.fromCharCode(...hdlr.data.subarray(8, 12)),
+                timescale: this.#u32(mdhd.data, mdhd.data[0] === 1 ? 20 : 12), language: this.#language(mdhd),
+                samples: [], codec: '', codecPrivate: null, width: 0, height: 0, channels: 2, sampleRate: 48000, classic: null
+            };
+            if (tkhd.data.byteLength >= 8) {
+                track.width = Math.round(this.#u32(tkhd.data, tkhd.data.byteLength - 8) / 65536);
+                track.height = Math.round(this.#u32(tkhd.data, tkhd.data.byteLength - 4) / 65536);
+            }
+            const stsd = this.#child(stbl, 'stsd');
+            const entry = stsd && this.#boxes(stsd.data, 8)[0];
+            if (entry) {
+                track.codec = entry.type;
+                if (track.type === 'vide') {
+                    const avcC = this.#scan(entry.data, 'avcC', 70);
+                    track.codecPrivate = avcC?.data || null;
+                } else if (track.type === 'soun') {
+                    track.channels = entry.data.byteLength >= 10 ? new DataView(entry.data.buffer, entry.data.byteOffset + 8, 2).getUint16(0) : 2;
+                    track.sampleRate = entry.data.byteLength >= 28 ? this.#u32(entry.data, 24) / 65536 : 48000;
+                    const esds = this.#scan(entry.data, 'esds', 24);
+                    track.codecPrivate = esds ? this.#descriptorConfig(esds.data) : null;
+                }
+            }
+            const mvex = this.#child(moov, 'mvex');
+            const trex = mvex && this.#boxes(mvex.data).find(box => box.type === 'trex' && this.#u32(box.data, 4) === track.id);
+            track.defaults = trex ? { duration: this.#u32(trex.data, 12), size: this.#u32(trex.data, 16), flags: this.#u32(trex.data, 20) } : {};
+            const stts = this.#child(stbl, 'stts');
+            const stsc = this.#child(stbl, 'stsc');
+            const stsz = this.#child(stbl, 'stsz');
+            const stco = this.#child(stbl, 'stco') || this.#child(stbl, 'co64');
+            if (stts && stsc && stsz && stco) track.classic = { stts, stsc, stsz, stco, ctts: this.#child(stbl, 'ctts'), stss: this.#child(stbl, 'stss') };
+            tracks.push(track);
+        }
+        return { tracks, top };
+    }
+
+    #parseClassic(bytes, track) {
+        const c = track.classic;
+        if (!c) return;
+        const sizes = [], sampleSize = this.#u32(c.stsz.data, 4), count = this.#u32(c.stsz.data, 8);
+        if (sampleSize) sizes.push(...Array(count).fill(sampleSize));
+        else for (let i = 0; i < count && 12 + i * 4 <= c.stsz.data.byteLength; i++) sizes.push(this.#u32(c.stsz.data, 12 + i * 4));
+        const chunks = [], chunkCount = this.#u32(c.stco.data, 4);
+        for (let i = 0; i < chunkCount; i++) chunks.push(c.stco.type === 'co64' ? this.#u64(c.stco.data, 8 + i * 8) : this.#u32(c.stco.data, 8 + i * 4));
+        const map = [], mapCount = this.#u32(c.stsc.data, 4);
+        for (let i = 0; i < mapCount; i++) map.push({ first: this.#u32(c.stsc.data, 8 + i * 12), perChunk: this.#u32(c.stsc.data, 12 + i * 12) });
+        const durations = [], sttsCount = this.#u32(c.stts.data, 4);
+        for (let i = 0; i < sttsCount; i++) for (let n = 0; n < this.#u32(c.stts.data, 8 + i * 8); n++) durations.push(this.#u32(c.stts.data, 12 + i * 8));
+        const offsets = [], ctts = c.ctts && this.#u32(c.ctts.data, 4);
+        if (ctts) for (let i = 0; i < ctts; i++) for (let n = 0; n < this.#u32(c.ctts.data, 8 + i * 8); n++) offsets.push(c.ctts.data[0] === 1 ? this.#i32(c.ctts.data, 12 + i * 8) : this.#u32(c.ctts.data, 12 + i * 8));
+        const sync = new Set();
+        if (c.stss) for (let i = 0, n = this.#u32(c.stss.data, 4); i < n; i++) sync.add(this.#u32(c.stss.data, 8 + i * 4));
+        let sample = 0;
+        for (let chunk = 1; chunk <= chunks.length && sample < sizes.length; chunk++) {
+            const entry = [...map].reverse().find(item => item.first <= chunk) || map[0];
+            let offset = chunks[chunk - 1];
+            for (let i = 0; entry && i < entry.perChunk && sample < sizes.length; i++, sample++) {
+                const size = sizes[sample];
+                track.samples.push({ time: (durations.slice(0, sample).reduce((a, b) => a + b, 0) + (offsets[sample] || 0)) * 1000 / track.timescale, duration: (durations[sample] || 0) * 1000 / track.timescale, key: !sync.size || sync.has(sample + 1), data: bytes.slice(offset, offset + size) });
+                offset += size;
+            }
+        }
+    }
+
+    #parseFragments(bytes, parsed) {
+        const mdats = parsed.top.filter(box => box.type === 'mdat');
+        const moofs = parsed.top.filter(box => box.type === 'moof');
+        for (const moof of moofs) for (const traf of this.#boxes(moof.data).filter(box => box.type === 'traf')) {
+            const tfhd = this.#child(traf, 'tfhd');
+            if (!tfhd) continue;
+            const id = this.#u32(tfhd.data, 4), track = parsed.tracks.find(candidate => candidate.id === id);
+            if (!track) continue;
+            const flags = this.#u24(tfhd.data, 1);
+            let cursor = 8, baseOffset = moof.start;
+            if (flags & 1) { baseOffset = this.#u64(tfhd.data, cursor); cursor += 8; }
+            if (flags & 2) cursor += 4;
+            if (flags & 8) { track.defaults.duration = this.#u32(tfhd.data, cursor); cursor += 4; }
+            if (flags & 16) { track.defaults.size = this.#u32(tfhd.data, cursor); cursor += 4; }
+            if (flags & 32) { track.defaults.flags = this.#u32(tfhd.data, cursor); cursor += 4; }
+            const tfdt = this.#child(traf, 'tfdt');
+            let decode = tfdt ? (tfdt.data[0] === 1 ? this.#u64(tfdt.data, 4) : this.#u32(tfdt.data, 4)) : 0;
+            for (const trun of this.#boxes(traf.data).filter(box => box.type === 'trun')) {
+                const trunFlags = this.#u24(trun.data, 1), count = this.#u32(trun.data, 4);
+                let position = 8, dataStart = null;
+                if (trunFlags & 1) dataStart = moof.start + this.#i32(trun.data, position), position += 4;
+                if (trunFlags & 4) position += 4;
+                if (dataStart === null) dataStart = mdats.find(mdat => mdat.start >= moof.end)?.start + 8 || moof.end;
+                let sampleOffset = dataStart;
+                for (let i = 0; i < count; i++) {
+                    const duration = trunFlags & 0x100 ? this.#u32(trun.data, position) : track.defaults.duration || 0; if (trunFlags & 0x100) position += 4;
+                    const size = trunFlags & 0x200 ? this.#u32(trun.data, position) : track.defaults.size || 0; if (trunFlags & 0x200) position += 4;
+                    const sampleFlags = trunFlags & 0x400 ? this.#u32(trun.data, position) : track.defaults.flags || 0; if (trunFlags & 0x400) position += 4;
+                    const composition = trunFlags & 0x800 ? (trun.data[0] === 1 ? this.#i32(trun.data, position) : this.#u32(trun.data, position)) : 0; if (trunFlags & 0x800) position += 4;
+                    if (sampleOffset + size > bytes.byteLength) break;
+                    track.samples.push({ time: Math.max(0, (decode + composition) * 1000 / track.timescale), duration: duration * 1000 / track.timescale, key: track.type !== 'vide' || !(sampleFlags & 0x10000), data: bytes.slice(sampleOffset, sampleOffset + size) });
+                    sampleOffset += size; decode += duration;
+                }
+            }
+        }
+    }
+
+    #parseMp4(bytes, label = 'MP4') {
+        const parsed = this.#parseMp4Tracks(bytes);
+        for (const track of parsed.tracks) this.#parseClassic(bytes, track);
+        this.#parseFragments(bytes, parsed);
+        for (const track of parsed.tracks) { track.samples.sort((a, b) => a.time - b.time); if (track.type !== 'vide' && track.type !== 'soun') track.samples = []; }
+        if (!parsed.tracks.some(track => track.samples.length)) throw new Error(`${label} contains no supported audio or video samples.`);
+        return parsed.tracks.filter(track => (track.type === 'vide' || track.type === 'soun') && track.samples.length);
+    }
+
+    #parseAdts(bytes) {
+        const sampleRates = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000];
+        const track = { type: 'soun', codec: 'aac', codecPrivate: null, channels: 2, sampleRate: 48000, language: '', samples: [] };
+        for (let offset = 0; offset + 7 <= bytes.byteLength;) {
+            if (bytes[offset] !== 0xff || (bytes[offset + 1] & 0xf6) !== 0xf0) break;
+            const profile = (bytes[offset + 2] >> 6) & 3, rate = sampleRates[(bytes[offset + 2] >> 2) & 15], channels = ((bytes[offset + 2] & 1) << 2) | (bytes[offset + 3] >> 6);
+            const length = ((bytes[offset + 3] & 3) << 11) | (bytes[offset + 4] << 3) | (bytes[offset + 5] >> 5), header = (bytes[offset + 1] & 1) ? 7 : 9;
+            if (!length || offset + length > bytes.byteLength) break;
+            track.sampleRate = rate || track.sampleRate; track.channels = channels || track.channels; track.codecPrivate ||= new Uint8Array([(profile + 1) << 3 | ((sampleRates.indexOf(track.sampleRate) & 14) >> 1), ((sampleRates.indexOf(track.sampleRate) & 1) << 7) | (track.channels << 3)]);
+            track.samples.push({ time: track.samples.length * 1024 * 1000 / track.sampleRate, duration: 1024 * 1000 / track.sampleRate, key: true, data: bytes.slice(offset + header, offset + length) });
+            offset += length;
+        }
+        return track.samples.length ? [track] : [];
+    }
+
+    #parseVtt(bytes, track) {
+        const text = new TextDecoder().decode(bytes).replace(/^\uFEFF?WEBVTT[^\r\n]*(?:\r?\n[^\r\n]*)*\r?\n\r?\n/i, '');
+        const time = value => { const parts = value.replace(',', '.').split(':').map(Number); return (parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : parts[0] * 60 + parts[1]) * 1000; };
+        const samples = [];
+        for (const cue of text.split(/\r?\n\s*\r?\n/)) {
+            const match = cue.match(/(?:^|\n)\s*(\d{1,2}:)?\d{2}:\d{2}[.,]\d{3}\s*-->\s*(\d{1,2}:)?\d{2}:\d{2}[.,]\d{3}[^\n]*\n([\s\S]*)/);
+            if (!match) continue;
+            const times = cue.match(/(\d{1,2}:)?\d{2}:\d{2}[.,]\d{3}\s*-->\s*(\d{1,2}:)?\d{2}:\d{2}[.,]\d{3}/)[0].split('-->');
+            const body = match[3].trim(); if (!body) continue;
+            samples.push({ time: time(times[0].trim()), duration: Math.max(1, time(times[1].trim()) - time(times[0].trim())), key: true, data: this.#text(body) });
+        }
+        return { type: 'sub', codec: 'webvtt', codecPrivate: null, language: track.language || track.lang || '', name: track.label || 'Subtitles', samples };
+    }
+
+    #trackEntry(track, number, uid) {
+        const children = [this.#element('D7', this.#uint(number)), this.#element('73C5', this.#uint(uid)), this.#element('83', this.#uint(track.type === 'vide' ? 1 : track.type === 'soun' ? 2 : 17)), this.#element('88', new Uint8Array([1]))];
+        if (track.name) children.push(this.#element('536E', this.#text(track.name)));
+        if (track.language) children.push(this.#element('22B59C', this.#text(track.language.slice(0, 3))));
+        const codec = track.type === 'vide' ? 'V_MPEG4/ISO/AVC' : track.type === 'soun' ? 'A_AAC' : 'S_TEXT/WEBVTT';
+        children.push(this.#element('86', this.#text(codec)));
+        if (track.codecPrivate?.byteLength) children.push(this.#element('63A2', track.codecPrivate));
+        if (track.type === 'vide') children.push(this.#master('E0', [this.#element('B0', this.#uint(track.width || 1)), this.#element('BA', this.#uint(track.height || 1))]));
+        if (track.type === 'soun') children.push(this.#master('E1', [this.#element('B5', this.#float(track.sampleRate || 48000)), this.#element('9F', this.#uint(track.channels || 2))]));
+        return this.#master('AE', children);
+    }
+
+    #block(trackNumber, timecode, flags, data) { return this.#concat([this.#vint(trackNumber), new Uint8Array([(timecode >> 8) & 255, timecode & 255, flags]), data]); }
+
+    #build(tracks) {
+        const ebml = this.#master('1A45DFA3', [this.#element('4286', this.#uint(1)), this.#element('42F7', this.#uint(1)), this.#element('42F2', this.#uint(4)), this.#element('42F3', this.#uint(8)), this.#element('4282', this.#text('matroska')), this.#element('4287', this.#uint(4)), this.#element('4285', this.#uint(2))]);
+        const info = this.#master('1549A966', [this.#element('2AD7B1', this.#uint(1000000)), this.#element('4D80', this.#text('AniLINK')), this.#element('5741', this.#text('AniLINK MKV converter'))]);
+        const entries = tracks.map((track, index) => this.#trackEntry(track, index + 1, index + 1));
+        const trackElement = this.#master('1654AE6B', entries);
+        const allSamples = tracks.flatMap((track, index) => track.samples.map(sample => ({ ...sample, track, number: index + 1, time: Math.max(0, Math.round(sample.time)) }))).sort((a, b) => a.time - b.time);
+        const clusters = [], blocks = [];
+        let base = null;
+        const flush = () => { if (base !== null && blocks.length) clusters.push(this.#master('1F43B675', [this.#element('E7', this.#uint(base)), ...blocks.splice(0)])); };
+        for (const sample of allSamples) {
+            if (base === null || sample.time - base > 30000 || sample.time - base > 32767) { flush(); base = sample.time; }
+            const relative = sample.time - base;
+            const flags = sample.track.type === 'vide' && sample.key ? 0x80 : 0;
+            const block = this.#block(sample.number, relative, flags, sample.data);
+            if (sample.track.type === 'sub') blocks.push(this.#master('A0', [this.#element('A1', block), this.#element('9B', this.#uint(Math.max(1, Math.round(sample.duration || 1))))]));
+            else blocks.push(this.#element('A3', block));
+        }
+        flush();
+        const segment = this.#concat([this.#master('18538067', [info, trackElement, ...clusters])]);
+        return this.#concat([ebml, segment]);
+    }
+
+    async #readTaskBytes(task) {
+        if (task._fileHandle) return new Uint8Array(await (await task._fileHandle.getFile()).arrayBuffer());
+        return this.#concat([...task._memoryParts.entries()].sort(([a], [b]) => a - b).map(([, bytes]) => bytes));
+    }
+
+    async convertToMkv(task) {
+        await this.downloader.closeWriter(task);
+        const source = await this.#readTaskBytes(task);
+        task._stats.phase = 'converting'; task._stats.conversionBytes = 0; task._stats.conversionTotal = source.byteLength; task._emit('progress', task.stats);
+        try {
+            const tracks = this.#parseMp4(source, 'Main MP4');
+            const selected = filterTracksByLanguagePreferences((task.options.tracks || []).filter(track => trackKind(track)), task.options);
+            task._embeddedTrackFiles ||= new Set();
+            for (const external of selected) {
+                if (task._embeddedTrackFiles.has(external.file)) continue;
+                const response = await this.downloader.fetchTrack(task, external);
+                const bytes = response.response instanceof Uint8Array ? response.response : new Uint8Array(response.response || new ArrayBuffer(0));
+                if (trackKind(external) === 'caption') tracks.push(this.#parseVtt(bytes, external));
+                else {
+                    let parsed;
+                    try { parsed = this.#parseMp4(bytes, `Audio track ${external.label || external.file}`); } catch { parsed = this.#parseAdts(bytes); }
+                    for (const track of parsed.filter(candidate => candidate.type === 'soun')) { track.name = external.label || 'Audio'; track.language = external.language || external.lang || ''; tracks.push(track); }
+                }
+                task._embeddedTrackFiles.add(external.file);
+            }
+            for (const external of selected) task._embeddedTrackFiles.add(external.file);
+            const mkv = this.#build(tracks);
+            await this.downloader.closeWriter(task);
+            if (task._fileHandle) { const writer = await task._fileHandle.createWritable({ keepExistingData: false }); await writer.write(mkv); await writer.close(); }
+            else task._memoryParts = new Map([[0, mkv]]);
+            task.filename = task.filename.replace(/\.[^.]+$/, '.mkv');
+            task._stats.bytesWritten = task._stats.bytesReceived = mkv.byteLength; task._stats.totalSize = mkv.byteLength; task._stats.completedSegments = task._stats.totalSegments = 1; task._stats.contentType = 'video/x-matroska'; task._stats.phase = 'main'; task._stats.conversionBytes = task._stats.conversionTotal;
+            task._log(`Converted MP4 to MKV: inputBytes=${source.byteLength}; outputBytes=${mkv.byteLength}; tracks=${tracks.length}`); task._emit('progress', task.stats);
+        } catch (error) { task._log(`MP4 to MKV conversion failed: ${error.message || error}`, 'error'); throw new Error(`MP4 to MKV conversion failed: ${error.message || error}`); }
     }
 }
 
