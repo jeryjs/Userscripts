@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     7.1.2
+// @version     7.1.3
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -109,6 +109,10 @@
 // @updateURL https://update.greasyfork.org/scripts/492029/AniLINK%20-%20Episode%20Link%20Extractor.meta.js
 // ==/UserScript==
 
+// TODO: Show note when browser isnt fully compatible.
+// TODO: Show note when "browser download API" needs to be enabled in GM extension manager settings.
+// TODO: If selected folder is not empty or is downloads folder, then download to a subfolder named after the anime title.
+
 // track last version for managing backwards compatability for script updates
 if (GM_info.script.version >= GM_getValue('script_version', '0')) {
     if ((GM_getValue('script_version', '0') > '6.0.0') && (GM_getValue('script_version', '0') < '7.0.0')) {
@@ -136,12 +140,12 @@ if (GM_info.script.version >= GM_getValue('script_version', '0')) {
                 </ul>
                 <p>Yup, you read that right—<strong style="color:#fff;">Built-in Downloader</strong> is now available! Go ahead and try it out!</p>
                 <p>And then I\'d like to hear your feedback!</p>
-                <div style="margin-top:16px;text-align:right;pointer:"><button onclick="this.parentElement.parentElement.close();" class="anlink-update-ok" style="background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:500;">Cool, I\'ll check it out!</button></div>
+                <div style="margin-top:16px;text-align:right;pointer:"><button onclick="this.parentElement.parentElement.close();" class="anilink-update-ok" style="background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-weight:500;">Cool, I\'ll check it out!</button></div>
             `
         });
         // Clean up the shadow host automatically when the dialog is closed (via button or Esc)
         dialog.addEventListener('close', () => dialogHost.remove());
-        dialog.querySelector('.anlink-update-ok').addEventListener('click', () => { dialog.close(); showAniLINKInfoDialog(); });
+        dialog.querySelector('.anilink-update-ok').addEventListener('click', () => { dialog.close(); showAniLINKInfoDialog(); });
         dialogShadow.appendChild(dialog);
         dialog.showModal();
     }
@@ -164,6 +168,8 @@ const EP_RANGE_THRESHOLD = GM_getValue('ep_range_threshold', 12); // Number of e
 const MPV_PROTOCOL = GM_getValue('MPV_PROTOCOL', 'mpv-handler'); // you can set this to mpv-handler-debug if u want it to show the console~
 const SRC_IN_FN = GM_getValue('include_source_in_filename', true); // Whether the exported playlist filename should include the source name that you chose as well
 const PREFER_JAP_TITLE = GM_getValue('prefer_jap_title', false); // Prefer taking the japenese/romaji titles from sites where relevant like animepahe
+const ENABLE_GLASS_BLUR = GM_getValue('enable_glass_blur', false); // Whether to enable glass blur effect in the AniLINK UI — Cause quite a huge performance hit, so disabled by default, but i like how it looks.
+
 const UNSUPPORTED_DOWNLOAD_URL_PATTERNS = [
     /^https:\/\/megap\..*$/i
 ];
@@ -1189,10 +1195,10 @@ try {
 GM_addStyle(site.styles || '');
 // Conditionally accomodate to MAL-Sync's floating button if it exists on the page
 // Only apply offset when NO AniLINK overlay is open (extractor or downloader)
-GM_addStyle(`html:has(> button.open-info-popup.floatbutton) #AniLINK_UIHost:not(.anlink-overlay-open) {
-    --anlink-fab-right: 40px;
-    --anlink-fab-bottom: 108px;
-    --anlink-fab-size: 56px;
+GM_addStyle(`html:has(> button.open-info-popup.floatbutton) #AniLINK_UIHost:not(.anilink-overlay-open) {
+    --anilink-fab-right: 40px;
+    --anilink-fab-bottom: 108px;
+    --anilink-fab-size: 56px;
 }`);
 
 // ============================= \\
@@ -1263,63 +1269,63 @@ async function extractEpisodes() {
 
     // --- Materialize CSS Initialization ---
     AniLINKUI.addStyle(`
-        #AniLINK_Overlay { position: fixed; inset: 0; background: var(--anlink-modal-overlay); backdrop-filter: blur(8px) saturate(140%); -webkit-backdrop-filter: blur(8px) saturate(140%); z-index: 1000; display: flex; align-items: center; justify-content: center; transition: opacity .28s ease, transform .28s ease, visibility .28s; pointer-events: auto; }
+        #AniLINK_Overlay { position: fixed; inset: 0; background: var(--anilink-modal-overlay); backdrop-filter: var(--anilink-glass-blur); -webkit-backdrop-filter: var(--anilink-glass-blur); z-index: 1000; display: flex; align-items: center; justify-content: center; transition: opacity .28s ease, transform .28s ease, visibility .28s; pointer-events: auto; }
         #AniLINK_RerunBtn, #AniLINK_InfoBtn { position: fixed; top: 22px; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; background: rgba(255,255,255,.05); color: #d9eeeb; font-size: 20px; cursor: pointer; transition: border-color .2s, background .2s, transform .2s; } #AniLINK_InfoBtn:hover, #AniLINK_RerunBtn:hover { border-color: #26a69a; background: rgba(38,166,154,.18); transform: translateY(-2px); }
         #AniLINK_InfoBtn { right: 70px; } #AniLINK_RerunBtn { right: 26px; font-size: 24px; }
         #AniLINK_ViewToggle { position: fixed; top: 22px; right: 114px; width: 36px; height: 36px; padding: 5px; border: 1px solid rgba(255,255,255,.1); border-radius: 18px; background: rgba(255,255,255,.05); color: #d9eeeb; cursor: pointer; transition: border-color .2s, background .2s, transform .2s, box-shadow .2s; } #AniLINK_ViewToggle:hover, #AniLINK_ViewToggle[aria-pressed="true"] { border-color: #26a69a; background: rgba(38,166,154,.18); color: #7ce4d8; box-shadow: 0 0 0 3px rgba(38,166,154,.1); transform: translateY(-2px); }
         #AniLINK_ViewToggle::before { display: block; width: 24px; height: 24px; border: 2px solid currentColor; border-radius: 50%; content: ''; transition: border-color .2s, transform .25s; } #AniLINK_ViewToggle::after { position: absolute; top: 9px; left: 9px; width: 8px; height: 8px; border-radius: 50%; background: currentColor; content: ''; transition: transform .25s, background .2s; }
         #AniLINK_ViewToggle[aria-pressed="true"]::before { transform: scale(.72); } #AniLINK_ViewToggle[aria-pressed="true"]::after { transform: translate(10px, 0); } #AniLINK_ViewToggle:focus-visible { outline: 2px solid #26a69a; outline-offset: 3px; }
-        #AniLINK_LinksContainer { width: min(1100px, 92vw); max-height: 86vh; background: var(--anlink-glass-bg); color: #edf5f4; padding: 22px; border: 1.5px solid var(--anlink-glass-border); border-radius: 24px; overflow-y: auto; display: flex; flex-direction: column; box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); }
+        #AniLINK_LinksContainer { width: min(1100px, 92vw); max-height: 86vh; background: var(--anilink-glass-bg); color: #edf5f4; padding: 22px; border: 1.5px solid var(--anilink-glass-border); border-radius: 24px; overflow-y: auto; display: flex; flex-direction: column; box-shadow: var(--anilink-glass-shadow); backdrop-filter: var(--anilink-glass-blur); -webkit-backdrop-filter: var(--anilink-glass-blur); }
         #AniLINK_sourcesContainer { overflow-y: auto; } #AniLINK_sourcesContainer::-webkit-scrollbar { width: 6px; } #AniLINK_sourcesContainer::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 3px; } #AniLINK_sourcesContainer::-webkit-scrollbar-track { background: transparent; }
-        .anlink-status-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; background: linear-gradient(180deg, var(--anlink-glass-surface), transparent); border-bottom: 1px solid var(--anlink-glass-border-soft); } /* Header for status bar and stop button */
-        .anlink-status-bar { color: #9eb4b1; flex-grow: 1; margin-right: 10px; display: block; font: 12px/1.3 system-ui, sans-serif; } /* Status bar takes space */
-        .anlink-status-icon { background: transparent; border: none; color: #d9eeeb; cursor: pointer; padding-right: 10px; } /* status icon style */
-        .anlink-status-icon i { display: inline-block; font: 700 24px/1 system-ui, sans-serif; transition: transform 0.3s ease-in-out; } /* Icon size and transition */
-        .anlink-status-icon i.extracting { animation: spinning 2s linear infinite; } /* Spinner animation class */
-        .anlink-header-buttons { position: relative; display: flex; gap: 10px; }
-        .anlink-header-buttons button { border: 1px solid rgba(255,255,255,.12); border-radius: 7px; padding: 8px 12px; background: rgba(255,255,255,.05); color: #d4e7e4; cursor: pointer; font: 11px system-ui, sans-serif; transition: border-color .2s, background .2s, color .2s; }
-        .anlink-header-buttons button:hover { border-color: #26a69a; background: rgba(38,166,154,.18); color: #7ce4d8; }
-        .anlink-play-popover { position: fixed; z-index: 1002; min-width: 230px; max-height: calc(100vh - 16px); overflow-y: auto; padding: 10px; border: 1px solid var(--anlink-glass-border); border-radius: 12px; background: var(--anlink-glass-bg); box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); animation: anlink-episode-popover-in .18s ease-out; pointer-events: auto; }
-        .anlink-play-heading { margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--anlink-glass-border-soft); color: #dffaf6; font: 600 12px/1.3 system-ui, sans-serif; }
-        .anlink-player-list { display: flex; flex-direction: column; gap: 4px; }
-        .anlink-player-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; background: rgba(255,255,255,.04); color: #d4e7e4; cursor: pointer; text-align: left; transition: background .2s, border-color .2s, transform .15s; }
-        .anlink-player-item:hover, .anlink-player-item:focus-visible { border-color: #26a69a; background: rgba(38,166,154,.18); color: #9ff1e6; outline: none; transform: translateY(-1px); }
-        .anlink-player-icon { width: 20px; height: 20px; object-fit: contain; flex-shrink: 0; }
-        .anlink-preferred-player-icon { display: inline-block; width: auto; height: auto; object-fit: contain; vertical-align: middle; }
-        .anlink-player-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-        .anlink-player-name { font: 600 12px/1.2 system-ui, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .anlink-player-hint { font: 10px/1.2 system-ui, sans-serif; color: #829794; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .anlink-player-badge { font-size: 10px; color: #65d6c8; margin-left: auto; flex-shrink: 0; }
-        .anlink-quick-download { margin-left: 8px; width: 22px; height: 22px; padding: 0; border: 1px solid #26a69a; border-radius: 50%; background: rgba(38,166,154,.12); color: #7ce4d8; cursor: pointer; font-weight: 700; line-height: 18px; transition: transform .18s, background .18s; }
-        .anlink-quick-download:hover { transform: translateY(-2px) scale(1.08); background: #26a69a; color: #fff; }
-        .anlink-source-section { margin-top: 18px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 12px; background: var(--anlink-glass-surface); }
-        .anlink-source-header { display: flex; justify-content: space-between; align-items: center; }
-        .anlink-source-header > span { color: #65d6c8; font-size: 1.25em; display: flex; align-items: center; flex-grow: 1; } /* Flex and align items for icon and text */
-        .anlink-source-count { cursor: pointer; margin-right: 8px; opacity: 0.7; transition: opacity 0.2s; }
-        .anlink-source-count:hover { opacity: 1; }
-        .anlink-source-name { cursor: pointer; flex-grow: 1; }
-        .anlink-source-header i { margin-right: 8px; font: 700 22px/1 system-ui, sans-serif; transition: transform 0.3s ease-in-out; }
-        .anlink-source-header i.rotate { transform: rotate(90deg); } /* Rotate class */
-        .anlink-episode-list { list-style: none; padding-left: 0; margin-top: 0; overflow: hidden; transition: max-height 0.5s ease-in-out; } /* Transition for max-height */
-        .anlink-episode-item { margin-bottom: 5px; padding: 10px; border-bottom: 1px solid var(--anlink-glass-border-soft); display: flex; flex-direction: column; user-select: none; }
-        .anlink-episode-item:last-child { border-bottom: none; }
-        .anlink-episode-missing-count { margin-left:32px; margin-top: -22px; margin-bottom: 6px; color: #888; font-size:0.85em; }
-        .anlink-episode-main { display: flex; align-items: baseline; }
-        .anlink-episode-main > label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: stretch; } /* Single line & Ellipsis for long links */
-        .anlink-episode-main > label > span { cursor: pointer; color: #26a69a; } /* Disable selecting the 'Ep: 1' prefix */
-        .anlink-episode-main > label > span > img { vertical-align: middle; display: inline; }  /* Ensure the mpv icon is in the same line */
-        .anlink-episode-checkbox { appearance: none; width: 20px; height: 20px; margin-right: 10px; margin-bottom: -5px; border: 1px solid #26a69a; border-radius: 4px; outline: none; cursor: pointer; transition: background-color 0.3s, border-color 0.3s; }
-        .anlink-episode-checkbox:checked { background-color: #26a69a; border-color: #26a69a; }
-        .anlink-episode-checkbox:checked::after { content: '✔'; display: block; color: white; font-size: 14px; text-align: center; line-height: 20px; animation: checkTilt 0.3s; }
-        .anlink-episode-link { color: #f4d36b; text-decoration: none; display: inline; user-select: all; }
-        .anlink-episode-link:hover { color: #fff; }
-        .anlink-subs-toggle, .anlink-referrer { font-size: 0.85em; color: #888; cursor: pointer; margin-left: 10px; transition: color 0.2s; white-space: nowrap; }
-        .anlink-subs-toggle:hover, .anlink-referrer:hover { color: #26a69a; }
-        .anlink-subs-list { margin-left: 30px; margin-top: 5px; font-size: 0.9em; color: #bbb; max-height: 0; overflow: hidden; transition: max-height 0.3s ease-in-out; }
-        .anlink-subs-list.expanded { max-height: 300px; }
-        .anlink-sub-item { padding: 2px 0; width: max-content; }
-        .anlink-sub-item a { color: #64b5f6; text-overflow: ellipsis; overflow: hidden; display: inline; user-select: all; }
-        .anlink-sub-item a:hover { color: #90caf9; text-decoration: underline; }
+        .anilink-status-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; background: linear-gradient(180deg, var(--anilink-glass-surface), transparent); border-bottom: 1px solid var(--anilink-glass-border-soft); } /* Header for status bar and stop button */
+        .anilink-status-bar { color: #9eb4b1; flex-grow: 1; margin-right: 10px; display: block; font: 12px/1.3 system-ui, sans-serif; } /* Status bar takes space */
+        .anilink-status-icon { background: transparent; border: none; color: #d9eeeb; cursor: pointer; padding-right: 10px; } /* status icon style */
+        .anilink-status-icon i { display: inline-block; font: 700 24px/1 system-ui, sans-serif; transition: transform 0.3s ease-in-out; } /* Icon size and transition */
+        .anilink-status-icon i.extracting { animation: spinning 2s linear infinite; } /* Spinner animation class */
+        .anilink-header-buttons { position: relative; display: flex; gap: 10px; }
+        .anilink-header-buttons button { border: 1px solid rgba(255,255,255,.12); border-radius: 7px; padding: 8px 12px; background: rgba(255,255,255,.05); color: #d4e7e4; cursor: pointer; font: 11px system-ui, sans-serif; transition: border-color .2s, background .2s, color .2s; }
+        .anilink-header-buttons button:hover { border-color: #26a69a; background: rgba(38,166,154,.18); color: #7ce4d8; }
+        .anilink-play-popover { position: fixed; z-index: 1002; min-width: 230px; max-height: calc(100vh - 16px); overflow-y: auto; padding: 10px; border: 1px solid var(--anilink-glass-border); border-radius: 12px; background: var(--anilink-glass-bg); box-shadow: var(--anilink-glass-shadow); backdrop-filter: var(--anilink-glass-blur); -webkit-backdrop-filter: var(--anilink-glass-blur); animation: anilink-episode-popover-in .18s ease-out; pointer-events: auto; }
+        .anilink-play-heading { margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--anilink-glass-border-soft); color: #dffaf6; font: 600 12px/1.3 system-ui, sans-serif; }
+        .anilink-player-list { display: flex; flex-direction: column; gap: 4px; }
+        .anilink-player-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; background: rgba(255,255,255,.04); color: #d4e7e4; cursor: pointer; text-align: left; transition: background .2s, border-color .2s, transform .15s; }
+        .anilink-player-item:hover, .anilink-player-item:focus-visible { border-color: #26a69a; background: rgba(38,166,154,.18); color: #9ff1e6; outline: none; transform: translateY(-1px); }
+        .anilink-player-icon { width: 20px; height: 20px; object-fit: contain; flex-shrink: 0; }
+        .anilink-preferred-player-icon { display: inline-block; width: auto; height: auto; object-fit: contain; vertical-align: middle; }
+        .anilink-player-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+        .anilink-player-name { font: 600 12px/1.2 system-ui, sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .anilink-player-hint { font: 10px/1.2 system-ui, sans-serif; color: #829794; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .anilink-player-badge { font-size: 10px; color: #65d6c8; margin-left: auto; flex-shrink: 0; }
+        .anilink-quick-download { margin-left: 8px; width: 22px; height: 22px; padding: 0; border: 1px solid #26a69a; border-radius: 50%; background: rgba(38,166,154,.12); color: #7ce4d8; cursor: pointer; font-weight: 700; line-height: 18px; transition: transform .18s, background .18s; }
+        .anilink-quick-download:hover { transform: translateY(-2px) scale(1.08); background: #26a69a; color: #fff; }
+        .anilink-source-section { margin-top: 18px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 12px; background: var(--anilink-glass-surface); }
+        .anilink-source-header { display: flex; justify-content: space-between; align-items: center; }
+        .anilink-source-header > span { color: #65d6c8; font-size: 1.25em; display: flex; align-items: center; flex-grow: 1; } /* Flex and align items for icon and text */
+        .anilink-source-count { cursor: pointer; margin-right: 8px; opacity: 0.7; transition: opacity 0.2s; }
+        .anilink-source-count:hover { opacity: 1; }
+        .anilink-source-name { cursor: pointer; flex-grow: 1; }
+        .anilink-source-header i { margin-right: 8px; font: 700 22px/1 system-ui, sans-serif; transition: transform 0.3s ease-in-out; }
+        .anilink-source-header i.rotate { transform: rotate(90deg); } /* Rotate class */
+        .anilink-episode-list { list-style: none; padding-left: 0; margin-top: 0; overflow: hidden; transition: max-height 0.5s ease-in-out; } /* Transition for max-height */
+        .anilink-episode-item { margin-bottom: 5px; padding: 10px; border-bottom: 1px solid var(--anilink-glass-border-soft); display: flex; flex-direction: column; user-select: none; }
+        .anilink-episode-item:last-child { border-bottom: none; }
+        .anilink-episode-missing-count { margin-left:32px; margin-top: -22px; margin-bottom: 6px; color: #888; font-size:0.85em; }
+        .anilink-episode-main { display: flex; align-items: baseline; }
+        .anilink-episode-main > label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: stretch; } /* Single line & Ellipsis for long links */
+        .anilink-episode-main > label > span { cursor: pointer; color: #26a69a; } /* Disable selecting the 'Ep: 1' prefix */
+        .anilink-episode-main > label > span > img { vertical-align: middle; display: inline; }  /* Ensure the mpv icon is in the same line */
+        .anilink-episode-checkbox { appearance: none; width: 20px; height: 20px; margin-right: 10px; margin-bottom: -5px; border: 1px solid #26a69a; border-radius: 4px; outline: none; cursor: pointer; transition: background-color 0.3s, border-color 0.3s; }
+        .anilink-episode-checkbox:checked { background-color: #26a69a; border-color: #26a69a; }
+        .anilink-episode-checkbox:checked::after { content: '✔'; display: block; color: white; font-size: 14px; text-align: center; line-height: 20px; animation: checkTilt 0.3s; }
+        .anilink-episode-link { color: #f4d36b; text-decoration: none; display: inline; user-select: all; }
+        .anilink-episode-link:hover { color: #fff; }
+        .anilink-subs-toggle, .anilink-referrer { font-size: 0.85em; color: #888; cursor: pointer; margin-left: 10px; transition: color 0.2s; white-space: nowrap; }
+        .anilink-subs-toggle:hover, .anilink-referrer:hover { color: #26a69a; }
+        .anilink-subs-list { margin-left: 30px; margin-top: 5px; font-size: 0.9em; color: #bbb; max-height: 0; overflow: hidden; transition: max-height 0.3s ease-in-out; }
+        .anilink-subs-list.expanded { max-height: 300px; }
+        .anilink-sub-item { padding: 2px 0; width: max-content; }
+        .anilink-sub-item a { color: #64b5f6; text-overflow: ellipsis; overflow: hidden; display: inline; user-select: all; }
+        .anilink-sub-item a:hover { color: #90caf9; text-decoration: underline; }
         .hidden { display: none !important; }
         button[data-action] * { pointer-events: none; }
         @media (max-width: 680px) {
@@ -1328,99 +1334,99 @@ async function extractEpisodes() {
             #AniLINK_InfoBtn, #AniLINK_RerunBtn { top: max(10px, env(safe-area-inset-top)); z-index: 10; }
             #AniLINK_InfoBtn { right: max(54px, calc(env(safe-area-inset-right) + 44px)); } #AniLINK_RerunBtn { right: max(10px, env(safe-area-inset-right)); }
             #AniLINK_ViewToggle { top: max(10px, env(safe-area-inset-top)); right: max(98px, calc(env(safe-area-inset-right) + 88px)); z-index: 10; }
-            .anlink-status-header { flex-wrap: wrap; gap: 8px; position: sticky; padding-block: 14px; top: 0; border-radius: 8px; z-index: 2; }
-            .anlink-status-bar { order: 0; flex-basis: calc(100% - 36px); margin-right: 0; }
-            .anlink-header-buttons { width: 100%; flex-wrap: wrap; gap: 6px; }
-            .anlink-header-buttons button { flex: 1 1 calc(50% - 6px); min-height: 38px; }
-            .anlink-episode-main { align-items: flex-start; }
-            .anlink-source-section { padding: 10px; }
+            .anilink-status-header { flex-wrap: wrap; gap: 8px; position: sticky; padding-block: 14px; top: 0; border-radius: 8px; z-index: 2; }
+            .anilink-status-bar { order: 0; flex-basis: calc(100% - 36px); margin-right: 0; }
+            .anilink-header-buttons { width: 100%; flex-wrap: wrap; gap: 6px; }
+            .anilink-header-buttons button { flex: 1 1 calc(50% - 6px); min-height: 38px; }
+            .anilink-episode-main { align-items: flex-start; }
+            .anilink-source-section { padding: 10px; }
         }
         @keyframes spinning { from { transform: rotate(0deg); } to { transform: rotate(360deg); } } /* Spinning animation */
         @keyframes checkTilt { from { transform: rotate(-20deg); } to { transform: rotate(0deg); } } /* Checkmark tilt animation */
     `);
     // Inject the Episode view styles separately
     AniLINKUI.addStyle(`
-        .anlink-episode-view[hidden] { display: none; }
-        .anlink-episode-view { animation: anlink-episode-view-in .28s ease-out; overflow-y: auto; } .anlink-episode-view::-webkit-scrollbar { width: 6px; } .anlink-episode-view::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 3px; } .anlink-episode-view::-webkit-scrollbar-track { background: transparent; }
-        .anlink-episode-toolbar { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; margin-bottom: 10px; }
-        .anlink-episode-source-button { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 8px; background: rgba(255,255,255,.04); color: #9eb4b1; cursor: pointer; font: 11px system-ui, sans-serif; transition: border-color .2s, background .2s, color .2s, transform .2s; }
-        .anlink-episode-source-button:hover, .anlink-episode-source-button:focus-visible { border-color: #26a69a; background: rgba(38,166,154,.13); color: #9ff1e6; outline: none; transform: translateY(-1px); }
-        .anlink-episode-source-button:disabled { cursor: not-allowed; opacity: .42; }
-        .anlink-episode-source-popover { position: absolute; top: calc(100% + 7px); right: 0; z-index: 6; width: min(290px, calc(100vw - 36px)); padding: 13px; border: 1px solid var(--anlink-glass-border); border-radius: 12px; background: var(--anlink-glass-bg); box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); animation: anlink-episode-popover-in .18s ease-out; }
-        .anlink-episode-source-heading { margin-bottom: 10px; color: #dffaf6; font: 600 12px/1.3 system-ui, sans-serif; }
-        .anlink-episode-source-help { margin-top: 4px; color: #829794; font: 10px/1.35 system-ui, sans-serif; }
-        .anlink-episode-source-list { display: grid; gap: 6px; max-height: 260px; overflow-y: auto; }
-        .anlink-episode-source-item { display: flex; align-items: center; gap: 7px; padding: 7px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 8px; background: var(--anlink-glass-surface); }
-        .anlink-episode-source-position { min-width: 18px; color: #65d6c8; font: 700 11px system-ui, sans-serif; }
-        .anlink-episode-source-name { min-width: 0; flex: 1; overflow: hidden; color: #d4e7e4; font: 11px system-ui, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
-        .anlink-episode-source-item button { width: 24px; height: 24px; padding: 0; border: 1px solid rgba(255,255,255,.1); border-radius: 5px; background: rgba(255,255,255,.05); color: #c3d8d4; cursor: pointer; font: 13px/1 system-ui, sans-serif; }
-        .anlink-episode-source-item button:hover:not(:disabled) { border-color: #26a69a; color: #7ce4d8; }
-        .anlink-episode-source-item button:disabled { cursor: not-allowed; opacity: .3; }
-        .anlink-episode-source-reset { display: block; margin: 10px 0 0 auto; padding: 5px 8px; border: 1px solid rgba(255,255,255,.1); border-radius: 6px; background: rgba(255,255,255,.05); color: #9eb4b1; cursor: pointer; font: 10px system-ui, sans-serif; }
-        .anlink-episode-source-reset:hover { border-color: #26a69a; color: #7ce4d8; }
-        .anlink-episode-grid-shell { display: block; }
-        .anlink-episode-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
-        .anlink-episode-card { position: relative; min-height: 172px; overflow: hidden; border: 1px solid rgba(255,255,255,.11); border-radius: 14px; background-color: #1a2423; background-position: center; background-size: cover; box-shadow: 0 10px 25px rgba(0,0,0,.16); isolation: isolate; transition: border-color .2s, transform .2s, box-shadow .2s; }
-        .anlink-episode-preview { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; pointer-events: none; transition: opacity .3s ease; }
-        .anlink-episode-card::before { position: absolute; inset: 0; z-index: 1; content: ''; background: linear-gradient(155deg, rgba(12,20,19,.16), rgba(12,17,17,.93) 88%); transition: background .25s; }
-        .anlink-episode-card:hover, .anlink-episode-card:focus-within { border-color: rgba(38,166,154,.72); transform: translateY(-3px); box-shadow: 0 15px 30px rgba(0,0,0,.28); }
-        .anlink-episode-card:hover::before, .anlink-episode-card:focus-within::before { background: linear-gradient(155deg, rgba(12,20,19,.04), rgba(12,17,17,.88) 88%); }
-        .anlink-episode-card.is-previewing .anlink-episode-preview { opacity: 1; }
-        .anlink-episode-card.is-previewing::before { background: linear-gradient(155deg, rgba(12,20,19,.02), rgba(12,17,17,.78) 88%); }
-        .anlink-episode-card-content { position: relative; z-index: 2; display: flex; min-height: 172px; flex-direction: column; justify-content: flex-end; padding: 12px; }
-        .anlink-episode-card-select { position: absolute; top: 10px; left: 10px; z-index: 3; display: inline-flex; align-items: center; gap: 7px; padding: 4px 7px 4px 4px; border: 1px solid rgba(255,255,255,.15); border-radius: 8px; background: rgba(12,20,19,.66); color: #effbf8; cursor: pointer; font: 600 12px/1 system-ui, sans-serif; backdrop-filter: blur(5px); transition: border-color .2s, background .2s; }
-        .anlink-episode-card-select:hover { border-color: #26a69a; background: rgba(12,30,28,.82); }
-        .anlink-episode-card-select .anlink-episode-checkbox { display: none; width: 18px; height: 18px; margin: 0; }
-        .anlink-episode-card:hover .anlink-episode-card-select .anlink-episode-checkbox, .anlink-episode-card:focus-within .anlink-episode-card-select .anlink-episode-checkbox, .anlink-episode-card-select .anlink-episode-checkbox:checked { display: block; }
-        .anlink-episode-card-select .anlink-card-episode-number { color: #9ff1e6; }
-        .anlink-card-episode-number { opacity: .48; transition: opacity .18s; }
-        .anlink-episode-card:hover .anlink-card-episode-number, .anlink-episode-card:focus-within .anlink-card-episode-number { opacity: 1; }
-        .anlink-episode-card-actions { position: absolute; top: 10px; right: 10px; z-index: 3; display: flex; gap: 6px; opacity: 0; pointer-events: none; transform: translateY(-7px); transition: opacity .2s, transform .2s; }
-        .anlink-episode-card:hover .anlink-episode-card-actions, .anlink-episode-card:focus-within .anlink-episode-card-actions { opacity: 1; pointer-events: auto; transform: translateY(0); }
-        .anlink-episode-card-action, .anlink-episode-copy { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid rgba(255,255,255,.16); border-radius: 8px; background: rgba(12,20,19,.72); color: #dffaf6; cursor: pointer; font: 700 15px/1 system-ui, sans-serif; backdrop-filter: blur(5px); transition: border-color .2s, background .2s, color .2s, transform .2s; }
-        .anlink-episode-card-action:hover, .anlink-episode-copy:hover { border-color: #26a69a; background: rgba(38,166,154,.3); color: #fff; transform: scale(1.08); }
-        .anlink-episode-card-action img { width: 18px; height: 18px; object-fit: contain; }
-        .anlink-episode-card-title { display: block; max-width: 100%; margin-bottom: 6px; overflow: hidden; color: #f1fffc; font: 600 13px/1.3 system-ui, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
-        .anlink-episode-card-title:empty { display: none; }
-        .anlink-episode-card-source { display: flex; align-items: center; gap: 6px; max-width: calc(100% - 38px); min-width: 0; color: #9fe8df; font: 11px/1.3 system-ui, sans-serif; }
-        .anlink-episode-source-count { display: inline-grid; flex: none; min-width: 20px; height: 18px; padding: 0 5px; place-items: center; border: 1px solid rgba(126,239,225,.2); border-radius: 999px; background: rgba(38,166,154,.14); color: #b8fff5; cursor: help; font-size: 10px; font-weight: 700; line-height: 1; transition: border-color .2s, background .2s, transform .2s; }
-        .anlink-episode-source-count:hover { border-color: rgba(126,239,225,.52); background: rgba(38,166,154,.28); transform: translateY(-1px); }
-        .anlink-episode-source-name { min-width: 0; flex: 1; overflow: hidden; cursor: help; }
-        .anlink-episode-source-value, .anlink-episode-card-referrer { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .anlink-episode-card-referrer { display: none; color: #b5c9c5; }
-        .anlink-episode-source-name:hover .anlink-episode-source-value { display: none; }
-        .anlink-episode-source-name:hover .anlink-episode-card-referrer { display: block; }
-        .anlink-episode-card-link { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-        .anlink-episode-copy { position: absolute; right: 12px; bottom: 12px; z-index: 3; }
-        .anlink-episode-preview-seek { position: absolute; left: 12px; bottom: 5px; z-index: 4; width: calc(100% - 24px); height: 4px; margin: 0; opacity: 0; appearance: none; background: transparent; cursor: pointer; pointer-events: none; transition: opacity .2s; }
-        .anlink-episode-card.is-previewing .anlink-episode-preview-seek { opacity: .48; pointer-events: auto; }
-        .anlink-episode-preview-seek:hover, .anlink-episode-preview-seek:focus-visible { opacity: .82; outline: none; }
-        .anlink-episode-preview-seek::-webkit-slider-runnable-track { height: 2px; border-radius: 2px; background: rgba(236,255,251,.58); }
-        .anlink-episode-preview-seek::-webkit-slider-thumb { width: 6px; height: 6px; margin-top: -2px; appearance: none; border: 0; border-radius: 50%; background: #9ff1e6; }
-        .anlink-episode-preview-seek::-moz-range-track { height: 2px; border-radius: 2px; background: rgba(236,255,251,.58); }
-        .anlink-episode-preview-seek::-moz-range-thumb { width: 6px; height: 6px; border: 0; border-radius: 50%; background: #9ff1e6; }
-        .anlink-episode-copy.is-copied { border-color: #66bb6a; background: rgba(102,187,106,.28); color: #b8f5bb; animation: anlink-copy-pop .36s ease-out; }
-        .anlink-episode-card.is-unavailable { opacity: .62; }
-        .anlink-episode-card.is-unavailable:hover, .anlink-episode-card.is-unavailable:focus-within { transform: none; }
-        .anlink-episode-card.is-unavailable .anlink-episode-copy { cursor: not-allowed; }
-        .anlink-episode-note { min-width: 0; flex: 1 1 auto; max-width: 560px; display: flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid rgba(126,239,225,.12); border-left: 3px solid rgba(38,166,154,.52); border-radius: 9px; background: rgba(38,166,154,.05); color: #9eb4b1; opacity: .72; font: 11px/1.35 system-ui, sans-serif; transition: opacity .2s, border-color .2s, transform .2s; }
-        .anlink-episode-note:hover { border-color: rgba(38,166,154,.36); opacity: 1; transform: translateY(-1px); }
-        .anlink-episode-note > span { flex: none; font-size: 15px; line-height: 1; }
-        .anlink-episode-note p { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .anilink-episode-view[hidden] { display: none; }
+        .anilink-episode-view { animation: anilink-episode-view-in .28s ease-out; overflow-y: auto; } .anilink-episode-view::-webkit-scrollbar { width: 6px; } .anilink-episode-view::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 3px; } .anilink-episode-view::-webkit-scrollbar-track { background: transparent; }
+        .anilink-episode-toolbar { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; margin-bottom: 10px; }
+        .anilink-episode-source-button { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid var(--anilink-glass-border-soft); border-radius: 8px; background: rgba(255,255,255,.04); color: #9eb4b1; cursor: pointer; font: 11px system-ui, sans-serif; transition: border-color .2s, background .2s, color .2s, transform .2s; }
+        .anilink-episode-source-button:hover, .anilink-episode-source-button:focus-visible { border-color: #26a69a; background: rgba(38,166,154,.13); color: #9ff1e6; outline: none; transform: translateY(-1px); }
+        .anilink-episode-source-button:disabled { cursor: not-allowed; opacity: .42; }
+        .anilink-episode-source-popover { position: absolute; top: calc(100% + 7px); right: 0; z-index: 6; width: min(290px, calc(100vw - 36px)); padding: 13px; border: 1px solid var(--anilink-glass-border); border-radius: 12px; background: var(--anilink-glass-bg); box-shadow: var(--anilink-glass-shadow); backdrop-filter: var(--anilink-glass-blur); -webkit-backdrop-filter: var(--anilink-glass-blur); animation: anilink-episode-popover-in .18s ease-out; }
+        .anilink-episode-source-heading { margin-bottom: 10px; color: #dffaf6; font: 600 12px/1.3 system-ui, sans-serif; }
+        .anilink-episode-source-help { margin-top: 4px; color: #829794; font: 10px/1.35 system-ui, sans-serif; }
+        .anilink-episode-source-list { display: grid; gap: 6px; max-height: 260px; overflow-y: auto; }
+        .anilink-episode-source-item { display: flex; align-items: center; gap: 7px; padding: 7px; border: 1px solid var(--anilink-glass-border-soft); border-radius: 8px; background: var(--anilink-glass-surface); }
+        .anilink-episode-source-position { min-width: 18px; color: #65d6c8; font: 700 11px system-ui, sans-serif; }
+        .anilink-episode-source-name { min-width: 0; flex: 1; overflow: hidden; color: #d4e7e4; font: 11px system-ui, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+        .anilink-episode-source-item button { width: 24px; height: 24px; padding: 0; border: 1px solid rgba(255,255,255,.1); border-radius: 5px; background: rgba(255,255,255,.05); color: #c3d8d4; cursor: pointer; font: 13px/1 system-ui, sans-serif; }
+        .anilink-episode-source-item button:hover:not(:disabled) { border-color: #26a69a; color: #7ce4d8; }
+        .anilink-episode-source-item button:disabled { cursor: not-allowed; opacity: .3; }
+        .anilink-episode-source-reset { display: block; margin: 10px 0 0 auto; padding: 5px 8px; border: 1px solid rgba(255,255,255,.1); border-radius: 6px; background: rgba(255,255,255,.05); color: #9eb4b1; cursor: pointer; font: 10px system-ui, sans-serif; }
+        .anilink-episode-source-reset:hover { border-color: #26a69a; color: #7ce4d8; }
+        .anilink-episode-grid-shell { display: block; }
+        .anilink-episode-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+        .anilink-episode-card { position: relative; min-height: 172px; overflow: hidden; border: 1px solid rgba(255,255,255,.11); border-radius: 14px; background-color: #1a2423; background-position: center; background-size: cover; box-shadow: 0 10px 25px rgba(0,0,0,.16); isolation: isolate; transition: border-color .2s, transform .2s, box-shadow .2s; }
+        .anilink-episode-preview { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; pointer-events: none; transition: opacity .3s ease; }
+        .anilink-episode-card::before { position: absolute; inset: 0; z-index: 1; content: ''; background: linear-gradient(155deg, rgba(12,20,19,.16), rgba(12,17,17,.93) 88%); transition: background .25s; }
+        .anilink-episode-card:hover, .anilink-episode-card:focus-within { border-color: rgba(38,166,154,.72); transform: translateY(-3px); box-shadow: 0 15px 30px rgba(0,0,0,.28); }
+        .anilink-episode-card:hover::before, .anilink-episode-card:focus-within::before { background: linear-gradient(155deg, rgba(12,20,19,.04), rgba(12,17,17,.88) 88%); }
+        .anilink-episode-card.is-previewing .anilink-episode-preview { opacity: 1; }
+        .anilink-episode-card.is-previewing::before { background: linear-gradient(155deg, rgba(12,20,19,.02), rgba(12,17,17,.78) 88%); }
+        .anilink-episode-card-content { position: relative; z-index: 2; display: flex; min-height: 172px; flex-direction: column; justify-content: flex-end; padding: 12px; }
+        .anilink-episode-card-select { position: absolute; top: 10px; left: 10px; z-index: 3; display: inline-flex; align-items: center; gap: 7px; padding: 4px 7px 4px 4px; border: 1px solid rgba(255,255,255,.15); border-radius: 8px; background: rgba(12,20,19,.66); color: #effbf8; cursor: pointer; font: 600 12px/1 system-ui, sans-serif; transition: border-color .2s, background .2s; }
+        .anilink-episode-card-select:hover { border-color: #26a69a; background: rgba(12,30,28,.82); }
+        .anilink-episode-card-select .anilink-episode-checkbox { display: none; width: 18px; height: 18px; margin: 0; }
+        .anilink-episode-card:hover .anilink-episode-card-select .anilink-episode-checkbox, .anilink-episode-card:focus-within .anilink-episode-card-select .anilink-episode-checkbox, .anilink-episode-card-select .anilink-episode-checkbox:checked { display: block; }
+        .anilink-episode-card-select .anilink-card-episode-number { color: #9ff1e6; }
+        .anilink-card-episode-number { opacity: .48; transition: opacity .18s; }
+        .anilink-episode-card:hover .anilink-card-episode-number, .anilink-episode-card:focus-within .anilink-card-episode-number { opacity: 1; }
+        .anilink-episode-card-actions { position: absolute; top: 10px; right: 10px; z-index: 3; display: flex; gap: 6px; opacity: 0; pointer-events: none; transform: translateY(-7px); transition: opacity .2s, transform .2s; }
+        .anilink-episode-card:hover .anilink-episode-card-actions, .anilink-episode-card:focus-within .anilink-episode-card-actions { opacity: 1; pointer-events: auto; transform: translateY(0); }
+        .anilink-episode-card-action, .anilink-episode-copy { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid rgba(255,255,255,.16); border-radius: 8px; background: rgba(12,20,19,.72); color: #dffaf6; cursor: pointer; font: 700 15px/1 system-ui, sans-serif; transition: border-color .2s, background .2s, color .2s, transform .2s; }
+        .anilink-episode-card-action:hover, .anilink-episode-copy:hover { border-color: #26a69a; background: rgba(38,166,154,.3); color: #fff; transform: scale(1.08); }
+        .anilink-episode-card-action img { width: 18px; height: 18px; object-fit: contain; }
+        .anilink-episode-card-title { display: block; max-width: 100%; margin-bottom: 6px; overflow: hidden; color: #f1fffc; font: 600 13px/1.3 system-ui, sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+        .anilink-episode-card-title:empty { display: none; }
+        .anilink-episode-card-source { display: flex; align-items: center; gap: 6px; max-width: calc(100% - 38px); min-width: 0; color: #9fe8df; font: 11px/1.3 system-ui, sans-serif; }
+        .anilink-episode-source-count { display: inline-grid; flex: none; min-width: 20px; height: 18px; padding: 0 5px; place-items: center; border: 1px solid rgba(126,239,225,.2); border-radius: 999px; background: rgba(38,166,154,.14); color: #b8fff5; cursor: help; font-size: 10px; font-weight: 700; line-height: 1; transition: border-color .2s, background .2s, transform .2s; }
+        .anilink-episode-source-count:hover { border-color: rgba(126,239,225,.52); background: rgba(38,166,154,.28); transform: translateY(-1px); }
+        .anilink-episode-source-name { min-width: 0; flex: 1; overflow: hidden; cursor: help; }
+        .anilink-episode-source-value, .anilink-episode-card-referrer { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .anilink-episode-card-referrer { display: none; color: #b5c9c5; }
+        .anilink-episode-source-name:hover .anilink-episode-source-value { display: none; }
+        .anilink-episode-source-name:hover .anilink-episode-card-referrer { display: block; }
+        .anilink-episode-card-link { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+        .anilink-episode-copy { position: absolute; right: 12px; bottom: 12px; z-index: 3; }
+        .anilink-episode-preview-seek { position: absolute; left: 12px; bottom: 5px; z-index: 4; width: calc(100% - 24px); height: 4px; margin: 0; opacity: 0; appearance: none; background: transparent; cursor: pointer; pointer-events: none; transition: opacity .2s; }
+        .anilink-episode-card.is-previewing .anilink-episode-preview-seek { opacity: .48; pointer-events: auto; }
+        .anilink-episode-preview-seek:hover, .anilink-episode-preview-seek:focus-visible { opacity: .82; outline: none; }
+        .anilink-episode-preview-seek::-webkit-slider-runnable-track { height: 2px; border-radius: 2px; background: rgba(236,255,251,.58); }
+        .anilink-episode-preview-seek::-webkit-slider-thumb { width: 6px; height: 6px; margin-top: -2px; appearance: none; border: 0; border-radius: 50%; background: #9ff1e6; }
+        .anilink-episode-preview-seek::-moz-range-track { height: 2px; border-radius: 2px; background: rgba(236,255,251,.58); }
+        .anilink-episode-preview-seek::-moz-range-thumb { width: 6px; height: 6px; border: 0; border-radius: 50%; background: #9ff1e6; }
+        .anilink-episode-copy.is-copied { border-color: #66bb6a; background: rgba(102,187,106,.28); color: #b8f5bb; animation: anilink-copy-pop .36s ease-out; }
+        .anilink-episode-card.is-unavailable { opacity: .62; }
+        .anilink-episode-card.is-unavailable:hover, .anilink-episode-card.is-unavailable:focus-within { transform: none; }
+        .anilink-episode-card.is-unavailable .anilink-episode-copy { cursor: not-allowed; }
+        .anilink-episode-note { min-width: 0; flex: 1 1 auto; max-width: 560px; display: flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid rgba(126,239,225,.12); border-left: 3px solid rgba(38,166,154,.52); border-radius: 9px; background: rgba(38,166,154,.05); color: #9eb4b1; opacity: .72; font: 11px/1.35 system-ui, sans-serif; transition: opacity .2s, border-color .2s, transform .2s; }
+        .anilink-episode-note:hover { border-color: rgba(38,166,154,.36); opacity: 1; transform: translateY(-1px); }
+        .anilink-episode-note > span { flex: none; font-size: 15px; line-height: 1; }
+        .anilink-episode-note p { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         @media (max-width: 680px) {
-            .anlink-episode-toolbar { align-items: flex-start; }
-            .anlink-episode-note { max-width: none; }
-            .anlink-episode-note p { white-space: normal; }
-            .anlink-episode-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-            .anlink-episode-card, .anlink-episode-card-content { min-height: 150px; }
-            .anlink-episode-card-content { padding: 10px; }
-            .anlink-episode-card-action, .anlink-episode-copy { width: 28px; height: 28px; }
+            .anilink-episode-toolbar { align-items: flex-start; }
+            .anilink-episode-note { max-width: none; }
+            .anilink-episode-note p { white-space: normal; }
+            .anilink-episode-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+            .anilink-episode-card, .anilink-episode-card-content { min-height: 150px; }
+            .anilink-episode-card-content { padding: 10px; }
+            .anilink-episode-card-action, .anilink-episode-copy { width: 28px; height: 28px; }
         }
-        @media (min-width: 768px) { .anlink-episode-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); } .anlink-episode-card, .anlink-episode-card-content { min-height: 0; aspect-ratio: 16 / 9; } }
-        @media (max-width: 420px) { .anlink-episode-grid { grid-template-columns: 1fr; } }
-        @keyframes anlink-episode-view-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes anlink-episode-popover-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
-        @keyframes anlink-copy-pop { 0% { transform: scale(1); } 45% { transform: scale(1.18) rotate(-4deg); } 100% { transform: scale(1) rotate(0); } }
+        @media (min-width: 768px) { .anilink-episode-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); } .anilink-episode-card, .anilink-episode-card-content { min-height: 0; aspect-ratio: 16 / 9; } }
+        @media (max-width: 420px) { .anilink-episode-grid { grid-template-columns: 1fr; } }
+        @keyframes anilink-episode-view-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes anilink-episode-popover-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @keyframes anilink-copy-pop { 0% { transform: scale(1); } 45% { transform: scale(1.18) rotate(-4deg); } 100% { transform: scale(1) rotate(0); } }
     `);
 
     // Create an overlay to cover the page
@@ -1464,12 +1470,12 @@ async function extractEpisodes() {
 
     // Status bar header - container for status bar and status icon
     const statusBarHeader = document.createElement('div');
-    statusBarHeader.className = 'anlink-status-header';
+    statusBarHeader.className = 'anilink-status-header';
     linksContainer.appendChild(statusBarHeader);
 
     // Create dynamic status icon
     const statusIconElement = document.createElement('a');
-    statusIconElement.className = 'anlink-status-icon';
+    statusIconElement.className = 'anilink-status-icon';
     statusIconElement.innerHTML = '<i class="extracting">⟳</i>';
     statusIconElement.title = 'Stop Extracting';
     statusBarHeader.appendChild(statusIconElement);
@@ -1485,18 +1491,18 @@ async function extractEpisodes() {
 
     // Create a status bar
     const statusBar = document.createElement('span');
-    statusBar.className = "anlink-status-bar";
+    statusBar.className = "anilink-status-bar";
     statusBar.textContent = status.text;
     statusBarHeader.appendChild(statusBar);
 
     // Create header buttons (Export & Play)
     const headerButtons = document.createElement('div');
-    headerButtons.className = 'anlink-header-buttons';
+    headerButtons.className = 'anilink-header-buttons';
     headerButtons.innerHTML = `
-        <button type="button" class="anlink-copy-all">Copy</button>
-        <button type="button" class="anlink-export-all">Export</button>
-        <button type="button" class="anlink-download-selected">Download</button>
-        <button type="button" class="anlink-play-all">Play With ▼</button>
+        <button type="button" class="anilink-copy-all">Copy</button>
+        <button type="button" class="anilink-export-all">Export</button>
+        <button type="button" class="anilink-download-selected">Download</button>
+        <button type="button" class="anilink-play-all">Play With ▼</button>
     `;
     statusBarHeader.appendChild(headerButtons);
     attachHeaderButtons();
@@ -1531,21 +1537,21 @@ async function extractEpisodes() {
     linksContainer.appendChild(sourcesContainer);
 
     const episodeViewContainer = document.createElement('div');
-    episodeViewContainer.className = 'anlink-episode-view';
+    episodeViewContainer.className = 'anilink-episode-view';
     episodeViewContainer.hidden = layoutMode !== 'episodes';
     episodeViewContainer.innerHTML = `
-        <div class="anlink-episode-toolbar">
-            <aside class="anlink-episode-note" role="note"><span aria-hidden="true">🤔</span><p>Why did I add an episode list when the website already has one? Well... even I would like to know that!!</p></aside>
-            <button type="button" class="anlink-episode-source-button" title="Adjust source preference"><span aria-hidden="true">⇅</span><span>Source order</span></button>
+        <div class="anilink-episode-toolbar">
+            <aside class="anilink-episode-note" role="note"><span aria-hidden="true">🤔</span><p>Why did I add an episode list when the website already has one? Well... even I would like to know that!!</p></aside>
+            <button type="button" class="anilink-episode-source-button" title="Adjust source preference"><span aria-hidden="true">⇅</span><span>Source order</span></button>
         </div>
-        <div class="anlink-episode-grid-shell">
-            <div class="anlink-episode-grid"></div>
+        <div class="anilink-episode-grid-shell">
+            <div class="anilink-episode-grid"></div>
         </div>
     `;
     linksContainer.appendChild(episodeViewContainer);
     sourcesContainer.hidden = layoutMode === 'episodes';
-    const episodeToolbar = episodeViewContainer.querySelector('.anlink-episode-toolbar');
-    const episodeSourceButton = episodeViewContainer.querySelector('.anlink-episode-source-button');
+    const episodeToolbar = episodeViewContainer.querySelector('.anilink-episode-toolbar');
+    const episodeSourceButton = episodeViewContainer.querySelector('.anilink-episode-source-button');
     episodeToolbar.hidden = true;
     episodeSourceButton.hidden = true;
     let episodeSourcePopover = null;
@@ -1563,11 +1569,11 @@ async function extractEpisodes() {
 
     // Update counts on checkbox change (event delegation)
     sourcesContainer.addEventListener('change', e => {
-        if (e.target.classList.contains('anlink-episode-checkbox')) {
-            const section = e.target.closest('.anlink-source-section');
-            const total = section.querySelectorAll('.anlink-episode-checkbox').length;
-            const checked = section.querySelectorAll('.anlink-episode-checkbox:checked').length;
-            section.querySelector('.anlink-source-count').textContent = checked ? `(${checked}/${total})` : `(${total})`;
+        if (e.target.classList.contains('anilink-episode-checkbox')) {
+            const section = e.target.closest('.anilink-source-section');
+            const total = section.querySelectorAll('.anilink-episode-checkbox').length;
+            const checked = section.querySelectorAll('.anilink-episode-checkbox:checked').length;
+            section.querySelector('.anilink-source-count').textContent = checked ? `(${checked}/${total})` : `(${total})`;
         }
     });
 
@@ -1624,7 +1630,7 @@ async function extractEpisodes() {
         if (layoutMode === mode) return;
         const scrollTop = linksContainer.scrollTop;
         layoutMode = mode;
-        if (mode !== 'episodes') episodeViewContainer.querySelectorAll('.anlink-episode-card').forEach(stopEpisodePreview);
+        if (mode !== 'episodes') episodeViewContainer.querySelectorAll('.anilink-episode-card').forEach(stopEpisodePreview);
         sourcesContainer.hidden = mode === 'episodes';
         episodeViewContainer.hidden = mode !== 'episodes';
         if (mode !== 'episodes') episodeSourcePopover?._close?.();
@@ -1683,11 +1689,11 @@ async function extractEpisodes() {
 
     function renderEpisodeView(episodes) {
         syncEpisodeSourceOrder(episodes);
-        const grid = episodeViewContainer.querySelector('.anlink-episode-grid');
+        const grid = episodeViewContainer.querySelector('.anilink-episode-grid');
         const uniqueEpisodes = new Map();
         episodes.forEach(episode => uniqueEpisodes.has(episodeKey(episode.number)) || uniqueEpisodes.set(episodeKey(episode.number), episode));
         const sortedEpisodes = [...uniqueEpisodes.values()].sort((first, second) => +first.number - +second.number);
-        const existing = new Map([...grid.querySelectorAll('.anlink-episode-card')].map(card => [card.dataset.episodeKey, card]));
+        const existing = new Map([...grid.querySelectorAll('.anilink-episode-card')].map(card => [card.dataset.episodeKey, card]));
         sortedEpisodes.forEach((episode, index) => {
             const key = episodeKey(episode.number);
             const preferred = getPreferredEpisodeLink(episode);
@@ -1701,13 +1707,13 @@ async function extractEpisodes() {
 
     function createEpisodeCard(episode, source) {
         const card = document.createElement('article');
-        card.className = 'anlink-episode-card';
+        card.className = 'anilink-episode-card';
         card.dataset.episodeKey = episodeKey(episode.number);
 
         const selectLabel = document.createElement('label');
-        selectLabel.className = 'anlink-episode-card-select';
-        const checkbox = Object.assign(document.createElement('input'), { type: 'checkbox', className: 'anlink-episode-checkbox' });
-        const episodeNumber = Object.assign(document.createElement('span'), { className: 'anlink-card-episode-number' });
+        selectLabel.className = 'anilink-episode-card-select';
+        const checkbox = Object.assign(document.createElement('input'), { type: 'checkbox', className: 'anilink-episode-checkbox' });
+        const episodeNumber = Object.assign(document.createElement('span'), { className: 'anilink-card-episode-number' });
         selectLabel.append(checkbox, episodeNumber);
         selectLabel.addEventListener('click', event => {
             if (event.target === checkbox) return;
@@ -1715,30 +1721,30 @@ async function extractEpisodes() {
             checkbox.click();
         });
 
-        const actions = Object.assign(document.createElement('div'), { className: 'anlink-episode-card-actions' });
-        const downloadButton = Object.assign(document.createElement('button'), { type: 'button', className: 'anlink-episode-card-action', textContent: '⇩', title: 'Download episode' });
-        const playerButton = Object.assign(document.createElement('button'), { type: 'button', className: 'anlink-episode-card-action', title: 'Play episode', innerHTML: '<img src="" alt="▶" class="anlink-preferred-player-icon" style="width: 18px; height: 18px;">' });
+        const actions = Object.assign(document.createElement('div'), { className: 'anilink-episode-card-actions' });
+        const downloadButton = Object.assign(document.createElement('button'), { type: 'button', className: 'anilink-episode-card-action', textContent: '⇩', title: 'Download episode' });
+        const playerButton = Object.assign(document.createElement('button'), { type: 'button', className: 'anilink-episode-card-action', title: 'Play episode', innerHTML: '<img src="" alt="▶" class="anilink-preferred-player-icon" style="width: 18px; height: 18px;">' });
         playerButton.dataset.playerAction = 'preferred';
         playerButton.setAttribute('aria-label', 'Play episode');
         actions.append(downloadButton, playerButton);
 
-        const content = Object.assign(document.createElement('div'), { className: 'anlink-episode-card-content' });
-        const title = Object.assign(document.createElement('strong'), { className: 'anlink-episode-card-title' });
-        const sourceName = Object.assign(document.createElement('span'), { className: 'anlink-episode-card-source' });
-        const sourceCount = Object.assign(document.createElement('span'), { className: 'anlink-episode-source-count' });
-        const sourceLabel = Object.assign(document.createElement('span'), { className: 'anlink-episode-source-name' });
-        const sourceValue = Object.assign(document.createElement('span'), { className: 'anlink-episode-source-value' });
-        const referrerLabel = Object.assign(document.createElement('span'), { className: 'anlink-episode-card-referrer' });
-        const copyButton = Object.assign(document.createElement('button'), { type: 'button', className: 'anlink-episode-copy', textContent: '⧉', title: 'Copy episode link' });
+        const content = Object.assign(document.createElement('div'), { className: 'anilink-episode-card-content' });
+        const title = Object.assign(document.createElement('strong'), { className: 'anilink-episode-card-title' });
+        const sourceName = Object.assign(document.createElement('span'), { className: 'anilink-episode-card-source' });
+        const sourceCount = Object.assign(document.createElement('span'), { className: 'anilink-episode-source-count' });
+        const sourceLabel = Object.assign(document.createElement('span'), { className: 'anilink-episode-source-name' });
+        const sourceValue = Object.assign(document.createElement('span'), { className: 'anilink-episode-source-value' });
+        const referrerLabel = Object.assign(document.createElement('span'), { className: 'anilink-episode-card-referrer' });
+        const copyButton = Object.assign(document.createElement('button'), { type: 'button', className: 'anilink-episode-copy', textContent: '⧉', title: 'Copy episode link' });
         copyButton.setAttribute('aria-label', 'Copy episode link');
-        const hiddenLink = Object.assign(document.createElement('a'), { className: 'anlink-episode-link anlink-episode-card-link', tabIndex: -1 });
+        const hiddenLink = Object.assign(document.createElement('a'), { className: 'anilink-episode-link anilink-episode-card-link', tabIndex: -1 });
         hiddenLink.setAttribute('aria-hidden', 'true');
-        const preview = Object.assign(document.createElement('video'), { className: 'anlink-episode-preview', muted: true, loop: true, preload: 'none' });
+        const preview = Object.assign(document.createElement('video'), { className: 'anilink-episode-preview', muted: true, loop: true, preload: 'none' });
         preview.defaultMuted = true;
         preview.playsInline = true;
         preview.tabIndex = -1;
         preview.setAttribute('aria-hidden', 'true');
-        const previewSeek = Object.assign(document.createElement('input'), { type: 'range', className: 'anlink-episode-preview-seek', min: 0, max: 0, step: 0.1, value: 0, title: 'Seek preview' });
+        const previewSeek = Object.assign(document.createElement('input'), { type: 'range', className: 'anilink-episode-preview-seek', min: 0, max: 0, step: 0.1, value: 0, title: 'Seek preview' });
         previewSeek.setAttribute('aria-label', 'Seek episode preview');
         sourceLabel.append(sourceValue, referrerLabel);
         sourceName.append(sourceCount, sourceLabel);
@@ -1803,12 +1809,12 @@ async function extractEpisodes() {
         const linkData = source ? episode.links?.[source] : null;
         const availableLinks = Object.values(episode.links || {}).filter(link => link?.stream);
         const linkKey = `${source}\u0000${linkData?.stream || ''}`;
-        const checkbox = card.querySelector('.anlink-episode-checkbox');
-        const hiddenLink = card.querySelector('.anlink-episode-card-link');
-        const copyButton = card.querySelector('.anlink-episode-copy');
-        const downloadButton = card.querySelector('.anlink-episode-card-action');
-        const playerButton = card.querySelectorAll('.anlink-episode-card-action')[1];
-        const playerIcon = playerButton.querySelector('.anlink-preferred-player-icon');
+        const checkbox = card.querySelector('.anilink-episode-checkbox');
+        const hiddenLink = card.querySelector('.anilink-episode-card-link');
+        const copyButton = card.querySelector('.anilink-episode-copy');
+        const downloadButton = card.querySelector('.anilink-episode-card-action');
+        const playerButton = card.querySelectorAll('.anilink-episode-card-action')[1];
+        const playerIcon = playerButton.querySelector('.anilink-preferred-player-icon');
 
         const previousLinkKey = card._linkKey;
         if (card._previewLinkKey && previousLinkKey !== linkKey) stopEpisodePreview(card);
@@ -1822,11 +1828,11 @@ async function extractEpisodes() {
         card.style.backgroundImage = episode.thumbnail ? `url("${String(episode.thumbnail).replace(/["\\\r\n\f]/g, '\\$&')}")` : '';
         if (episode.thumbnail) card._preview.poster = episode.thumbnail;
         else card._preview.removeAttribute('poster');
-        card.querySelector('.anlink-episode-card-title').textContent = episode.epTitle || '';
-        const sourceCount = card.querySelector('.anlink-episode-source-count');
-        const sourceLabel = card.querySelector('.anlink-episode-source-name');
-        const sourceValue = card.querySelector('.anlink-episode-source-value');
-        const referrerLabel = card.querySelector('.anlink-episode-card-referrer');
+        card.querySelector('.anilink-episode-card-title').textContent = episode.epTitle || '';
+        const sourceCount = card.querySelector('.anilink-episode-source-count');
+        const sourceLabel = card.querySelector('.anilink-episode-source-name');
+        const sourceValue = card.querySelector('.anilink-episode-source-value');
+        const referrerLabel = card.querySelector('.anilink-episode-card-referrer');
         const countTitle = `${availableLinks.length} source${availableLinks.length === 1 ? '' : 's'} available`;
         sourceCount.textContent = availableLinks.length;
         sourceCount.title = countTitle;
@@ -1835,7 +1841,7 @@ async function extractEpisodes() {
         sourceLabel.title = source || 'Unavailable';
         referrerLabel.textContent = `⌬ ${linkData?.referer ? String(linkData.referer).replace(/^https?:\/\//, '') : 'unavailable'}`;
         referrerLabel.title = linkData?.referer || 'No referrer available';
-        card.querySelector('.anlink-card-episode-number').textContent = `Ep ${String(episode.number).replace(/^0+/, '')}`;
+        card.querySelector('.anilink-card-episode-number').textContent = `Ep ${String(episode.number).replace(/^0+/, '')}`;
         checkbox.checked = !!linkData?.stream && card._selected;
         checkbox.disabled = !linkData?.stream;
         downloadButton.disabled = !linkData?.stream;
@@ -1893,9 +1899,9 @@ async function extractEpisodes() {
 
         const preferredId = GM_getValue('preferred_player', 'mpv-handler');
         const popover = document.createElement('div');
-        popover.className = 'anlink-play-popover';
-        const heading = Object.assign(document.createElement('div'), { className: 'anlink-play-heading', textContent: 'Play with...' });
-        const playerList = Object.assign(document.createElement('div'), { className: 'anlink-player-list' });
+        popover.className = 'anilink-play-popover';
+        const heading = Object.assign(document.createElement('div'), { className: 'anilink-play-heading', textContent: 'Play with...' });
+        const playerList = Object.assign(document.createElement('div'), { className: 'anilink-player-list' });
         const playerButtons = new Map();
         let closeTimer = null;
         const cancelClose = () => { clearTimeout(closeTimer); closeTimer = null; };
@@ -1916,18 +1922,18 @@ async function extractEpisodes() {
             closeTimer = setTimeout(close, 180);
         };
         PLAYER_APPS.forEach(player => {
-            const button = Object.assign(document.createElement('button'), { type: 'button', className: 'anlink-player-item' });
+            const button = Object.assign(document.createElement('button'), { type: 'button', className: 'anilink-player-item' });
             button.setAttribute('aria-label', `Play with ${player.name}`);
-            const icon = Object.assign(document.createElement('img'), { className: 'anlink-player-icon', alt: '', loading: 'lazy' });
+            const icon = Object.assign(document.createElement('img'), { className: 'anilink-player-icon', alt: '', loading: 'lazy' });
             icon.src = player.icon;
             icon.addEventListener('error', () => { icon.hidden = true; });
-            const info = Object.assign(document.createElement('div'), { className: 'anlink-player-info' });
+            const info = Object.assign(document.createElement('div'), { className: 'anilink-player-info' });
             info.append(
-                Object.assign(document.createElement('span'), { className: 'anlink-player-name', textContent: player.name }),
-                Object.assign(document.createElement('span'), { className: 'anlink-player-hint', textContent: player.hint })
+                Object.assign(document.createElement('span'), { className: 'anilink-player-name', textContent: player.name }),
+                Object.assign(document.createElement('span'), { className: 'anilink-player-hint', textContent: player.hint })
             );
             button.append(icon, info);
-            if (player.id === preferredId) button.append(Object.assign(document.createElement('span'), { className: 'anlink-player-badge', textContent: '★' }));
+            if (player.id === preferredId) button.append(Object.assign(document.createElement('span'), { className: 'anilink-player-badge', textContent: '★' }));
             button.addEventListener('click', event => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -1990,7 +1996,7 @@ async function extractEpisodes() {
         if (isBatch && btn) btn.textContent = 'Processing...';
 
         // Update all preferred player icons and titles in the UI
-        AniLINKUI.queryAll('.anlink-preferred-player-icon').forEach(element => element.src = player.icon);
+        AniLINKUI.queryAll('.anilink-preferred-player-icon').forEach(element => element.src = player.icon);
         AniLINKUI.queryAll('[data-player-action="preferred"]').forEach(element => {
             element.title = `Play episode with ${player.name}`;
             element.setAttribute('aria-label', element.title);
@@ -2058,24 +2064,24 @@ async function extractEpisodes() {
             return;
         }
         const popover = document.createElement('div');
-        popover.className = 'anlink-episode-source-popover';
+        popover.className = 'anilink-episode-source-popover';
         popover.innerHTML = `
-            <div class="anlink-episode-source-heading">Preferred episode source<div class="anlink-episode-source-help">The first available source is shown on each card.</div></div>
-            <div class="anlink-episode-source-list"></div>
-            <button type="button" class="anlink-episode-source-reset">Reset order</button>
+            <div class="anilink-episode-source-heading">Preferred episode source<div class="anilink-episode-source-help">The first available source is shown on each card.</div></div>
+            <div class="anilink-episode-source-list"></div>
+            <button type="button" class="anilink-episode-source-reset">Reset order</button>
         `;
-        episodeViewContainer.querySelector('.anlink-episode-toolbar').appendChild(popover);
+        episodeViewContainer.querySelector('.anilink-episode-toolbar').appendChild(popover);
         episodeSourcePopover = popover;
-        const list = popover.querySelector('.anlink-episode-source-list');
+        const list = popover.querySelector('.anilink-episode-source-list');
         const availableSources = () => discoveredEpisodeSources;
         const renderOrder = () => {
             const sources = availableSources();
             const ordered = [...episodeSourceOrder.filter(source => sources.includes(source)), ...sources.filter(source => !episodeSourceOrder.includes(source))];
             list.replaceChildren(...ordered.map((source, index) => {
                 const item = document.createElement('div');
-                item.className = 'anlink-episode-source-item';
-                const position = Object.assign(document.createElement('span'), { className: 'anlink-episode-source-position', textContent: `#${index + 1}` });
-                const name = Object.assign(document.createElement('span'), { className: 'anlink-episode-source-name', textContent: source, title: source });
+                item.className = 'anilink-episode-source-item';
+                const position = Object.assign(document.createElement('span'), { className: 'anilink-episode-source-position', textContent: `#${index + 1}` });
+                const name = Object.assign(document.createElement('span'), { className: 'anilink-episode-source-name', textContent: source, title: source });
                 const up = Object.assign(document.createElement('button'), { type: 'button', textContent: '↑', title: 'Move source up' });
                 const down = Object.assign(document.createElement('button'), { type: 'button', textContent: '↓', title: 'Move source down' });
                 up.dataset.move = 'up'; up.dataset.index = index; up.disabled = index === 0;
@@ -2102,14 +2108,14 @@ async function extractEpisodes() {
         list.addEventListener('click', event => {
             const button = event.target.closest('button[data-move]');
             if (!button) return;
-            const ordered = [...list.querySelectorAll('.anlink-episode-source-name')].map(name => name.textContent);
+            const ordered = [...list.querySelectorAll('.anilink-episode-source-name')].map(name => name.textContent);
             const index = +button.dataset.index;
             const nextIndex = index + (button.dataset.move === 'up' ? -1 : 1);
             if (nextIndex < 0 || nextIndex >= ordered.length) return;
             [ordered[index], ordered[nextIndex]] = [ordered[nextIndex], ordered[index]];
             applyOrder(ordered);
         });
-        popover.querySelector('.anlink-episode-source-reset').addEventListener('click', () => applyOrder([...discoveredEpisodeSources]));
+        popover.querySelector('.anilink-episode-source-reset').addEventListener('click', () => applyOrder([...discoveredEpisodeSources]));
         popover.addEventListener('click', event => event.stopPropagation());
         AniLINKUI.root.addEventListener('click', outside);
         renderOrder();
@@ -2119,14 +2125,14 @@ async function extractEpisodes() {
     function rendersourceLinkLists(sortedLinks, container) {
         // Track expanded state for each source section
         const expandedState = {};
-        container.querySelectorAll('.anlink-source-section').forEach(section => {
+        container.querySelectorAll('.anilink-source-section').forEach(section => {
             const source = section.dataset.source;
-            const episodeList = section.querySelector('.anlink-episode-list');
+            const episodeList = section.querySelector('.anilink-episode-list');
             expandedState[source] = episodeList && episodeList.style.maxHeight !== '0px';
         });
 
         for (const source in sortedLinks) {
-            let sourceSection = container.querySelector(`.anlink-source-section[data-source="${source}"]`);
+            let sourceSection = container.querySelector(`.anilink-source-section[data-source="${source}"]`);
             let episodeListElem;
 
             const episodes = sortedLinks[source].sort((a, b) => +a.number - +b.number);
@@ -2134,16 +2140,16 @@ async function extractEpisodes() {
             if (!sourceSection) {
                 // Create new section if it doesn't exist
                 sourceSection = document.createElement('div');
-                sourceSection.className = 'anlink-source-section';
+                sourceSection.className = 'anilink-source-section';
                 sourceSection.dataset.source = source;
 
                 const headerDiv = document.createElement('div');
-                headerDiv.className = 'anlink-source-header';
+                headerDiv.className = 'anilink-source-header';
                 headerDiv.title = 'Shift+Click to select/deselect all episodes in this source';
 
                 const sourceSpan = document.createElement('span');
                 const count = document.createElement('i');
-                count.className = 'anlink-source-count';
+                count.className = 'anilink-source-count';
                 count.textContent = `(${sortedLinks[source].length})`;
                 count.title = 'Click to select/deselect all';
                 count.dataset.total = sortedLinks[source].length;
@@ -2153,11 +2159,11 @@ async function extractEpisodes() {
                 });
 
                 const icon = document.createElement('i');
-                icon.className = 'anlink-source-chevron';
+                icon.className = 'anilink-source-chevron';
                 icon.textContent = '›';
 
                 const name = document.createElement('span');
-                name.className = 'anlink-source-name';
+                name.className = 'anilink-source-name';
                 name.textContent = source;
                 name.addEventListener('click', toggleSourceSection);
 
@@ -2169,7 +2175,7 @@ async function extractEpisodes() {
 
                 // --- Add Empty episodes list elm to the source section ---
                 episodeListElem = document.createElement('ul');
-                episodeListElem.className = 'anlink-episode-list';
+                episodeListElem.className = 'anilink-episode-list';
                 episodeListElem.style.maxHeight = '0px';
                 sourceSection.appendChild(episodeListElem);
 
@@ -2179,37 +2185,37 @@ async function extractEpisodes() {
                 headerDiv.addEventListener('mousedown', e => e.shiftKey && toggleSelectAll(sourceSection));
             } else {
                 // Update header count
-                const countElem = sourceSection.querySelector('.anlink-source-count');
+                const countElem = sourceSection.querySelector('.anilink-source-count');
                 if (countElem) {
-                    const checked = sourceSection.querySelectorAll('.anlink-episode-checkbox:checked').length;
+                    const checked = sourceSection.querySelectorAll('.anilink-episode-checkbox:checked').length;
                     countElem.textContent = checked ? `(${checked}/${sortedLinks[source].length})` : `(${sortedLinks[source].length})`;
                     countElem.dataset.total = sortedLinks[source].length;
                 }
-                episodeListElem = sourceSection.querySelector('.anlink-episode-list');
+                episodeListElem = sourceSection.querySelector('.anilink-episode-list');
             }
 
             // Update episode list items
             episodeListElem.innerHTML = '';
             episodes.forEach((ep, i) => {
                 const listItem = document.createElement('li');
-                listItem.className = 'anlink-episode-item';
+                listItem.className = 'anilink-episode-item';
                 const missingBeforeCount = i ? Math.max(0, (+ep.number || 0) - (+episodes[i - 1].number || 0) - 1) : 0;
                 const hasSubs = ep.links[source].tracks?.some(t => /^(caption|subtitle)s?/.test(t.kind));
                 listItem.innerHTML = `
-                    ${missingBeforeCount ? `<span class="anlink-episode-missing-count">——— Missing ${missingBeforeCount} episode${missingBeforeCount != 1 ? 's' : ''} ———</span>` : ''}
-                    <div class="anlink-episode-main">
+                    ${missingBeforeCount ? `<span class="anilink-episode-missing-count">——— Missing ${missingBeforeCount} episode${missingBeforeCount != 1 ? 's' : ''} ———</span>` : ''}
+                    <div class="anilink-episode-main">
                         <label>
-                            <input type="checkbox" class="anlink-episode-checkbox" />
-                            <span class="player-epnum" title="Play episode"><img fill="#26a69a" class="anlink-preferred-player-icon hidden" alt='▶' style="width: 20px; height: 20px;" /><a>Ep ${ep.number.replace(/^0+/, '')}: </a></span>
-                            <a href="${ep.links[source].stream}" class="anlink-episode-link" download="${encodeURI(ep.getFilename(source))}" data-epnum="${ep.number}" data-ep=${encodeURI(JSON.stringify({ ...ep, links: undefined }))} >${ep.links[source].stream}</a>
+                            <input type="checkbox" class="anilink-episode-checkbox" />
+                            <span class="player-epnum" title="Play episode"><img fill="#26a69a" class="anilink-preferred-player-icon hidden" alt='▶' style="width: 20px; height: 20px;" /><a>Ep ${ep.number.replace(/^0+/, '')}: </a></span>
+                            <a href="${ep.links[source].stream}" class="anilink-episode-link" download="${encodeURI(ep.getFilename(source))}" data-epnum="${ep.number}" data-ep=${encodeURI(JSON.stringify({ ...ep, links: undefined }))} >${ep.links[source].stream}</a>
                         </label>
-                        ${hasSubs ? '<span class="anlink-subs-toggle" title="Shift+Click to toggle all episodes\' subtitles">🄰 Subs ▼</span>' : ''}
+                        ${hasSubs ? '<span class="anilink-subs-toggle" title="Shift+Click to toggle all episodes\' subtitles">🄰 Subs ▼</span>' : ''}
                     </div>
-                    ${hasSubs ? '<div class="anlink-subs-list"></div>' : ''}
+                    ${hasSubs ? '<div class="anilink-subs-list"></div>' : ''}
                 `;
-                const episodeLinkElement = listItem.querySelector('.anlink-episode-link');
+                const episodeLinkElement = listItem.querySelector('.anilink-episode-link');
                 const epnumSpan = listItem.querySelector('.player-epnum');
-                const playerIcon = listItem.querySelector('.anlink-preferred-player-icon');
+                const playerIcon = listItem.querySelector('.anilink-preferred-player-icon');
                 const link = episodeLinkElement.href;
                 const name = decodeURIComponent(episodeLinkElement.download);
                 playerIcon.src = getPreferredPlayer().icon;
@@ -2221,16 +2227,16 @@ async function extractEpisodes() {
                     playerIcon.classList.remove('hidden');
                     playerIcon.src = getPreferredPlayer().icon;
                     const label = _$('label', listItem);
-                    label.after(Object.assign(document.createElement('button'), { className: 'anlink-quick-download', type: 'button', title: `Add episode ${ep.number} to downloads`, textContent: '⇩' }));
-                    label.after(Object.assign(document.createElement('span'), { className: 'anlink-referrer', title: `Referer: ${ep.links[source].referer}`, textContent: `⌬ ${ep.links[source].referer.split('://')[1]}` }));
-                    listItem.querySelector('.anlink-quick-download').addEventListener('click', event => onDownloadEpisodes([ep], source, event.currentTarget));
+                    label.after(Object.assign(document.createElement('button'), { className: 'anilink-quick-download', type: 'button', title: `Add episode ${ep.number} to downloads`, textContent: '⇩' }));
+                    label.after(Object.assign(document.createElement('span'), { className: 'anilink-referrer', title: `Referer: ${ep.links[source].referer}`, textContent: `⌬ ${ep.links[source].referer.split('://')[1]}` }));
+                    listItem.querySelector('.anilink-quick-download').addEventListener('click', event => onDownloadEpisodes([ep], source, event.currentTarget));
                 });
                 listItem.addEventListener('mouseleave', () => {
                     episodeLinkElement.textContent = decodeURIComponent(link);
                     epnumSpan.querySelector('a').textContent = `Ep ${ep.number.replace(/^0+/, '')}: `;
                     playerIcon.classList.add('hidden');
-                    listItem.querySelector('.anlink-referrer')?.remove();
-                    listItem.querySelector('.anlink-quick-download')?.remove();
+                    listItem.querySelector('.anilink-referrer')?.remove();
+                    listItem.querySelector('.anilink-quick-download')?.remove();
                 });
                 epnumSpan.title = 'Play episode';
                 epnumSpan.addEventListener('click', e => {
@@ -2247,25 +2253,25 @@ async function extractEpisodes() {
                 });
 
                 // Subtitle toggle functionality
-                const subsToggle = listItem.querySelector('.anlink-subs-toggle');
-                const subsList = listItem.querySelector('.anlink-subs-list');
+                const subsToggle = listItem.querySelector('.anilink-subs-toggle');
+                const subsList = listItem.querySelector('.anilink-subs-list');
                 if (subsToggle && subsList) {
                     subsToggle.addEventListener('mousedown', e => {
                         // shift+click to toggle all episode subtitles
                         if (e.shiftKey) {
-                            return AniLINKUI.queryAll('.anlink-subs-list').forEach(sl => sl.previousElementSibling.querySelector('.anlink-subs-toggle').dispatchEvent(new MouseEvent('mousedown', { bubbles: false })));
+                            return AniLINKUI.queryAll('.anilink-subs-list').forEach(sl => sl.previousElementSibling.querySelector('.anilink-subs-toggle').dispatchEvent(new MouseEvent('mousedown', { bubbles: false })));
                         }
                         const isExpanded = subsList.classList.toggle('expanded');
                         subsToggle.textContent = isExpanded ? '🄰 Subs ▲' : '🄰 Subs ▼';
                         if (isExpanded && !subsList.hasChildNodes()) {
                             ep.links[source].tracks.filter(t => /^caption/.test(t.kind)).forEach(track => {
                                 const subItem = document.createElement('div');
-                                subItem.className = 'anlink-sub-item';
+                                subItem.className = 'anilink-sub-item';
                                 subItem.innerHTML = `└─ ${track.label || 'Subtitle'}: <a href="${track.file}" target="_blank">${track.file}</a>`;
                                 subsList.appendChild(subItem);
                             });
                         }
-                        const epList = subsList.closest('.anlink-episode-list');
+                        const epList = subsList.closest('.anilink-episode-list');
                         epList.style.maxHeight = +epList.style.maxHeight.replace('px', '') + subsList.scrollHeight + 'px'; // Adjust max-height to fit new content
                     });
                 }
@@ -2273,12 +2279,12 @@ async function extractEpisodes() {
                 episodeListElem.appendChild(listItem);
 
                 // Fix checkbox state double toggling due to label click
-                (listItem.querySelector('.anlink-episode-checkbox')).onclick = e => e.stopPropagation();
+                (listItem.querySelector('.anilink-episode-checkbox')).onclick = e => e.stopPropagation();
             });
 
             // Restore expand state only if section was previously expanded
             if (expandedState[source]) {
-                const icon = sourceSection.querySelector('.anlink-source-chevron');
+                const icon = sourceSection.querySelector('.anilink-source-chevron');
                 episodeListElem.style.maxHeight = `${episodeListElem.scrollHeight}px`;
                 icon.classList.add('rotate');
             }
@@ -2287,9 +2293,9 @@ async function extractEpisodes() {
 
     function toggleSourceSection(event) {
         const sourceName = event.currentTarget;
-        const sourceSection = sourceName.closest('.anlink-source-section');
-        const episodeList = sourceSection.querySelector('.anlink-episode-list');
-        const icon = sourceSection.querySelector('.anlink-source-chevron');
+        const sourceSection = sourceName.closest('.anilink-source-section');
+        const episodeList = sourceSection.querySelector('.anilink-episode-list');
+        const icon = sourceSection.querySelector('.anilink-source-chevron');
         const isCollapsed = episodeList.style.maxHeight === '0px';
 
         if (isCollapsed) {
@@ -2302,7 +2308,7 @@ async function extractEpisodes() {
     }
 
     function toggleSelectAll(sourceSection) {
-        const checkboxes = Array.from(sourceSection.querySelectorAll('.anlink-episode-checkbox'));
+        const checkboxes = Array.from(sourceSection.querySelectorAll('.anilink-episode-checkbox'));
         const allChecked = checkboxes.every(cb => cb.checked);
         checkboxes.forEach(cb => cb.checked = !allChecked);
         checkboxes[0].dispatchEvent(new Event('change', { bubbles: true }));   // trigger change event to update counts
@@ -2318,10 +2324,10 @@ async function extractEpisodes() {
 
     // Attach header button handlers
     function attachHeaderButtons() {
-        const copyBtn = linksContainer.querySelector('.anlink-copy-all');
-        const exportBtn = linksContainer.querySelector('.anlink-export-all');
-        const downloadBtn = linksContainer.querySelector('.anlink-download-selected');
-        const playBtn = linksContainer.querySelector('.anlink-play-all');
+        const copyBtn = linksContainer.querySelector('.anilink-copy-all');
+        const exportBtn = linksContainer.querySelector('.anilink-export-all');
+        const downloadBtn = linksContainer.querySelector('.anilink-download-selected');
+        const playBtn = linksContainer.querySelector('.anilink-play-all');
 
         copyBtn?.addEventListener('click', () => onCopyAll(copyBtn));
         exportBtn.addEventListener('click', () => onExportAll(exportBtn));
@@ -2332,7 +2338,7 @@ async function extractEpisodes() {
 
     // Helper to get all selected episodes across all sources
     function getEpisodeViewCards() {
-        return [...episodeViewContainer.querySelectorAll('.anlink-episode-card')];
+        return [...episodeViewContainer.querySelectorAll('.anilink-episode-card')];
     }
 
     function getAllSelectedEpisodes(selectAllWhenEmpty = true) {
@@ -2343,7 +2349,7 @@ async function extractEpisodes() {
                 const source = card.dataset.source;
                 if (source && card._linkData?.stream) (selected[source] ||= []).push(card);
             };
-            const checkedCards = cards.filter(card => card.querySelector('.anlink-episode-checkbox')?.checked);
+            const checkedCards = cards.filter(card => card.querySelector('.anilink-episode-checkbox')?.checked);
             const cardsToUse = checkedCards.length || !selectAllWhenEmpty ? checkedCards : cards;
             const orderedCards = cardsToUse.filter(card => card._linkData?.stream);
             orderedCards.forEach(addCard);
@@ -2351,17 +2357,17 @@ async function extractEpisodes() {
             return selected;
         }
         const selected = {};
-        AniLINKUI.queryAll('.anlink-source-section').forEach(section => {
+        AniLINKUI.queryAll('.anilink-source-section').forEach(section => {
             const source = section.dataset.source;
-            const items = Array.from(section.querySelectorAll('.anlink-episode-item input:checked'))
-                .map(cb => cb.closest('.anlink-episode-item'));
+            const items = Array.from(section.querySelectorAll('.anilink-episode-item input:checked'))
+                .map(cb => cb.closest('.anilink-episode-item'));
             if (items.length) selected[source] = items;
         });
         // If none selected, select all by default
         if (selectAllWhenEmpty && !Object.keys(selected).length) {
-            AniLINKUI.queryAll('.anlink-source-section').forEach(section => {
+            AniLINKUI.queryAll('.anilink-source-section').forEach(section => {
                 const source = section.dataset.source;
-                const items = Array.from(section.querySelectorAll('.anlink-episode-item'));
+                const items = Array.from(section.querySelectorAll('.anilink-episode-item'));
                 selected[source] = items;
             });
         }
@@ -2402,7 +2408,7 @@ async function extractEpisodes() {
         const selected = getAllSelectedEpisodes();
         if (!Object.keys(selected).length) return showToast('No episodes selected');
         const items = selected._episodeOrder || Object.values(selected).flat();
-        const links = items.map(i => i.querySelector('.anlink-episode-link').href).join('\n') + '\n';
+        const links = items.map(i => i.querySelector('.anilink-episode-link').href).join('\n') + '\n';
         GM_setClipboard(links, "text", () => showToast(`Copied ${links.split('\n').filter(l => l).length} links to clipboard`));
         btn.textContent = `Copied ${links.split('\n').filter(l => l).length} links!`;
         setTimeout(() => btn.textContent = 'Copy Links', 1000);
@@ -2481,17 +2487,17 @@ async function extractEpisodes() {
 function createModal({ title, icon, subtitle, bodyHTML, width = '420px', onConfirm, onCancel }) {
     const modal = Object.assign(document.createElement('div'), {
         innerHTML: `
-            <div class="anlink-modal-backdrop">
-                <div class="anlink-modal" style="width:${width};">
-                    <div class="anlink-modal-header">
-                        <div class="anlink-modal-icon">${icon}</div>
+            <div class="anilink-modal-backdrop">
+                <div class="anilink-modal" style="width:${width};">
+                    <div class="anilink-modal-header">
+                        <div class="anilink-modal-icon">${icon}</div>
                         <h2>${title}</h2>
-                        ${subtitle ? `<div class="anlink-episode-count">${subtitle}</div>` : ''}
+                        ${subtitle ? `<div class="anilink-episode-count">${subtitle}</div>` : ''}
                     </div>
-                    <div class="anlink-modal-body">${bodyHTML}</div>
-                    <div class="anlink-modal-footer">
-                        <button class="anlink-btn anlink-btn-cancel"><kbd>Esc</kbd> Cancel</button>
-                        <button class="anlink-btn anlink-btn-primary"><kbd>Enter</kbd> Confirm</button>
+                    <div class="anilink-modal-body">${bodyHTML}</div>
+                    <div class="anilink-modal-footer">
+                        <button class="anilink-btn anilink-btn-cancel"><kbd>Esc</kbd> Cancel</button>
+                        <button class="anilink-btn anilink-btn-primary"><kbd>Enter</kbd> Confirm</button>
                     </div>
                 </div>
             </div>
@@ -2502,43 +2508,43 @@ function createModal({ title, icon, subtitle, bodyHTML, width = '420px', onConfi
     // Inject shared modal styles (only once)
     if (!createModal.stylesReady) {
         AniLINKUI.addStyle(`
-            @keyframes anlink-modal-fade-in { from { opacity: 0; } to { opacity: 1; } }
-            @keyframes anlink-modal-scale-in { from { opacity: 0; transform: scale(.92) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
-            .anlink-modal-backdrop { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; padding: 24px; background: var(--anlink-modal-overlay); backdrop-filter: blur(8px) saturate(140%); -webkit-backdrop-filter: blur(8px) saturate(140%); animation: anlink-modal-fade-in .25s ease-out; }
-            .anlink-modal { background: var(--anlink-glass-bg); border: 1.5px solid var(--anlink-glass-border); border-radius: 24px; box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); max-width: 90vw; color: #edf7f5; overflow: hidden; animation: anlink-modal-scale-in .28s cubic-bezier(.4,0,.2,1); }
-            .anlink-modal-header { text-align: center; padding: 24px 24px 16px; background: linear-gradient(180deg, var(--anlink-glass-border), transparent); border-bottom: 1px solid var(--anlink-glass-border-soft); }
-            .anlink-modal-icon { font-size: 48px; margin-bottom: 8px; }
-            .anlink-modal h2 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
-            .anlink-episode-count { opacity: 0.9; font-size: 14px; }
-            .anlink-modal-body { padding: 24px; }
-            .anlink-modal-footer { display: flex; gap: 12px; padding: 0 24px 24px; }
-            .anlink-btn { flex: 1; padding: 12px 24px; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
-            .anlink-btn:focus { outline: 2px solid #26a69a; outline-offset: 2px; }
-            .anlink-btn-cancel { background: rgba(255,255,255,.08); color: #c2d2d0; border: 1px solid rgba(255,255,255,.12); }
-            .anlink-btn-cancel:hover, .anlink-btn-cancel:focus { background: rgba(255,255,255,.14); }
-            .anlink-btn-primary { background: linear-gradient(135deg, rgba(38,166,154,.9), rgba(32,132,122,.82)); color: #fff; border: 1px solid rgba(180,255,245,.18); }
-            .anlink-btn-primary:hover, .anlink-btn-primary:focus { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(38,166,154,0.3); }
-            .anlink-quick-select { display: flex; gap: 8px; margin-bottom: 16px; }
-            .anlink-quick-btn { flex: 1; padding: 8px 12px; border: 1px solid #444; border-radius: 6px; background: transparent; color: #ccc; cursor: pointer; font-size: 12px; transition: all 0.2s; }
-            .anlink-quick-btn:hover, .anlink-quick-btn:focus { border-color: #26a69a; color: #26a69a; background: rgba(38,166,154,0.1); outline: none; }
-            .anlink-help-text { font-size: 11px; color: #888; text-align: center; margin-top: 12px; }
+            @keyframes anilink-modal-fade-in { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes anilink-modal-scale-in { from { opacity: 0; transform: scale(.92) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+            .anilink-modal-backdrop { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; padding: 24px; background: var(--anilink-modal-overlay); backdrop-filter: var(--anilink-glass-blur); -webkit-backdrop-filter: var(--anilink-glass-blur); animation: anilink-modal-fade-in .25s ease-out; }
+            .anilink-modal { background: var(--anilink-glass-bg); border: 1.5px solid var(--anilink-glass-border); border-radius: 24px; box-shadow: var(--anilink-glass-shadow); backdrop-filter: var(--anilink-glass-blur); -webkit-backdrop-filter: var(--anilink-glass-blur); max-width: 90vw; color: #edf7f5; overflow: hidden; animation: anilink-modal-scale-in .28s cubic-bezier(.4,0,.2,1); }
+            .anilink-modal-header { text-align: center; padding: 24px 24px 16px; background: linear-gradient(180deg, var(--anilink-glass-border), transparent); border-bottom: 1px solid var(--anilink-glass-border-soft); }
+            .anilink-modal-icon { font-size: 48px; margin-bottom: 8px; }
+            .anilink-modal h2 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
+            .anilink-episode-count { opacity: 0.9; font-size: 14px; }
+            .anilink-modal-body { padding: 24px; }
+            .anilink-modal-footer { display: flex; gap: 12px; padding: 0 24px 24px; }
+            .anilink-btn { flex: 1; padding: 12px 24px; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+            .anilink-btn:focus { outline: 2px solid #26a69a; outline-offset: 2px; }
+            .anilink-btn-cancel { background: rgba(255,255,255,.08); color: #c2d2d0; border: 1px solid rgba(255,255,255,.12); }
+            .anilink-btn-cancel:hover, .anilink-btn-cancel:focus { background: rgba(255,255,255,.14); }
+            .anilink-btn-primary { background: linear-gradient(135deg, rgba(38,166,154,.9), rgba(32,132,122,.82)); color: #fff; border: 1px solid rgba(180,255,245,.18); }
+            .anilink-btn-primary:hover, .anilink-btn-primary:focus { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(38,166,154,0.3); }
+            .anilink-quick-select { display: flex; gap: 8px; margin-bottom: 16px; }
+            .anilink-quick-btn { flex: 1; padding: 8px 12px; border: 1px solid #444; border-radius: 6px; background: transparent; color: #ccc; cursor: pointer; font-size: 12px; transition: all 0.2s; }
+            .anilink-quick-btn:hover, .anilink-quick-btn:focus { border-color: #26a69a; color: #26a69a; background: rgba(38,166,154,0.1); outline: none; }
+            .anilink-help-text { font-size: 11px; color: #888; text-align: center; margin-top: 12px; }
             kbd { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 3px; padding: 1px 4px; font-size: 10px; margin-right: 4px; }
             @media (max-width: 680px) {
-                .anlink-modal-backdrop { padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
-                .anlink-modal { width: min(100%, calc(100vw - 20px)) !important; max-height: calc(100svh - 20px); overflow-y: auto; }
-                .anlink-modal-header { padding: 18px 16px 12px; }
-                .anlink-modal-body { padding: 16px; }
-                .anlink-modal-footer { padding: 0 16px 16px; }
-                .anlink-quick-select { flex-wrap: wrap; }
-                .anlink-quick-btn { min-height: 38px; }
+                .anilink-modal-backdrop { padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
+                .anilink-modal { width: min(100%, calc(100vw - 20px)) !important; max-height: calc(100svh - 20px); overflow-y: auto; }
+                .anilink-modal-header { padding: 18px 16px 12px; }
+                .anilink-modal-body { padding: 16px; }
+                .anilink-modal-footer { padding: 0 16px 16px; }
+                .anilink-quick-select { flex-wrap: wrap; }
+                .anilink-quick-btn { min-height: 38px; }
             }
         `);
         createModal.stylesReady = true;
     }
 
     AniLINKUI.root.appendChild(modal);
-    const primaryBtn = modal.querySelector('.anlink-btn-primary');
-    const cancelBtn = modal.querySelector('.anlink-btn-cancel');
+    const primaryBtn = modal.querySelector('.anilink-btn-primary');
+    const cancelBtn = modal.querySelector('.anilink-btn-cancel');
 
     const cleanup = () => modal.remove();
     const handleConfirm = () => { const result = onConfirm?.(modal); if (result !== false) cleanup(); };
@@ -2567,23 +2573,23 @@ async function showEpisodeRangeSelector(total) {
             <small style="display:block;color:#ccc;font-size:11px;margin-bottom:16px;text-align:center;">
                 Note: Range is by episode count, not episode number<br>(e.g., 1-6 means the first 6 episodes listed).
             </small>
-            <div class="anlink-range-inputs">
-                <div class="anlink-input-group">
+            <div class="anilink-range-inputs">
+                <div class="anilink-input-group">
                     <label>From</label>
                     <input type="number" id="start" min="1" max="${total}" value="1" tabindex="1">
                 </div>
-                <div class="anlink-range-divider">—</div>
-                <div class="anlink-input-group">
+                <div class="anilink-range-divider">—</div>
+                <div class="anilink-input-group">
                     <label>To</label>
                     <input type="number" id="end" min="1" max="${total}" value="${Math.min(24, total)}" tabindex="2">
                 </div>
             </div>
-            <div class="anlink-quick-select">
-                <button class="anlink-quick-btn" data-range="1,24" tabindex="3">First 24</button>
-                <button class="anlink-quick-btn" data-range="${Math.max(1, total - 23)},${total}" tabindex="4">Last 24</button>
-                <button class="anlink-quick-btn" data-range="1,${total}" tabindex="5">All ${total}</button>
+            <div class="anilink-quick-select">
+                <button class="anilink-quick-btn" data-range="1,24" tabindex="3">First 24</button>
+                <button class="anilink-quick-btn" data-range="${Math.max(1, total - 23)},${total}" tabindex="4">Last 24</button>
+                <button class="anilink-quick-btn" data-range="1,${total}" tabindex="5">All ${total}</button>
             </div>
-            <div class="anlink-help-text">
+            <div class="anilink-help-text">
                 Use <kbd>Tab</kbd> to navigate • <kbd>↑↓</kbd> to adjust values • <kbd>Enter</kbd> to extract • <kbd>Esc</kbd> to cancel
             </div>
         `;
@@ -2601,12 +2607,12 @@ async function showEpisodeRangeSelector(total) {
         });
 
         AniLINKUI.addStyle(`
-            .anlink-range-inputs { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
-            .anlink-input-group { flex: 1; }
-            .anlink-input-group label { display: block; margin-bottom: 8px; font-size: 14px; color: #26a69a; font-weight: 500; }
-            .anlink-input-group input { width: 100%; padding: 12px; border: 2px solid #444; border-radius: 8px; background: var(--anlink-input-bg); color: #fff; font-size: 16px; text-align: center; transition: all 0.2s; }
-            .anlink-input-group input:focus { outline: none; border-color: #26a69a; box-shadow: 0 0 0 3px rgba(38,166,154,0.1); }
-            .anlink-range-divider { color: #26a69a; font-weight: bold; font-size: 18px; margin-top: 24px; }
+            .anilink-range-inputs { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+            .anilink-input-group { flex: 1; }
+            .anilink-input-group label { display: block; margin-bottom: 8px; font-size: 14px; color: #26a69a; font-weight: 500; }
+            .anilink-input-group input { width: 100%; padding: 12px; border: 2px solid #444; border-radius: 8px; background: var(--anilink-input-bg); color: #fff; font-size: 16px; text-align: center; transition: all 0.2s; }
+            .anilink-input-group input:focus { outline: none; border-color: #26a69a; box-shadow: 0 0 0 3px rgba(38,166,154,0.1); }
+            .anilink-range-divider { color: #26a69a; font-weight: bold; font-size: 18px; margin-top: 24px; }
         `);
 
         const [startInput, endInput] = modal.querySelectorAll('input');
@@ -2626,7 +2632,7 @@ async function showEpisodeRangeSelector(total) {
             });
         });
         // Quick select buttons
-        modal.querySelectorAll('.anlink-quick-btn').forEach(btn => {
+        modal.querySelectorAll('.anilink-quick-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const [s, e] = btn.dataset.range.split(',').map(Number);
                 startInput.value = s; endInput.value = e;
@@ -2644,7 +2650,7 @@ async function showEpisodeRangeSelector(total) {
  * Apply episode range filtering with modern UI
  ***************************************************************/
 async function applyEpisodeRangeFilter(allEpLinks) {
-    const status = AniLINKUI.query('.anlink-status-bar');
+    const status = AniLINKUI.query('.anilink-status-bar');
     if (allEpLinks.length <= EP_RANGE_THRESHOLD) return allEpLinks;
 
     status.textContent = `Found ${allEpLinks.length} episodes. Waiting for selection...`;
@@ -2676,24 +2682,24 @@ async function showSourceSelector(sourcesGetter, siteKey, defaults = {}) {
 
         const bodyHTML = `
             <small style="display:block;color:#ccc;font-size:11px;margin-bottom:12px;text-align:center;">Drag to reorder • Top = highest priority</small>
-            <div class="anlink-source-mode">
+            <div class="anilink-source-mode">
                 <label><input type="radio" name="mode" value="single" ${config.mode === 'single' ? 'checked' : ''}> Single (1st available)</label>
                 <label ${defaults.forceSingle && 'title="Multi-mode is disabled for this site"'}><input type="radio" name="mode" value="multi" ${defaults.forceSingle && 'disabled'}  ${config.mode === 'multi' ? 'checked' : ''}> Multi (all selected)</label>
             </div>
-            <div class="anlink-source-list" data-mode="${config.mode}">
-                ${config.sources.map((s, i) => `<div class="anlink-source-item" draggable="true" data-source="${s}">
-                    <span class="anlink-drag-handle">☰</span>
+            <div class="anilink-source-list" data-mode="${config.mode}">
+                ${config.sources.map((s, i) => `<div class="anilink-source-item" draggable="true" data-source="${s}">
+                    <span class="anilink-drag-handle">☰</span>
                     <input type="checkbox" id="src_${i}" ${config.selected.includes(s) ? 'checked' : ''}>
                     <label for="src_${i}">${s}</label>
-                    <span class="anlink-priority">#${i + 1}</span>
+                    <span class="anilink-priority">#${i + 1}</span>
                 </div>`).join('')}
             </div>
-            <div class="anlink-quick-select">
-                <button class="anlink-quick-btn" data-action="all">Select All</button>
-                <button class="anlink-quick-btn" data-action="none">Deselect All</button>
-                <button class="anlink-quick-btn" data-action="reset">Reset</button>
+            <div class="anilink-quick-select">
+                <button class="anilink-quick-btn" data-action="all">Select All</button>
+                <button class="anilink-quick-btn" data-action="none">Deselect All</button>
+                <button class="anilink-quick-btn" data-action="reset">Reset</button>
             </div>
-            <div class="anlink-help-text">Sources tried in order until one succeeds</div>
+            <div class="anilink-help-text">Sources tried in order until one succeeds</div>
         `;
 
         const { modal, primaryBtn } = createModal({
@@ -2704,7 +2710,7 @@ async function showSourceSelector(sourcesGetter, siteKey, defaults = {}) {
             width: '480px',
             onConfirm: () => {
                 const mode = modal.querySelector('input[name="mode"]:checked').value;
-                const sources = [...list.querySelectorAll('.anlink-source-item')]
+                const sources = [...list.querySelectorAll('.anilink-source-item')]
                     .filter(item => item.querySelector('input[type="checkbox"]').checked)
                     .map(item => item.dataset.source);
                 if (!sources.length) { showToast('⚠️ Please select at least one source'); return false; }
@@ -2716,35 +2722,35 @@ async function showSourceSelector(sourcesGetter, siteKey, defaults = {}) {
         });
 
         AniLINKUI.addStyle(`
-            .anlink-source-mode { display: flex; gap: 16px; margin-bottom: 16px; padding: 12px; background: rgba(38,166,154,0.1); border-radius: 8px; }
-            .anlink-source-mode label { display: flex; align-items: center; gap: 6px; cursor: pointer; color: #ccc; transition: color 0.2s; }
-            .anlink-source-mode input[type="radio"] { accent-color: #26a69a; }
-            .anlink-source-mode label:has(input:checked) { color: #26a69a; font-weight: 600; }
-            .anlink-source-mode label:has(input:disabled) { color: #555; cursor: not-allowed; }
-            .anlink-source-list { max-height: 320px; overflow-y: auto; margin-bottom: 16px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 8px; padding: 8px; background: var(--anlink-input-bg); }
-            .anlink-source-item { display: flex; align-items: center; gap: 10px; padding: 10px; margin-bottom: 6px; background: var(--anlink-glass-surface); border: 1px solid var(--anlink-glass-border-soft); border-radius: 6px; cursor: move; transition: all 0.2s; }
-            .anlink-source-item:hover { border-color: #26a69a; background: #333; }
-            .anlink-source-item.dragging { opacity: 0.5; }
-            .anlink-drag-handle { color: #666; cursor: grab; font-size: 18px; }
-            .anlink-drag-handle:active { cursor: grabbing; }
-            .anlink-source-item input[type="checkbox"] { accent-color: #26a69a; width: 18px; height: 18px; cursor: pointer; }
-            .anlink-source-item label { flex: 1; cursor: pointer; color: #eee; user-select: none; }
-            .anlink-priority { font-size: 12px; color: #26a69a; font-weight: 600; min-width: 28px; text-align: right; }
-            .anlink-source-list[data-mode="single"] .anlink-source-item:has(input:not(:checked)) { opacity: 0.4; }
+            .anilink-source-mode { display: flex; gap: 16px; margin-bottom: 16px; padding: 12px; background: rgba(38,166,154,0.1); border-radius: 8px; }
+            .anilink-source-mode label { display: flex; align-items: center; gap: 6px; cursor: pointer; color: #ccc; transition: color 0.2s; }
+            .anilink-source-mode input[type="radio"] { accent-color: #26a69a; }
+            .anilink-source-mode label:has(input:checked) { color: #26a69a; font-weight: 600; }
+            .anilink-source-mode label:has(input:disabled) { color: #555; cursor: not-allowed; }
+            .anilink-source-list { max-height: 320px; overflow-y: auto; margin-bottom: 16px; border: 1px solid var(--anilink-glass-border-soft); border-radius: 8px; padding: 8px; background: var(--anilink-input-bg); }
+            .anilink-source-item { display: flex; align-items: center; gap: 10px; padding: 10px; margin-bottom: 6px; background: var(--anilink-glass-surface); border: 1px solid var(--anilink-glass-border-soft); border-radius: 6px; cursor: move; transition: all 0.2s; }
+            .anilink-source-item:hover { border-color: #26a69a; background: #333; }
+            .anilink-source-item.dragging { opacity: 0.5; }
+            .anilink-drag-handle { color: #666; cursor: grab; font-size: 18px; }
+            .anilink-drag-handle:active { cursor: grabbing; }
+            .anilink-source-item input[type="checkbox"] { accent-color: #26a69a; width: 18px; height: 18px; cursor: pointer; }
+            .anilink-source-item label { flex: 1; cursor: pointer; color: #eee; user-select: none; }
+            .anilink-priority { font-size: 12px; color: #26a69a; font-weight: 600; min-width: 28px; text-align: right; }
+            .anilink-source-list[data-mode="single"] .anilink-source-item:has(input:not(:checked)) { opacity: 0.4; }
         `);
-        const list = modal.querySelector('.anlink-source-list');
+        const list = modal.querySelector('.anilink-source-list');
         const modeInputs = modal.querySelectorAll('input[name="mode"]');
         let draggedItem = null;
 
         list.addEventListener('dragstart', e => {
-            const item = e.target.closest('.anlink-source-item');
+            const item = e.target.closest('.anilink-source-item');
             if (!item) return;
             draggedItem = item;
             item.classList.add('dragging');
         });
 
         list.addEventListener('dragend', e => {
-            const item = e.target.closest('.anlink-source-item');
+            const item = e.target.closest('.anilink-source-item');
             if (item) item.classList.remove('dragging');
             updatePriorities();
         });
@@ -2752,14 +2758,14 @@ async function showSourceSelector(sourcesGetter, siteKey, defaults = {}) {
         list.addEventListener('dragover', e => {
             e.preventDefault();
             if (!draggedItem) return;
-            const afterElement = [...list.querySelectorAll('.anlink-source-item:not(.dragging)')]
+            const afterElement = [...list.querySelectorAll('.anilink-source-item:not(.dragging)')]
                 .find(el => e.clientY < el.getBoundingClientRect().top + el.offsetHeight / 2);
             if (afterElement) list.insertBefore(draggedItem, afterElement);
             else list.appendChild(draggedItem);
         });
         const updatePriorities = () => {
-            list.querySelectorAll('.anlink-source-item').forEach((item, i) => {
-                const priority = item.querySelector('.anlink-priority');
+            list.querySelectorAll('.anilink-source-item').forEach((item, i) => {
+                const priority = item.querySelector('.anilink-priority');
                 const checkbox = item.querySelector('input[type="checkbox"]');
                 priority.textContent = checkbox.checked ? `#${i + 1}` : '';
             });
@@ -2767,13 +2773,13 @@ async function showSourceSelector(sourcesGetter, siteKey, defaults = {}) {
 
         modeInputs.forEach(input => input.addEventListener('change', e => { list.dataset.mode = e.target.value; updatePriorities(); }));
         list.addEventListener('change', e => { if (e.target.type === 'checkbox') updatePriorities(); });
-        modal.querySelectorAll('.anlink-quick-btn').forEach(btn => btn.addEventListener('click', () => {
+        modal.querySelectorAll('.anilink-quick-btn').forEach(btn => btn.addEventListener('click', () => {
             const action = btn.dataset.action;
             const checkboxes = list.querySelectorAll('input[type="checkbox"]');
             if (action === 'all') checkboxes.forEach(cb => cb.checked = true);
             else if (action === 'none') checkboxes.forEach(cb => cb.checked = false);
             else if (action === 'reset') {
-                const items = [...list.querySelectorAll('.anlink-source-item')];
+                const items = [...list.querySelectorAll('.anilink-source-item')];
                 const defaultOrder = defaults.sources || availableSources;
                 items.forEach(item => item.querySelector('input[type="checkbox"]').checked = defaultOrder.includes(item.dataset.source));
                 list.append(...defaultOrder.map(source => items.find(i => i.dataset.source === source)).filter(Boolean), ...items.filter(i => !defaultOrder.includes(i.dataset.source)));
@@ -2797,41 +2803,41 @@ function showAniLINKInfoDialog() {
 
     if (!showAniLINKInfoDialog.stylesReady) {
         AniLINKUI.addStyle(`
-            @keyframes anlink-info-fade-in { from { opacity: 0; } to { opacity: 1; } }
-            @keyframes anlink-info-scale-in { from { opacity: 0; transform: scale(.94) translateY(12px); } to { opacity: 1; transform: scale(1) translateY(0); } }
-            .anlink-info-backdrop { position: fixed; inset: 0; z-index: 1002; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--anlink-modal-overlay); backdrop-filter: blur(8px) saturate(140%); -webkit-backdrop-filter: blur(8px) saturate(140%); animation: anlink-info-fade-in .25s ease-out; pointer-events: auto; }
-            .anlink-info-dialog { width: min(680px, 92vw); max-height: min(760px, 90vh); overflow: hidden; display: flex; flex-direction: column; color: #edf7f5; background: var(--anlink-glass-bg); border: 1.5px solid var(--anlink-glass-border); border-radius: 24px; box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); animation: anlink-info-scale-in .28s cubic-bezier(.4,0,.2,1); }
-            .anlink-info-header { display: flex; align-items: center; gap: 14px; padding: 22px 24px 18px; background: linear-gradient(180deg, var(--anlink-glass-border), transparent); border-bottom: 1px solid var(--anlink-glass-border-soft); }
-            .anlink-info-brand { display: grid; place-items: center; flex: none; width: 48px; height: 48px; border: 1px solid rgba(180,255,245,.2); border-radius: 15px; background: linear-gradient(135deg, rgba(38,166,154,.42), rgba(38,166,154,.08)); color: #b8fff5; font-size: 25px; box-shadow: 0 8px 24px rgba(38,166,154,.16); }
-            .anlink-info-heading { min-width: 0; flex: 1; } .anlink-info-heading h2 { margin: 0; color: #f1fffc; font: 700 21px/1.2 system-ui, sans-serif; } .anlink-info-heading p { margin: 5px 0 0; color: #9eb4b1; font: 12px/1.4 system-ui, sans-serif; }
-            .anlink-info-close { flex: none; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.12); border-radius: 10px; background: rgba(255,255,255,.05); color: #d9eeeb; cursor: pointer; font-size: 20px; line-height: 1; transition: border-color .2s, background .2s, transform .2s; } .anlink-info-close:hover { border-color: #26a69a; background: rgba(38,166,154,.18); transform: translateY(-2px); }
-            .anlink-info-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 18px 24px 0; padding: 5px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 12px; background: var(--anlink-glass-surface); }
-            .anlink-info-tab { min-height: 38px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #9eb4b1; cursor: pointer; font: 600 12px system-ui, sans-serif; transition: color .2s, background .2s, border-color .2s, transform .2s; } .anlink-info-tab:hover { color: #dffaf6; background: rgba(255,255,255,.06); } .anlink-info-tab.active { border-color: rgba(180,255,245,.18); background: rgba(38,166,154,.18); color: #9ff1e6; box-shadow: 0 4px 16px rgba(0,0,0,.12); }
-            .anlink-info-content { min-height: 0; overflow-y: auto; padding: 22px 24px 24px; }
-            .anlink-info-page { display: none; animation: anlink-info-fade-in .2s ease-out; } .anlink-info-page.active { display: block; }
-            .anlink-info-hero { display: flex; align-items: flex-start; gap: 14px; padding: 16px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 14px; background: linear-gradient(135deg, rgba(38,166,154,.14), var(--anlink-glass-surface)); } .anlink-info-hero-icon { font-size: 30px; line-height: 1; } .anlink-info-hero h3 { margin: 0; color: #eafff9; font: 700 18px/1.2 system-ui, sans-serif; } .anlink-info-hero p { margin: 7px 0 0; color: #a8bbb8; font: 13px/1.55 system-ui, sans-serif; }
-            .anlink-info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; } .anlink-info-card { padding: 13px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 12px; background: var(--anlink-glass-surface); } .anlink-info-card strong { display: block; margin-bottom: 5px; color: #b9f8ef; font: 600 12px system-ui, sans-serif; } .anlink-info-card span { color: #91a7a4; font: 11px/1.45 system-ui, sans-serif; }
-            .anlink-info-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 16px; color: #829794; font: 11px system-ui, sans-serif; } .anlink-info-meta strong { color: #c1d7d3; font-weight: 600; }
-            .anlink-info-links { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 18px; } .anlink-info-link { display: inline-flex; align-items: center; gap: 6px; padding: 9px 12px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: rgba(255,255,255,.05); color: #9ff1e6; text-decoration: none; font: 600 12px system-ui, sans-serif; transition: border-color .2s, background .2s, transform .2s; } .anlink-info-link:hover { border-color: #26a69a; background: rgba(38,166,154,.16); transform: translateY(-1px); }
-            .anlink-info-note { margin: 18px 0 0; color: #829794; font: 11px/1.5 system-ui, sans-serif; }
-            .anlink-info-choice { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 18px; } .anlink-info-choice button { padding: 13px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 11px; background: var(--anlink-glass-surface); color: #b4c9c5; cursor: pointer; font: 600 12px system-ui, sans-serif; transition: border-color .2s, background .2s, color .2s, transform .2s; } .anlink-info-choice button:hover { border-color: rgba(38,166,154,.58); color: #dffaf6; transform: translateY(-1px); } .anlink-info-choice button.active { border-color: rgba(126,239,225,.48); background: rgba(38,166,154,.18); color: #9ff1e6; }
-            .anlink-info-form { display: grid; gap: 12px; } .anlink-info-field { display: grid; gap: 6px; } .anlink-info-field label { color: #a8c0bc; font: 600 11px system-ui, sans-serif; } .anlink-info-field input, .anlink-info-field textarea { width: 100%; border: 1px solid var(--anlink-glass-border-soft); border-radius: 9px; outline: none; background: var(--anlink-input-bg); color: #eefbf8; font: 13px/1.4 system-ui, sans-serif; transition: border-color .2s, box-shadow .2s; } .anlink-info-field input { padding: 10px 11px; } .anlink-info-field textarea { min-height: 86px; padding: 10px 11px; resize: vertical; } .anlink-info-field input:focus, .anlink-info-field textarea:focus { border-color: #26a69a; box-shadow: 0 0 0 3px rgba(38,166,154,.12); }
-            .anlink-info-submit { justify-self: end; margin-top: 3px; padding: 10px 16px; border: 1px solid rgba(180,255,245,.2); border-radius: 9px; background: linear-gradient(135deg, rgba(38,166,154,.9), rgba(32,132,122,.82)); color: #fff; cursor: pointer; font: 600 12px system-ui, sans-serif; transition: transform .2s, box-shadow .2s, filter .2s; } .anlink-info-submit:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(38,166,154,.24); filter: brightness(1.08); }
-            .anlink-info-footnote { margin: 0; color: #829794; font: 11px/1.45 system-ui, sans-serif; }
-            .anlink-info-guides { display: grid; gap: 10px; }
-            .anlink-info-guide { border: 1px solid var(--anlink-glass-border-soft); border-radius: 12px; background: var(--anlink-glass-surface); overflow: hidden; }
-            .anlink-info-guide-summary { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; color: #b4c9c5; font: 600 12px system-ui, sans-serif; cursor: pointer; list-style: none; transition: color .2s, background .2s; }
-            .anlink-info-guide-summary::-webkit-details-marker { display: none; }
-            .anlink-info-guide-summary::after { content: '+'; font-weight: 700; color: #9ff1e6; transition: transform .2s; }
-            .anlink-info-guide[open] .anlink-info-guide-summary { color: #9ff1e6; background: rgba(38,166,154,.08); }
-            .anlink-info-guide[open] .anlink-info-guide-summary::after { content: '−'; }
-            .anlink-info-guide-body { padding: 0 16px 16px; color: #91a7a4; font: 12px/1.6 system-ui, sans-serif; }
-            .anlink-info-guide-body p { margin: 0; }
-            .anlink-info-guide-body p + p { margin-top: 10px; }
-            .anlink-info-guide-body code { padding: 2px 6px; border-radius: 5px; background: rgba(0,0,0,.25); color: #b9f8ef; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
-            .anlink-info-guide-body strong { color: #c1d7d3; }
-            .anlink-info-guide-body a { color: #9ff1e6; text-decoration: underline; }
-            @media (max-width: 680px) { .anlink-info-backdrop { padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); } .anlink-info-dialog { width: 100%; max-height: 100%; border-radius: 20px; } .anlink-info-header { padding: 18px 16px 14px; } .anlink-info-tabs { margin-inline: 16px; } .anlink-info-content { padding: 18px 16px 20px; } .anlink-info-grid { grid-template-columns: 1fr; } .anlink-info-choice { grid-template-columns: 1fr; } .anlink-info-tab { min-height: 42px; } }
+            @keyframes anilink-info-fade-in { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes anilink-info-scale-in { from { opacity: 0; transform: scale(.94) translateY(12px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+            .anilink-info-backdrop { position: fixed; inset: 0; z-index: 1002; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--anilink-modal-overlay); backdrop-filter: var(--anilink-glass-blur); -webkit-backdrop-filter: var(--anilink-glass-blur); animation: anilink-info-fade-in .25s ease-out; pointer-events: auto; }
+            .anilink-info-dialog { width: min(680px, 92vw); max-height: min(760px, 90vh); overflow: hidden; display: flex; flex-direction: column; color: #edf7f5; background: var(--anilink-glass-bg); border: 1.5px solid var(--anilink-glass-border); border-radius: 24px; box-shadow: var(--anilink-glass-shadow); backdrop-filter: var(--anilink-glass-blur); -webkit-backdrop-filter: var(--anilink-glass-blur); animation: anilink-info-scale-in .28s cubic-bezier(.4,0,.2,1); }
+            .anilink-info-header { display: flex; align-items: center; gap: 14px; padding: 22px 24px 18px; background: linear-gradient(180deg, var(--anilink-glass-border), transparent); border-bottom: 1px solid var(--anilink-glass-border-soft); }
+            .anilink-info-brand { display: grid; place-items: center; flex: none; width: 48px; height: 48px; border: 1px solid rgba(180,255,245,.2); border-radius: 15px; background: linear-gradient(135deg, rgba(38,166,154,.42), rgba(38,166,154,.08)); color: #b8fff5; font-size: 25px; box-shadow: 0 8px 24px rgba(38,166,154,.16); }
+            .anilink-info-heading { min-width: 0; flex: 1; } .anilink-info-heading h2 { margin: 0; color: #f1fffc; font: 700 21px/1.2 system-ui, sans-serif; } .anilink-info-heading p { margin: 5px 0 0; color: #9eb4b1; font: 12px/1.4 system-ui, sans-serif; }
+            .anilink-info-close { flex: none; width: 36px; height: 36px; border: 1px solid rgba(255,255,255,.12); border-radius: 10px; background: rgba(255,255,255,.05); color: #d9eeeb; cursor: pointer; font-size: 20px; line-height: 1; transition: border-color .2s, background .2s, transform .2s; } .anilink-info-close:hover { border-color: #26a69a; background: rgba(38,166,154,.18); transform: translateY(-2px); }
+            .anilink-info-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 18px 24px 0; padding: 5px; border: 1px solid var(--anilink-glass-border-soft); border-radius: 12px; background: var(--anilink-glass-surface); }
+            .anilink-info-tab { min-height: 38px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #9eb4b1; cursor: pointer; font: 600 12px system-ui, sans-serif; transition: color .2s, background .2s, border-color .2s, transform .2s; } .anilink-info-tab:hover { color: #dffaf6; background: rgba(255,255,255,.06); } .anilink-info-tab.active { border-color: rgba(180,255,245,.18); background: rgba(38,166,154,.18); color: #9ff1e6; box-shadow: 0 4px 16px rgba(0,0,0,.12); }
+            .anilink-info-content { min-height: 0; overflow-y: auto; padding: 22px 24px 24px; }
+            .anilink-info-page { display: none; animation: anilink-info-fade-in .2s ease-out; } .anilink-info-page.active { display: block; }
+            .anilink-info-hero { display: flex; align-items: flex-start; gap: 14px; padding: 16px; border: 1px solid var(--anilink-glass-border-soft); border-radius: 14px; background: linear-gradient(135deg, rgba(38,166,154,.14), var(--anilink-glass-surface)); } .anilink-info-hero-icon { font-size: 30px; line-height: 1; } .anilink-info-hero h3 { margin: 0; color: #eafff9; font: 700 18px/1.2 system-ui, sans-serif; } .anilink-info-hero p { margin: 7px 0 0; color: #a8bbb8; font: 13px/1.55 system-ui, sans-serif; }
+            .anilink-info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; } .anilink-info-card { padding: 13px; border: 1px solid var(--anilink-glass-border-soft); border-radius: 12px; background: var(--anilink-glass-surface); } .anilink-info-card strong { display: block; margin-bottom: 5px; color: #b9f8ef; font: 600 12px system-ui, sans-serif; } .anilink-info-card span { color: #91a7a4; font: 11px/1.45 system-ui, sans-serif; }
+            .anilink-info-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 16px; color: #829794; font: 11px system-ui, sans-serif; } .anilink-info-meta strong { color: #c1d7d3; font-weight: 600; }
+            .anilink-info-links { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 18px; } .anilink-info-link { display: inline-flex; align-items: center; gap: 6px; padding: 9px 12px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: rgba(255,255,255,.05); color: #9ff1e6; text-decoration: none; font: 600 12px system-ui, sans-serif; transition: border-color .2s, background .2s, transform .2s; } .anilink-info-link:hover { border-color: #26a69a; background: rgba(38,166,154,.16); transform: translateY(-1px); }
+            .anilink-info-note { margin: 18px 0 0; color: #829794; font: 11px/1.5 system-ui, sans-serif; }
+            .anilink-info-choice { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 18px; } .anilink-info-choice button { padding: 13px; border: 1px solid var(--anilink-glass-border-soft); border-radius: 11px; background: var(--anilink-glass-surface); color: #b4c9c5; cursor: pointer; font: 600 12px system-ui, sans-serif; transition: border-color .2s, background .2s, color .2s, transform .2s; } .anilink-info-choice button:hover { border-color: rgba(38,166,154,.58); color: #dffaf6; transform: translateY(-1px); } .anilink-info-choice button.active { border-color: rgba(126,239,225,.48); background: rgba(38,166,154,.18); color: #9ff1e6; }
+            .anilink-info-form { display: grid; gap: 12px; } .anilink-info-field { display: grid; gap: 6px; } .anilink-info-field label { color: #a8c0bc; font: 600 11px system-ui, sans-serif; } .anilink-info-field input, .anilink-info-field textarea { width: 100%; border: 1px solid var(--anilink-glass-border-soft); border-radius: 9px; outline: none; background: var(--anilink-input-bg); color: #eefbf8; font: 13px/1.4 system-ui, sans-serif; transition: border-color .2s, box-shadow .2s; } .anilink-info-field input { padding: 10px 11px; } .anilink-info-field textarea { min-height: 86px; padding: 10px 11px; resize: vertical; } .anilink-info-field input:focus, .anilink-info-field textarea:focus { border-color: #26a69a; box-shadow: 0 0 0 3px rgba(38,166,154,.12); }
+            .anilink-info-submit { justify-self: end; margin-top: 3px; padding: 10px 16px; border: 1px solid rgba(180,255,245,.2); border-radius: 9px; background: linear-gradient(135deg, rgba(38,166,154,.9), rgba(32,132,122,.82)); color: #fff; cursor: pointer; font: 600 12px system-ui, sans-serif; transition: transform .2s, box-shadow .2s, filter .2s; } .anilink-info-submit:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(38,166,154,.24); filter: brightness(1.08); }
+            .anilink-info-footnote { margin: 0; color: #829794; font: 11px/1.45 system-ui, sans-serif; }
+            .anilink-info-guides { display: grid; gap: 10px; }
+            .anilink-info-guide { border: 1px solid var(--anilink-glass-border-soft); border-radius: 12px; background: var(--anilink-glass-surface); overflow: hidden; }
+            .anilink-info-guide-summary { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; color: #b4c9c5; font: 600 12px system-ui, sans-serif; cursor: pointer; list-style: none; transition: color .2s, background .2s; }
+            .anilink-info-guide-summary::-webkit-details-marker { display: none; }
+            .anilink-info-guide-summary::after { content: '+'; font-weight: 700; color: #9ff1e6; transition: transform .2s; }
+            .anilink-info-guide[open] .anilink-info-guide-summary { color: #9ff1e6; background: rgba(38,166,154,.08); }
+            .anilink-info-guide[open] .anilink-info-guide-summary::after { content: '−'; }
+            .anilink-info-guide-body { padding: 0 16px 16px; color: #91a7a4; font: 12px/1.6 system-ui, sans-serif; }
+            .anilink-info-guide-body p { margin: 0; }
+            .anilink-info-guide-body p + p { margin-top: 10px; }
+            .anilink-info-guide-body code { padding: 2px 6px; border-radius: 5px; background: rgba(0,0,0,.25); color: #b9f8ef; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+            .anilink-info-guide-body strong { color: #c1d7d3; }
+            .anilink-info-guide-body a { color: #9ff1e6; text-decoration: underline; }
+            @media (max-width: 680px) { .anilink-info-backdrop { padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); } .anilink-info-dialog { width: 100%; max-height: 100%; border-radius: 20px; } .anilink-info-header { padding: 18px 16px 14px; } .anilink-info-tabs { margin-inline: 16px; } .anilink-info-content { padding: 18px 16px 20px; } .anilink-info-grid { grid-template-columns: 1fr; } .anilink-info-choice { grid-template-columns: 1fr; } .anilink-info-tab { min-height: 42px; } }
         `);
         showAniLINKInfoDialog.stylesReady = true;
     }
@@ -2840,35 +2846,35 @@ function showAniLINKInfoDialog() {
     const GREASYFORK_SVG = `<svg height="16" viewBox="0 0 24 24" width="16" fill="currentColor" style="vertical-align: text-bottom; margin-right: 4px;" aria-hidden="true"><path d="M5.89 2.227a.28.28 0 0 1 .266.076l5.063 5.062c.54.54.509 1.652-.031 2.192l8.771 8.77c1.356 1.355-.36 3.097-1.73 1.728l-8.772-8.77c-.54.54-1.651.571-2.191.031l-5.063-5.06c-.304-.304.304-.911.608-.608l3.714 3.713L7.59 8.297L3.875 4.582c-.304-.304.304-.911.607-.607l3.715 3.714l1.067-1.066L5.549 2.91c-.228-.228.057-.626.342-.683ZM12 0C5.374 0 0 5.375 0 12s5.374 12 12 12c6.625 0 12-5.375 12-12S18.625 0 12 0"/></svg>`;
     const version = typeof GM_info !== 'undefined' ? GM_info.script.version : 'unknown';
     const dialog = document.createElement('div');
-    dialog.className = 'anlink-info-backdrop';
+    dialog.className = 'anilink-info-backdrop';
     dialog.innerHTML = `
-        <section class="anlink-info-dialog" role="dialog" aria-modal="true" aria-labelledby="anlink-info-title">
-            <header class="anlink-info-header">
-                <div class="anlink-info-brand" aria-hidden="true"><img src="${GM_info?.script?.icon || '❤️'}" alt="AniLINK Logo" style="width: 46px; height: 46px;"></div>
-                <div class="anlink-info-heading"><h2 id="anlink-info-title">AniLINK</h2><p>Extract, stream, and download episodes with ease.</p></div>
-                <button type="button" class="anlink-info-close" data-info-action="close" title="Close" aria-label="Close">×</button>
+        <section class="anilink-info-dialog" role="dialog" aria-modal="true" aria-labelledby="anilink-info-title">
+            <header class="anilink-info-header">
+                <div class="anilink-info-brand" aria-hidden="true"><img src="${GM_info?.script?.icon || '❤️'}" alt="AniLINK Logo" style="width: 46px; height: 46px;"></div>
+                <div class="anilink-info-heading"><h2 id="anilink-info-title">AniLINK</h2><p>Extract, stream, and download episodes with ease.</p></div>
+                <button type="button" class="anilink-info-close" data-info-action="close" title="Close" aria-label="Close">×</button>
             </header>
-            <nav class="anlink-info-tabs" aria-label="AniLINK information">
-                <button type="button" class="anlink-info-tab active" data-info-tab="about" aria-selected="true">About</button>
-                <button type="button" class="anlink-info-tab" data-info-tab="guides" aria-selected="false">Guides</button>
-                <button type="button" class="anlink-info-tab" data-info-tab="request" aria-selected="false">Request</button>
-                <button type="button" class="anlink-info-tab" data-info-tab="issue" aria-selected="false">Report</button>
+            <nav class="anilink-info-tabs" aria-label="AniLINK information">
+                <button type="button" class="anilink-info-tab active" data-info-tab="about" aria-selected="true">About</button>
+                <button type="button" class="anilink-info-tab" data-info-tab="guides" aria-selected="false">Guides</button>
+                <button type="button" class="anilink-info-tab" data-info-tab="request" aria-selected="false">Request</button>
+                <button type="button" class="anilink-info-tab" data-info-tab="issue" aria-selected="false">Report</button>
             </nav>
-            <div class="anlink-info-content">
-                <section class="anlink-info-page active" data-info-page="about"><div class="anlink-info-hero"><span class="anlink-info-hero-icon" aria-hidden="true">✨</span><div><h3>Direct links, playlists, and downloads.</h3><p>AniLINK pulls streams out of supported anime pages so you can stop copy-pasting URLs and start watching.</p></div></div><div class="anlink-info-grid"><div class="anlink-info-card"><strong>Direct links</strong><span>Episode streams grouped by quality and source. Pick what you need.</span></div><div class="anlink-info-card"><strong>Instant playback</strong><span>Send episodes and playlists straight to MPV with one click.</span></div><div class="anlink-info-card"><strong>Batch downloads</strong><span>Queue episodes and manage downloads in the background.</span></div></div><div class="anlink-info-meta"><span><strong>Version</strong> ${version}</span><span><strong>License</strong> MIT</span><span><strong>Made with ♡ by</strong> JeryJs</span></div>                <div class="anlink-info-links"><a class="anlink-info-link" href="${ANILINK_GITHUB_REPO}" target="_blank">${GITHUB_SVG} GitHub</a><a class="anlink-info-link" href="${ANILINK_GREASYFORK_PAGE}" target="_blank">${GREASYFORK_SVG} GreasyFork</a></div><p class="anlink-info-note">AniLINK is intended for personal use. Please follow the laws and terms that apply in your region.</p></section>
-                <section class="anlink-info-page" data-info-page="guides">
-                    <div class="anlink-info-guides">
+            <div class="anilink-info-content">
+                <section class="anilink-info-page active" data-info-page="about"><div class="anilink-info-hero"><span class="anilink-info-hero-icon" aria-hidden="true">✨</span><div><h3>Direct links, playlists, and downloads.</h3><p>AniLINK pulls streams out of supported anime pages so you can stop copy-pasting URLs and start watching.</p></div></div><div class="anilink-info-grid"><div class="anilink-info-card"><strong>Direct links</strong><span>Episode streams grouped by quality and source. Pick what you need.</span></div><div class="anilink-info-card"><strong>Instant playback</strong><span>Send episodes and playlists straight to MPV with one click.</span></div><div class="anilink-info-card"><strong>Batch downloads</strong><span>Queue episodes and manage downloads in the background.</span></div></div><div class="anilink-info-meta"><span><strong>Version</strong> ${version}</span><span><strong>License</strong> MIT</span><span><strong>Made with ♡ by</strong> JeryJs</span></div>                <div class="anilink-info-links"><a class="anilink-info-link" href="${ANILINK_GITHUB_REPO}" target="_blank">${GITHUB_SVG} GitHub</a><a class="anilink-info-link" href="${ANILINK_GREASYFORK_PAGE}" target="_blank">${GREASYFORK_SVG} GreasyFork</a></div><p class="anilink-info-note">AniLINK is intended for personal use. Please follow the laws and terms that apply in your region.</p></section>
+                <section class="anilink-info-page" data-info-page="guides">
+                    <div class="anilink-info-guides">
                         <aside><small><i>Demos: <a href="https://imgur.com/a/79urhGf" target="_blank" rel="noopener">https://imgur.com/a/79urhGf</a></i></small></aside>
-                        <details class="anlink-info-guide">
-                            <summary class="anlink-info-guide-summary">Start Button?</summary>
-                            <div class="anlink-info-guide-body">
+                        <details class="anilink-info-guide">
+                            <summary class="anilink-info-guide-summary">Start Button?</summary>
+                            <div class="anilink-info-guide-body">
                                 <p>Okay, the main entry point is through the "Extract Episodes" menu command in the script menu accessible via the browser's extension in the toolbar.</p>
                                 <p>Also as a second method, most sites will have a custom button like "Extract Episode Links" or "Generate Episode links" typically added next to the episode list in their watch/info page. If you don't see a button, then it probably doesn't exist so just run from the script menu.</p>
                             </div>
                         </details>
-                        <details class="anlink-info-guide">
-                            <summary class="anlink-info-guide-summary">What other sites are supported?</summary>
-                            <div class="anlink-info-guide-body">
+                        <details class="anilink-info-guide">
+                            <summary class="anilink-info-guide-summary">What other sites are supported?</summary>
+                            <div class="anilink-info-guide-body">
                                 <p>Here's a table below showing the currently supported sites:<br><small><i>(I might not update this section too often, so check the <a href="${ANILINK_GITHUB_REPO}/README.md" target="_blank">README</a> for the most up-to-date list)</i></small></p>
                                 <table>
                                     <thead><tr><th><strong>Name</strong></th><th><strong>Domain(s)</strong></th><th><strong>Has start button?</strong></th></tr></thead>
@@ -2883,17 +2889,17 @@ function showAniLINKInfoDialog() {
                                 </table>
                             </div>
                         </details>
-                        <details class="anlink-info-guide">
-                            <summary class="anlink-info-guide-summary">Exporting playlists</summary>
-                            <div class="anlink-info-guide-body">
+                        <details class="anilink-info-guide">
+                            <summary class="anilink-info-guide-summary">Exporting playlists</summary>
+                            <div class="anilink-info-guide-body">
                                 <p>The 'Export Playlist' feature is meant to save the extracted lists into a text file (.m3u8) that can be opened with media players like VLC or MPV.</p>
                                 <p>It's ideal if you want to have the comfort of having all animes in your downloads folder, but not have it take any space (its just a few KBs)—your media player will stream the episodes directly from the source.</p>
                                 <p><strong>Note:</strong> Some sites may have restrictions on cross-origin requests, which can prevent the playlist from working properly. MPV is the primarily supported media player and installing my <a href="https://github.com/jeryjs/Userscripts/raw/refs/heads/main/AniLINK/anilink-m3u8.lua" target="_blank">anilink-m3u8.lua</a> script in MPV will fully resolve all such issues.</p>
                             </div>
                         </details>
-                        <details class="anlink-info-guide">
-                            <summary class="anlink-info-guide-summary">Downloading episodes</summary>
-                            <div class="anlink-info-guide-body">
+                        <details class="anilink-info-guide">
+                            <summary class="anilink-info-guide-summary">Downloading episodes</summary>
+                            <div class="anilink-info-guide-body">
                                 <p><strong>Using the Built-in Downloader:</strong></p>
                                 <ol>
                                     <li>Select episodes using checkboxes (or leave none selected to download all)</li>
@@ -2914,9 +2920,9 @@ function showAniLINKInfoDialog() {
                                 <p><strong>Fallback:</strong> If the built-in downloader fails, use the <strong>Copy</strong> button to get links and paste them into your browser or download manager (IDM, FDM, etc.).</p>
                             </div>
                         </details>
-                        <details class="anlink-info-guide">
-                            <summary class="anlink-info-guide-summary">Playing with External Players</summary>
-                            <div class="anlink-info-guide-body">
+                        <details class="anilink-info-guide">
+                            <summary class="anilink-info-guide-summary">Playing with External Players</summary>
+                            <div class="anilink-info-guide-body">
                                 <p><strong>Single Episode:</strong> Hover over an episode card and click the play button (▶), or click the episode number in Source View.</p>
                                 <p><strong>Batch Playback:</strong> Select multiple episodes and click <strong>Play With → MPV</strong> to send a playlist.</p>
                                 <p><strong>Supported Players:</strong></p>
@@ -2924,9 +2930,9 @@ function showAniLINKInfoDialog() {
                                 <p><strong>Setting Preferred Player:</strong> The last player you use becomes your default. Click the player badge (★) in the Play With popover to set it.</p>
                             </div>
                         </details>
-                        <details class="anlink-info-guide">
-                            <summary class="anlink-info-guide-summary">MPV integration</summary>
-                            <div class="anlink-info-guide-body">
+                        <details class="anilink-info-guide">
+                            <summary class="anilink-info-guide-summary">MPV integration</summary>
+                            <div class="anilink-info-guide-body">
                                 <p>MPV is the recommended player for use with AniLINK. It supports custom headers, subtitle tracks, and playlist streaming with full support.</p><p><strong>Step 1: Install mpv-handler</strong><br>
                                 Install the <a href="https://github.com/akiirui/mpv-handler" target="_blank">mpv-handler</a> browser extension. This allows AniLINK to send links directly to MPV via the <code>mpv://</code> protocol.</p><p><strong>Step 2: Install the AniLINK MPV script</strong><br>
                                 Download <a href="https://github.com/jeryjs/Userscripts/raw/refs/heads/main/AniLINK/anilink-m3u8.lua" target="_blank">anilink-m3u8.lua</a> and place it in your MPV <code>scripts</code> folder (usually <code>~/.config/mpv/scripts/</code> on Linux, <code>%APPDATA%\mpv\scripts\</code> on Windows, or <code>~/.config/mpv/scripts/</code> on macOS).</p><p><strong>What this script does:</strong></p>
@@ -2950,9 +2956,9 @@ function showAniLINKInfoDialog() {
                                 You can toggle between <code>mpv-handler</code> (standard) and <code>mpv-handler-debug</code> (verbose console output) in the script settings if you need to debug connection issues.</p>
                             </div>
                         </details>
-                        <details class="anlink-info-guide">
-                            <summary class="anlink-info-guide-summary">Browser Compatibility</summary>
-                            <div class="anlink-info-guide-body">
+                        <details class="anilink-info-guide">
+                            <summary class="anilink-info-guide-summary">Browser Compatibility</summary>
+                            <div class="anilink-info-guide-body">
                                 <p><strong>Chromium-based browsers (Edge, Chrome, Opera, Brave):</strong> ✅ Full support</p>
                                 <ul>
                                     <li>Downloads, MPV launching, and playlist export all work perfectly</li>
@@ -2981,9 +2987,9 @@ function showAniLINKInfoDialog() {
                                 <p><strong>💡 Recommendation:</strong> For the full AniLINK experience, use a <strong>Chromium-based browser</strong> (Edge or Chrome recommended) with Tampermonkey or Violentmonkey.</p>
                             </div>
                         </details>
-                        <details class="anlink-info-guide">
-                            <summary class="anlink-info-guide-summary">Understanding the Interface</summary>
-                            <div class="anlink-info-guide-body">
+                        <details class="anilink-info-guide">
+                            <summary class="anilink-info-guide-summary">Understanding the Interface</summary>
+                            <div class="anilink-info-guide-body">
                                 <p><strong>Source View:</strong> Episodes are grouped by streaming source (e.g., Kiwi, Megaplay). Each source section can be collapsed/expanded. Click the source name or chevron to toggle.</p>
                                 <p><strong>Episode View:</strong> A grid of episode cards showing thumbnail previews. Hover over cards to see quick actions (download, play, copy).</p>
                                 <p><strong>Selection:</strong> Checkboxes allow you to select specific episodes for batch operations. Shift+Click source headers to select all episodes in that source.</p>
@@ -2997,9 +3003,9 @@ function showAniLINKInfoDialog() {
                                 <p><strong>Source Priority:</strong> In Episode View, use the "Source order" button to reorder sources. The first available source is shown on each card.</p>
                             </div>
                         </details>
-                        <details class="anlink-info-guide">
-                            <summary class="anlink-info-guide-summary">Tips and Tricks</summary>
-                            <div class="anlink-info-guide-body">
+                        <details class="anilink-info-guide">
+                            <summary class="anilink-info-guide-summary">Tips and Tricks</summary>
+                            <div class="anilink-info-guide-body">
                                 <p><strong>Keyboard Shortcuts:</strong></p>
                                 <ul>
                                     <li><kbd>Tab</kbd> / <kbd>Shift+Tab</kbd> - Navigate between elements</li>
@@ -3039,9 +3045,9 @@ function showAniLINKInfoDialog() {
                                 </ul>
                             </div>
                         </details>
-                        <details class="anlink-info-guide">
-                            <summary class="anlink-info-guide-summary">Troubleshooting</summary>
-                            <div class="anlink-info-guide-body">
+                        <details class="anilink-info-guide">
+                            <summary class="anilink-info-guide-summary">Troubleshooting</summary>
+                            <div class="anilink-info-guide-body">
                                 <p><strong>No episodes found / Extraction fails:</strong></p>
                                 <ul>
                                     <li>Refresh the page and try again</li>
@@ -3084,8 +3090,8 @@ function showAniLINKInfoDialog() {
                         </details>
                     </div>
                 </section>
-                <section class="anlink-info-page" data-info-page="request"><div class="anlink-info-choice"><button type="button" class="active" data-request-kind="site">🌐 Request a site</button><button type="button" data-request-kind="feature">✨ Suggest a feature</button></div><div class="anlink-info-form"><div class="anlink-info-field"><label for="anlink-request-title">Title</label><input id="anlink-request-title" data-info-field="request-title" type="text" placeholder="Which site should AniLINK support?"></div><div class="anlink-info-field"><label for="anlink-request-details">Details</label><textarea id="anlink-request-details" data-info-field="request-details" placeholder="Tell me what you would like to see and include useful links or examples."></textarea></div><button type="button" class="anlink-info-submit" data-info-action="open-request">Open request form ↗</button><p class="anlink-info-footnote">This opens a prefilled GitHub issue so the request can be discussed and tracked.</p></div></section>
-                <section class="anlink-info-page" data-info-page="issue"><div class="anlink-info-choice"><button type="button" class="active" data-issue-kind="bug">🐞 Bug report</button><button type="button" data-issue-kind="downloader">⇩ Downloader issue</button></div><div class="anlink-info-form"><div class="anlink-info-field"><label for="anlink-issue-title">Title</label><input id="anlink-issue-title" data-info-field="issue-title" type="text" placeholder="What went wrong?"></div><div class="anlink-info-field"><label for="anlink-issue-description">Description</label><textarea id="anlink-issue-description" data-info-field="issue-description" placeholder="Describe the problem and what you expected to happen."></textarea></div><div class="anlink-info-field"><label for="anlink-issue-steps">Steps to reproduce</label><textarea id="anlink-issue-steps" data-info-field="issue-steps" placeholder="1. ...&#10;2. ..."></textarea></div><button type="button" class="anlink-info-submit" data-info-action="open-issue">Open issue form ↗</button><p class="anlink-info-footnote">Please include the affected site, browser, and userscript manager when possible.</p></div></section>
+                <section class="anilink-info-page" data-info-page="request"><div class="anilink-info-choice"><button type="button" class="active" data-request-kind="site">🌐 Request a site</button><button type="button" data-request-kind="feature">✨ Suggest a feature</button></div><div class="anilink-info-form"><div class="anilink-info-field"><label for="anilink-request-title">Title</label><input id="anilink-request-title" data-info-field="request-title" type="text" placeholder="Which site should AniLINK support?"></div><div class="anilink-info-field"><label for="anilink-request-details">Details</label><textarea id="anilink-request-details" data-info-field="request-details" placeholder="Tell me what you would like to see and include useful links or examples."></textarea></div><button type="button" class="anilink-info-submit" data-info-action="open-request">Open request form ↗</button><p class="anilink-info-footnote">This opens a prefilled GitHub issue so the request can be discussed and tracked.</p></div></section>
+                <section class="anilink-info-page" data-info-page="issue"><div class="anilink-info-choice"><button type="button" class="active" data-issue-kind="bug">🐞 Bug report</button><button type="button" data-issue-kind="downloader">⇩ Downloader issue</button></div><div class="anilink-info-form"><div class="anilink-info-field"><label for="anilink-issue-title">Title</label><input id="anilink-issue-title" data-info-field="issue-title" type="text" placeholder="What went wrong?"></div><div class="anilink-info-field"><label for="anilink-issue-description">Description</label><textarea id="anilink-issue-description" data-info-field="issue-description" placeholder="Describe the problem and what you expected to happen."></textarea></div><div class="anilink-info-field"><label for="anilink-issue-steps">Steps to reproduce</label><textarea id="anilink-issue-steps" data-info-field="issue-steps" placeholder="1. ...&#10;2. ..."></textarea></div><button type="button" class="anilink-info-submit" data-info-action="open-issue">Open issue form ↗</button><p class="anilink-info-footnote">Please include the affected site, browser, and userscript manager when possible.</p></div></section>
             </div>
         </section>
     `;
@@ -3106,7 +3112,7 @@ function showAniLINKInfoDialog() {
     };
     const selectKind = (selector, attribute, value) => dialog.querySelectorAll(selector).forEach(button => button.classList.toggle('active', button.dataset[attribute] === value));
 
-    dialog.querySelectorAll('.anlink-info-guide').forEach(detail => detail.addEventListener('toggle', () => { if (detail.open) dialog.querySelectorAll('.anlink-info-guide').forEach(other => { if (other !== detail && other.open) other.open = false; }); }));
+    dialog.querySelectorAll('.anilink-info-guide').forEach(detail => detail.addEventListener('toggle', () => { if (detail.open) dialog.querySelectorAll('.anilink-info-guide').forEach(other => { if (other !== detail && other.open) other.open = false; }); }));
     dialog.querySelectorAll('[data-info-tab]').forEach(tab => tab.addEventListener('click', () => switchPage(tab.dataset.infoTab)));
     dialog.querySelectorAll('[data-request-kind]').forEach(button => button.addEventListener('click', () => {
         selectKind('[data-request-kind]', 'requestKind', button.dataset.requestKind);
@@ -3148,23 +3154,26 @@ function showToast(message, duration = 5000) {
     const toastHeight = 70;
     const maxToasts = Math.floor(maxToastHeight / toastHeight);
 
+    // Explicit override for certain messages:
+    if (message.includes('GM_fetch is not defined')) message += ' (Please reinstall this userscript from <a href="https://greasyfork.org/en/scripts/456789-anilink-episode-link-extractor" target="_blank">GreasyFork</a>.)';
+
     console.log(message);
 
     // Inject toast styles if not already present
     if (!showToast.stylesReady) {
         AniLINKUI.addStyle(`
-            @keyframes anlink-toast-slide-in { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-            @keyframes anlink-toast-slide-out { from { transform: translateX(0); opacity: 1; } to { transform: translateX(400px); opacity: 0; } }
-            .anlink-toast { position: fixed; right: 20px; min-width: 300px; max-width: 400px; background: var(--anlink-glass-bg); border: 1px solid var(--anlink-glass-border); border-radius: 14px; padding: 16px 20px; box-shadow: var(--anlink-glass-shadow); z-index: 10000; display: flex; align-items: flex-start; gap: 12px; animation: anlink-toast-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); transition: top 0.4s cubic-bezier(0.16, 1, 0.3, 1); pointer-events: auto; }
-            .anlink-toast.slide-out { animation: anlink-toast-slide-out 0.3s cubic-bezier(0.7, 0, 0.84, 0) forwards; }
-            .anlink-toast-icon { flex-shrink: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: rgba(38,166,154,.48); border: 1px solid rgba(180,255,245,.18); border-radius: 50%; color: #f2fffd; font-size: 14px; font-weight: bold; }
-            .anlink-toast-content { flex: 1; color: #e8f6f3; font-size: 14px; line-height: 1.5; font-weight: 500; padding-right: 36px; }
-            .anlink-toast-content a { color: #26a69a; text-decoration: none; font-weight: 600; border-bottom: 1px solid transparent; transition: border-color 0.2s; }
-            .anlink-toast-content a:hover { border-bottom-color: #26a69a; }
-            .anlink-toast-close { position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.1); border-radius: 50%; color: #c7d8d5; cursor: pointer; font-size: 16px; line-height: 1; transition: all 0.2s; padding: 0; }
-            .anlink-toast-close:hover { background: rgba(255,255,255,.16); color: #fff; transform: scale(1.1); }
+            @keyframes anilink-toast-slide-in { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+            @keyframes anilink-toast-slide-out { from { transform: translateX(0); opacity: 1; } to { transform: translateX(400px); opacity: 0; } }
+            .anilink-toast { position: fixed; right: 20px; min-width: 300px; max-width: 400px; background: var(--anilink-glass-bg); border: 1px solid var(--anilink-glass-border); border-radius: 14px; padding: 16px 20px; box-shadow: var(--anilink-glass-shadow); z-index: 10000; display: flex; align-items: flex-start; gap: 12px; animation: anilink-toast-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1); backdrop-filter: var(--anilink-glass-blur); -webkit-backdrop-filter: var(--anilink-glass-blur); transition: top 0.4s cubic-bezier(0.16, 1, 0.3, 1); pointer-events: auto; }
+            .anilink-toast.slide-out { animation: anilink-toast-slide-out 0.3s cubic-bezier(0.7, 0, 0.84, 0) forwards; }
+            .anilink-toast-icon { flex-shrink: 0; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; background: rgba(38,166,154,.48); border: 1px solid rgba(180,255,245,.18); border-radius: 50%; color: #f2fffd; font-size: 14px; font-weight: bold; }
+            .anilink-toast-content { flex: 1; color: #e8f6f3; font-size: 14px; line-height: 1.5; font-weight: 500; padding-right: 36px; }
+            .anilink-toast-content a { color: #26a69a; text-decoration: none; font-weight: 600; border-bottom: 1px solid transparent; transition: border-color 0.2s; }
+            .anilink-toast-content a:hover { border-bottom-color: #26a69a; }
+            .anilink-toast-close { position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.1); border-radius: 50%; color: #c7d8d5; cursor: pointer; font-size: 16px; line-height: 1; transition: all 0.2s; padding: 0; }
+            .anilink-toast-close:hover { background: rgba(255,255,255,.16); color: #fff; transform: scale(1.1); }
             @media (max-width: 680px) {
-                .anlink-toast { left: max(10px, env(safe-area-inset-left)); right: max(10px, env(safe-area-inset-right)); min-width: 0; max-width: none; width: auto; }
+                .anilink-toast { left: max(10px, env(safe-area-inset-left)); right: max(10px, env(safe-area-inset-right)); min-width: 0; max-width: none; width: auto; }
             }
         `);
         showToast.stylesReady = true;
@@ -3172,7 +3181,7 @@ function showToast(message, duration = 5000) {
 
     // Create the new toast element
     const toast = document.createElement("div");
-    toast.className = "anlink-toast";
+    toast.className = "anilink-toast";
     toast.style.top = `${20 + toasts.length * toastHeight}px`;
 
     // Infer toast type and icon from message content
@@ -3190,15 +3199,15 @@ function showToast(message, duration = 5000) {
     if (borderColor) toast.style.borderLeft = `4px solid ${borderColor}`;
 
     toast.innerHTML = `
-        <div class="anlink-toast-icon">${icon}</div>
-        <div class="anlink-toast-content">${message}</div>
-        <button class="anlink-toast-close" aria-label="Close">×</button>
+        <div class="anilink-toast-icon">${icon}</div>
+        <div class="anilink-toast-content">${message}</div>
+        <button class="anilink-toast-close" aria-label="Close">×</button>
     `;
 
     AniLINKUI.root.appendChild(toast);
 
     // Close button handler
-    const closeBtn = toast.querySelector('.anlink-toast-close');
+    const closeBtn = toast.querySelector('.anilink-toast-close');
     const removeToast = () => {
         toast.classList.add('slide-out');
         setTimeout(() => {
@@ -3292,11 +3301,11 @@ const AniLINKUI = (() => {
     const queryAll = (selector, parent = root) => parent ? [...parent.querySelectorAll(selector)] : [];
     const setVisible = (element, visible) => {
         if (!element) return;
-        element.classList.toggle('anlink-view-hidden', !visible);
+        element.classList.toggle('anilink-view-hidden', !visible);
         element.setAttribute('aria-hidden', String(!visible));
         // Toggle class on host for CSS :has() detection (shadow DOM not traversable)
-        const anyOverlayOpen = (!extractorOverlay?.classList?.contains('anlink-view-hidden')) || (!downloaderOverlay?.classList?.contains('anlink-view-hidden'));
-        host?.classList.toggle('anlink-overlay-open', anyOverlayOpen);
+        const anyOverlayOpen = (!extractorOverlay?.classList?.contains('anilink-view-hidden')) || (!downloaderOverlay?.classList?.contains('anilink-view-hidden'));
+        host?.classList.toggle('anilink-overlay-open', anyOverlayOpen);
         syncPointerEvents();
     };
     const syncPointerEvents = () => {
@@ -3304,14 +3313,14 @@ const AniLINKUI = (() => {
     };
     const updateFab = () => {
         const downloader = typeof anilinkDownloader === 'undefined' ? null : anilinkDownloader;
-        const extractorVisible = extractorOverlay && !extractorOverlay.classList.contains('anlink-view-hidden');
-        const downloaderVisible = downloaderOverlay && !downloaderOverlay.classList.contains('anlink-view-hidden');
+        const extractorVisible = extractorOverlay && !extractorOverlay.classList.contains('anilink-view-hidden');
+        const downloaderVisible = downloaderOverlay && !downloaderOverlay.classList.contains('anilink-view-hidden');
         const shouldShow = downloaderOverlay || downloader?.settings?.fabAlwaysVisible !== false || extractorVisible || downloaderVisible;
-        if (fab) fab.classList.toggle('anlink-fab-hidden', !shouldShow);
+        if (fab) fab.classList.toggle('anilink-fab-hidden', !shouldShow);
         if (fab) {
             const count = downloader?.activeTaskCount?.() || 0;
             fab.dataset.count = count || '';
-            fab.querySelector('.anlink-fab-count').textContent = count || '';
+            fab.querySelector('.anilink-fab-count').textContent = count || '';
         }
         syncPointerEvents();
     };
@@ -3321,10 +3330,10 @@ const AniLINKUI = (() => {
         if (!extractorOverlay && view === 'extractor') extractEpisodes();
         setVisible(extractorOverlay, view === 'extractor');
         setVisible(downloaderOverlay, view === 'downloader');
-        fab?.classList.toggle('anlink-fab-downloader', view === 'downloader');
+        fab?.classList.toggle('anilink-fab-downloader', view === 'downloader');
         fab?.setAttribute('aria-label', view === 'downloader' ? 'Open extractor' : 'Open downloads');
         if (fab) {
-            fab.querySelector('.anlink-fab-icon').textContent = view === 'downloader' ? '←' : '⇩';
+            fab.querySelector('.anilink-fab-icon').textContent = view === 'downloader' ? '←' : '⇩';
             fab.title = view === 'downloader' ? 'Open extractor' : 'Open downloads';
         }
         updateFab();
@@ -3332,10 +3341,10 @@ const AniLINKUI = (() => {
     const createFab = () => {
         if (fab) return fab;
         fab = Object.assign(document.createElement('button'), {
-            className: 'anlink-fab anlink-fab-hidden',
+            className: 'anilink-fab anilink-fab-hidden',
             type: 'button',
             title: 'Open AniLINK Extractor',
-            innerHTML: '<span class="anlink-fab-icon">←</span><span class="anlink-fab-count"></span>'
+            innerHTML: '<span class="anilink-fab-icon">←</span><span class="anilink-fab-count"></span>'
         });
         fab.addEventListener('click', () => {
             if (activeView === 'downloader') switchView('extractor');
@@ -3372,7 +3381,7 @@ const AniLINKUI = (() => {
         if (!source || !fab) return;
         const from = source.getBoundingClientRect();
         const to = fab.getBoundingClientRect();
-        const chip = Object.assign(document.createElement('span'), { className: 'anlink-fab-drop-chip', textContent: '⇩' });
+        const chip = Object.assign(document.createElement('span'), { className: 'anilink-fab-drop-chip', textContent: '⇩' });
         const deltaX = to.left + to.width / 2 - from.left - from.width / 2;
         const deltaY = to.top + to.height / 2 - from.top - from.height / 2;
         Object.assign(chip.style, { left: `${from.left + from.width / 2 - 12}px`, top: `${from.top + from.height / 2 - 12}px`, opacity: '1', transform: 'translate(0, 0) scale(1)' });
@@ -3399,29 +3408,32 @@ const AniLINKUI = (() => {
     addStyle(`
         :host {
             all: initial;
-            --anlink-glass-bg: linear-gradient(145deg, rgba(25,35,34,.78), rgba(28,28,31,.18));
-            --anlink-glass-surface: rgba(255,255,255,.035);
-            --anlink-glass-border: rgba(100,220,207,.18);
-            --anlink-glass-border-soft: rgba(255,255,255,.08);
-            --anlink-glass-shadow: 0 24px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.04) inset;
-            --anlink-glass-blur: blur(14px) saturate(140%);
-            --anlink-modal-overlay: rgba(0,0,0,.75);
-            --anlink-input-bg: #1a1a1a;
+            --anilink-glass-bg: linear-gradient(145deg, rgba(25,35,34,.78), rgba(28,28,31,.18));
+            --anilink-glass-surface: rgba(255,255,255,.035);
+            --anilink-glass-border: rgba(100,220,207,.18);
+            --anilink-glass-border-soft: rgba(255,255,255,.08);
+            --anilink-glass-shadow: 0 24px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.04) inset;
+            --anilink-glass-blur: ${ENABLE_GLASS_BLUR ? 'blur(8px) saturate(140%)' : 'none'};
+            --anilink-modal-overlay: rgba(0,0,0,${ENABLE_GLASS_BLUR ? '.75' : '.9'});
+            --anilink-input-bg: #1a1a1a;
         }
         *, *::before, *::after { box-sizing: border-box; }
-        .anlink-view-hidden { opacity: 0 !important; transform: translateY(18px) scale(.985) !important; pointer-events: none !important; visibility: hidden !important; }
-        .anlink-fab { position: fixed; right: var(--anlink-fab-right, 26px); bottom: var(--anlink-fab-bottom, 26px); width: var(--anlink-fab-size, 58px); height: var(--anlink-fab-size, 58px); border: 1px solid var(--anlink-glass-border); border-radius: 50%; display: grid; place-items: center; background: var(--anlink-glass-bg); color: #7ce4d8; box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); cursor: pointer; pointer-events: auto; transition: opacity .28s, transform .28s, background .28s; z-index: 1001; }
-        .anlink-fab:hover { transform: translateY(-3px) scale(1.04); color: #fff; background: linear-gradient(135deg, #31c7b8, #168d81); }
-        .anlink-fab-hidden { opacity: 0; transform: scale(.65); pointer-events: none; }
-        .anlink-fab-icon { font: 700 30px/1 system-ui, sans-serif; transform: translateY(-1px); }
-        .anlink-fab-count { position: absolute; top: -3px; right: -2px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #ffca28; color: #1c2524; font: 700 11px/20px system-ui, sans-serif; }
-        .anlink-fab-count:empty { display: none; }
-        .anlink-fab-drop-chip { position: fixed; z-index: 2147483647; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: #ffca28; color: #26302f; font: 700 15px/1 system-ui, sans-serif; pointer-events: none; box-shadow: 0 5px 16px rgba(0,0,0,.35); will-change: transform, opacity; }
+        .anilink-view-hidden { opacity: 0 !important; transform: translateY(18px) scale(.985) !important; pointer-events: none !important; visibility: hidden !important; }
+        .anilink-fab { position: fixed; right: var(--anilink-fab-right, 26px); bottom: var(--anilink-fab-bottom, 26px); width: var(--anilink-fab-size, 58px); height: var(--anilink-fab-size, 58px); border: 1px solid var(--anilink-glass-border); border-radius: 50%; display: grid; place-items: center; background: var(--anilink-glass-bg); color: #7ce4d8; box-shadow: var(--anilink-glass-shadow); backdrop-filter: var(--anilink-glass-blur); -webkit-backdrop-filter: var(--anilink-glass-blur); cursor: pointer; pointer-events: auto; transition: opacity .28s, transform .28s, background .28s; z-index: 1001; }
+        .anilink-fab:hover { transform: translateY(-3px) scale(1.04); color: #fff; background: linear-gradient(135deg, #31c7b8, #168d81); }
+        .anilink-fab-hidden { opacity: 0; transform: scale(.65); pointer-events: none; }
+        .anilink-fab-icon { font: 700 30px/1 system-ui, sans-serif; transform: translateY(-1px); }
+        .anilink-fab-count { position: absolute; top: -3px; right: -2px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: #ffca28; color: #1c2524; font: 700 11px/20px system-ui, sans-serif; }
+        .anilink-fab-count:empty { display: none; }
+        .anilink-fab-drop-chip { position: fixed; z-index: 2147483647; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: #ffca28; color: #26302f; font: 700 15px/1 system-ui, sans-serif; pointer-events: none; box-shadow: 0 5px 16px rgba(0,0,0,.35); will-change: transform, opacity; }
         @media (max-width: 680px) {
-            .anlink-fab { right: var(--anlink-fab-right, max(12px, env(safe-area-inset-right))); bottom: var(--anlink-fab-bottom, max(12px, env(safe-area-inset-bottom))); width: var(--anlink-fab-size, 52px); height: var(--anlink-fab-size, 52px); }
-            .anlink-fab-icon { font-size: 27px; }
+            .anilink-fab { right: var(--anilink-fab-right, max(12px, env(safe-area-inset-right))); bottom: var(--anilink-fab-bottom, max(12px, env(safe-area-inset-bottom))); width: var(--anilink-fab-size, 52px); height: var(--anilink-fab-size, 52px); }
+            .anilink-fab-icon { font-size: 27px; }
         }
-        @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+        @media (prefers-reduced-motion: reduce), .reduced-motion { 
+            *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+            :host { transition: none !important; --anilink-glass-blur: none !important; --anilink-modal-overlay: rgba(0,0,0,.9); }
+        }
     `);
 
     const bootstrap = () => { ensure(); createFab(); updateFab(); };
@@ -3518,7 +3530,7 @@ const dlUtils = {
     anlinkEscapeHtml: (value) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])),
 
     anlinkNewId: () => {
-        return globalThis.crypto?.randomUUID?.() || `anlink-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        return globalThis.crypto?.randomUUID?.() || `anilink-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     },
 
     assertSupportedDownloadUrl: (url) => {
@@ -5084,26 +5096,26 @@ class DownloaderUI {
     mount() {
         if (this.overlay) return this.overlay;
         AniLINKUI.addStyle(`
-            #AniLINK_DownloaderOverlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 7vh 4vw; background: var(--anlink-modal-overlay); backdrop-filter: blur(8px) saturate(140%); -webkit-backdrop-filter: blur(8px) saturate(140%); opacity: 1; transform: translateY(0) scale(1); transition: opacity .28s ease, transform .28s ease, visibility .28s; pointer-events: auto; }
-            #AniLINK_DownloaderPanel { width: min(1100px, 92vw); max-height: 86vh; overflow: hidden; display: flex; flex-direction: column; color: #edf5f4; background: var(--anlink-glass-bg); border: 1.5px solid var(--anlink-glass-border); border-radius: 24px; box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); }
-            .anilink-dl-header { display: flex; align-items: center; gap: 14px; padding: 18px 22px; background: linear-gradient(180deg, var(--anlink-glass-surface), transparent); border-bottom: 1px solid var(--anlink-glass-border-soft); }
+            #AniLINK_DownloaderOverlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 7vh 4vw; background: var(--anilink-modal-overlay); backdrop-filter: var(--anilink-glass-blur); -webkit-backdrop-filter: var(--anilink-glass-blur); opacity: 1; transform: translateY(0) scale(1); transition: opacity .28s ease, transform .28s ease, visibility .28s; pointer-events: auto; }
+            #AniLINK_DownloaderPanel { width: min(1100px, 92vw); max-height: 86vh; overflow: hidden; display: flex; flex-direction: column; color: #edf5f4; background: var(--anilink-glass-bg); border: 1.5px solid var(--anilink-glass-border); border-radius: 24px; box-shadow: var(--anilink-glass-shadow); backdrop-filter: var(--anilink-glass-blur); -webkit-backdrop-filter: var(--anilink-glass-blur); }
+            .anilink-dl-header { display: flex; align-items: center; gap: 14px; padding: 18px 22px; background: linear-gradient(180deg, var(--anilink-glass-surface), transparent); border-bottom: 1px solid var(--anilink-glass-border-soft); }
             .anilink-dl-title { flex: 1; } .anilink-dl-title h2 { margin: 0; color: #65d6c8; font: 700 20px/1.2 system-ui, sans-serif; } .anilink-dl-title p { margin: 5px 0 0; color: #8ea3a1; font: 12px/1.3 system-ui, sans-serif; }
             .anilink-dl-icon-btn { width: 34px; height: 34px; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; background: rgba(255,255,255,.05); color: #d9eeeb; cursor: pointer; font-size: 17px; } .anilink-dl-icon-btn:hover { border-color: #26a69a; background: rgba(38,166,154,.18); }
             .anilink-dl-body { padding: 18px 22px 22px; overflow-y: auto; } .anilink-dl-section { margin-bottom: 22px; } .anilink-dl-section:last-child { margin-bottom: 0; }
             .anilink-dl-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; color: #9adbd3; font: 700 12px/1 system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
             .anilink-dl-section-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
             .anilink-dl-section-head button { border: 0; background: transparent; color: #82aaa6; cursor: pointer; font: 12px system-ui, sans-serif; } .anilink-dl-section-head button:hover { color: #65d6c8; }
-            .anilink-dl-task { position: relative; padding: 14px; margin: 9px 0; border: 1px solid var(--anlink-glass-border-soft); border-radius: 12px; background: var(--anlink-glass-surface); transition: border-color .2s, background .2s; } .anilink-dl-task:hover { border-color: rgba(38,166,154,.42); background: rgba(38,166,154,.06); }
+            .anilink-dl-task { position: relative; padding: 14px; margin: 9px 0; border: 1px solid var(--anilink-glass-border-soft); border-radius: 12px; background: var(--anilink-glass-surface); transition: border-color .2s, background .2s; } .anilink-dl-task:hover { border-color: rgba(38,166,154,.42); background: rgba(38,166,154,.06); }
             .anilink-dl-task-top { display: flex; align-items: flex-start; gap: 10px; } .anilink-dl-task-name { min-width: 0; flex: 1; color: #f2fbfa; font: 600 14px/1.3 system-ui, sans-serif; overflow: auto; text-overflow: clip; white-space: nowrap; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.12) transparent; } .anilink-dl-task-meta { margin-top: 4px; color: #829794; font: 11px/1.3 system-ui, sans-serif; }
             .anilink-dl-task-name::-webkit-scrollbar { height: 2px; } .anilink-dl-task-name::-webkit-scrollbar-track { background: transparent; } .anilink-dl-task-name::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 2px; }
             .anilink-dl-status { flex: none; padding: 4px 8px; border-radius: 10px; background: rgba(38,166,154,.14); color: #7ce4d8; font: 700 10px/1 system-ui, sans-serif; text-transform: uppercase; letter-spacing: .05em; } .anilink-dl-status.failed { background: rgba(239,83,80,.16); color: #ff8b89; } .anilink-dl-status.completed { background: rgba(102,187,106,.16); color: #a0e7a3; }
-            .anilink-dl-progress { height: 7px; margin: 13px 0 9px; overflow: hidden; border-radius: 5px; background: rgba(0,0,0,.32); } .anilink-dl-progress > span { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, #26a69a, #8be7dc); transition: width .25s ease; } .anilink-dl-progress.indeterminate > span { width: 38%; animation: anlink-progress-slide 1.15s ease-in-out infinite; }
+            .anilink-dl-progress { height: 7px; margin: 13px 0 9px; overflow: hidden; border-radius: 5px; background: rgba(0,0,0,.32); } .anilink-dl-progress > span { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, #26a69a, #8be7dc); transition: width .25s ease; } .anilink-dl-progress.indeterminate > span { width: 38%; animation: anilink-progress-slide 1.15s ease-in-out infinite; }
             .anilink-dl-log { margin-top: 10px; border-top: 1px solid rgba(255,255,255,.07); color: #8ea3a1; font: 11px/1.45 ui-monospace, monospace; } .anilink-dl-log summary { padding-top: 9px; cursor: pointer; color: #82aaa6; font: 11px system-ui, sans-serif; } .anilink-dl-log pre { max-height: 180px; margin: 8px 0 0; overflow: auto; white-space: pre; color: #b9cbc8; }
             .anilink-dl-stats { display: flex; flex-wrap: wrap; gap: 8px 16px; color: #9eb4b1; font: 11px/1.3 ui-monospace, monospace; } .anilink-dl-error { margin-top: 8px; color: #ff9997; font: 11px/1.4 system-ui, sans-serif; }
             .anilink-dl-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; } .anilink-dl-actions button, .anilink-dl-settings button { border: 1px solid rgba(255,255,255,.12); border-radius: 7px; padding: 6px 9px; background: rgba(255,255,255,.05); color: #d4e7e4; cursor: pointer; font: 11px system-ui, sans-serif; } .anilink-dl-actions button:hover, .anilink-dl-settings button:hover { border-color: #26a69a; color: #7ce4d8; }
-            .anilink-dl-popover { position: absolute; right: 12px; top: 48px; z-index: 5; width: 230px; padding: 12px; border: 1px solid var(--anlink-glass-border); border-radius: 10px; background: var(--anlink-glass-bg); box-shadow: var(--anlink-glass-shadow); backdrop-filter: var(--anlink-glass-blur); -webkit-backdrop-filter: var(--anlink-glass-blur); } .anilink-dl-popover label, .anilink-dl-settings label { display: block; margin: 8px 0 4px; color: #9eb4b1; font: 11px system-ui, sans-serif; } .anilink-dl-popover input, .anilink-dl-settings input, .anilink-dl-settings select { width: 100%; padding: 7px 8px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 6px; background: var(--anlink-input-bg); color: #ecf7f5; }
-            .anilink-dl-empty { padding: 28px 12px; border: 1px dashed var(--anlink-glass-border-soft); border-radius: 10px; color: #829794; text-align: center; font: 13px system-ui, sans-serif; }
-            .anilink-dl-settings { padding: 14px; border: 1px solid var(--anlink-glass-border-soft); border-radius: 12px; background: var(--anlink-glass-surface); } .anilink-dl-setting-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } .anilink-dl-setting-wide { grid-column: 1 / -1; } .anilink-dl-help { margin-top: 12px; color: #829794; font: 11px/1.45 system-ui, sans-serif; } .anilink-dl-help a { color: #75cfc5; }
+            .anilink-dl-popover { position: absolute; right: 12px; top: 48px; z-index: 5; width: 230px; padding: 12px; border: 1px solid var(--anilink-glass-border); border-radius: 10px; background: var(--anilink-glass-bg); box-shadow: var(--anilink-glass-shadow); backdrop-filter: var(--anilink-glass-blur); -webkit-backdrop-filter: var(--anilink-glass-blur); } .anilink-dl-popover label, .anilink-dl-settings label { display: block; margin: 8px 0 4px; color: #9eb4b1; font: 11px system-ui, sans-serif; } .anilink-dl-popover input, .anilink-dl-settings input, .anilink-dl-settings select { width: 100%; padding: 7px 8px; border: 1px solid var(--anilink-glass-border-soft); border-radius: 6px; background: var(--anilink-input-bg); color: #ecf7f5; }
+            .anilink-dl-empty { padding: 28px 12px; border: 1px dashed var(--anilink-glass-border-soft); border-radius: 10px; color: #829794; text-align: center; font: 13px system-ui, sans-serif; }
+            .anilink-dl-settings { padding: 14px; border: 1px solid var(--anilink-glass-border-soft); border-radius: 12px; background: var(--anilink-glass-surface); } .anilink-dl-setting-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } .anilink-dl-setting-wide { grid-column: 1 / -1; } .anilink-dl-help { margin-top: 12px; color: #829794; font: 11px/1.45 system-ui, sans-serif; } .anilink-dl-help a { color: #75cfc5; }
             .anilink-dl-settings small { display: block; color: #829794; font: 10px/1.3 system-ui, sans-serif; }
             button[data-action] * { pointer-events: none; }
             @media (max-width: 680px) {
@@ -5115,7 +5127,7 @@ class DownloaderUI {
                 .anilink-dl-icon-btn { min-width: 40px; min-height: 40px; }
                 .anilink-dl-actions button { min-height: 36px; }
             }
-            @keyframes anlink-progress-slide { from { transform: translateX(-120%); } to { transform: translateX(280%); } }
+            @keyframes anilink-progress-slide { from { transform: translateX(-120%); } to { transform: translateX(280%); } }
         `);
         this.overlay = document.createElement('div');
         this.overlay.id = 'AniLINK_DownloaderOverlay';
