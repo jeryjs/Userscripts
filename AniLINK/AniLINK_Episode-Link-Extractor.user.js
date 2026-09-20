@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     7.1.4
+// @version     7.1.5
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -111,6 +111,7 @@
 
 // TODO: Show note when browser isnt fully compatible.
 // TODO: Show note when "browser download API" needs to be enabled in GM extension manager settings.
+// TODO: Fix download progress for tracks—it shows the current size as total size instead of either true total size or total number of segments
 // TODO: If selected folder is not empty or is downloads folder, then download to a subfolder named after the anime title.
 
 // track last version for managing backwards compatability for script updates
@@ -4777,10 +4778,45 @@ class Downloader {
         if (key.METHOD !== 'AES-128') throw new Error(`Unsupported HLS encryption method: ${key.METHOD}`);
         if (!key.URI) throw new Error('HLS AES-128 key has no URI.');
         const keyUrl = new URL(key.URI, baseUrl).href;
-        if (!this.#keyCache.has(keyUrl)) {
-            const response = await GM_fetch(keyUrl, { headers: this.#headers(task) });
+
+        // Special handling for mediacache.cc (UniqueStream) - key.bin contains base64 ciphertext
+        // Real key = AES-128-CBC decrypt(key.bin, key=SHA256("key"+mid)[:16], iv=SHA256("iv"+mid)[:16])
+        // mid is in the master playlist URL: /episode/{mid}/master.m3u8
+        // key.bin request MUST include x-am-media-id: {mid} header
+        // Adapted from: https://github.com/yuzono/anime-extensions/blob/92a2ba4/src/en/uniquestream/src/eu/kanade/tachiyomi/animeextension/en/uniquestream/UniqueStreamHlsServer.kt
+        const _handleMediacacheKey = async (keyUrl) => {
+            let mid = null;
+            // mid is the full path between /episode/ and /master.m3u8 or /keys/key.bin
+            const midMatch = baseUrl.match(/\/episode\/(.+)\/master\.m3u8/i) || keyUrl.match(/\/episode\/(.+)\/keys\/key\.bin/i);
+            if (midMatch) mid = midMatch[1];
+            if (!mid) throw new Error('Could not extract x-am-media-id from mediacache URL.');
+            
+            // Fetch key.bin with required x-am-media-id header
+            const response = await GM_fetch(keyUrl, { headers: { ...this.#headers(task), 'x-am-media-id': mid } });
             if (!response.ok) throw new Error(`HTTP ${response.status} while fetching HLS key.`);
-            const rawKey = new Uint8Array(await response.arrayBuffer());
+            const body = await response.text();
+            const ciphertext = Uint8Array.from(atob(body.trim()), c => c.charCodeAt(0));
+            
+            // Derive real key and IV from mid
+            const realKey = new Uint8Array((await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`key${mid}`)))).slice(0, 16);
+            const realIv = new Uint8Array((await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`iv${mid}`)))).slice(0, 16);
+            
+            // Decrypt ciphertext to get real 16-byte content key
+            const keyObj = await crypto.subtle.importKey('raw', realKey, { name: 'AES-CBC' }, false, ['decrypt']);
+            return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: realIv }, keyObj, ciphertext));
+        };
+
+        if (!this.#keyCache.has(keyUrl)) {
+            let rawKey;
+            // Special handling for mediacache.cc (UniqueStream)
+            if (/mediacache\.cc/.test(keyUrl) || /mediacache\.cc/.test(baseUrl)) {
+                task._log(`Fetching mediacache key from ${keyUrl} with special handling for UniqueStream.`);
+                rawKey = await _handleMediacacheKey(keyUrl);
+            } else {
+                const response = await GM_fetch(keyUrl, { headers: this.#headers(task) });
+                if (!response.ok) throw new Error(`HTTP ${response.status} while fetching HLS key.`);
+                rawKey = new Uint8Array(await response.arrayBuffer());
+            }
             if (rawKey.byteLength !== 16) throw new Error(`Invalid AES-128 key length: ${rawKey.byteLength}.`);
             this.#keyCache.set(keyUrl, crypto.subtle.importKey('raw', rawKey, { name: 'AES-CBC' }, false, ['decrypt']));
         }
