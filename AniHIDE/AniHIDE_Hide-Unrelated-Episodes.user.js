@@ -1,30 +1,30 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.4.4
+// @version     2.5.0
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
 // @license     MIT
-// @match       https://yugenanime.*/*
+// @match       https://yugenanime.tld/*
 // @match       https://yugenanime.tv/*
 // @match       https://yugenanime.sx/*
-// @match       https://anitaku.*/*
+// @match       https://anitaku.tld/*
 // @match       https://anitaku.pe/*
-// @match       https://gogoanime.*/*
+// @match       https://gogoanime.tld/*
 // @match       https://gogoanime.tv/*
-// @match       https://gogoanime3.*/*
+// @match       https://gogoanime3.tld/*
 // @match       https://gogoanime3.co/*
 // @match       https://*pahe.pw/*
 // @match       https://animesuge.to/*
-// @match       https://animesuge.*/*
+// @match       https://animesuge.tld/*
 // @match       https://*animesuge.cc/*
-// @match       https://www.miruro.*/*
+// @match       https://www.miruro.tld/*
 // @match       https://www.miruro.tv/*
 // @match       https://miruro.to/*
 // @match       https://miruro.online/*
-// @match       https://animekai.*/*
-// @match       https://anikai.*/*
+// @match       https://animekai.tld/*
+// @match       https://anikai.tld/*
 // @match       https://animetsu.cc/*
 // @match       https://kaido.to/*
 // @match       https://kuudere.to/*
@@ -128,8 +128,8 @@ const animeSites = [
     {
         name: 'miruro',
         url: ['miruro'],
-        item: 'a.animSlideUp',
-        title: 'h3[title^="Title: "]',
+        item: 'div.animSlideUp[title]',
+        title: 'h3[title^="Title: "] > a',
         thumbnail: 'img[alt^="Play "]',
         observe: 'section[aria-labelledby*="continueWatching"] + div',
         timeout: 1200
