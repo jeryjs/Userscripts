@@ -3,10 +3,11 @@
 // @namespace   https://github.com/jeryjs
 // @match       https://www.miruro.tv/*
 // @match       https://www.miruro.to/*
-// @match       https://www.miruro.online/*
+// @match       https://www.miruro.ru/*
+// @match       https://www.miruro.bz/*
 // @icon        https://www.miruro.tv/icons/favicon-32x32.png
 // @grant       none
-// @version     1.4
+// @version     1.5
 // @author      Jery
 // @description 2/23/2025, 9:39:09 AM
 // ==/UserScript==
@@ -22,26 +23,24 @@ function getFromStorage(key) {
 
 const miruro = {
 	// Returns all episode items on the page
-	items: () => document.querySelectorAll('a[color][title][href^="/watch"]'),
+	items: () => document.querySelectorAll('div.animSlideUp[title]'),
 	// Returns the SPA element that should be observed for changes
 	observeTarget: () => document.querySelector('section[aria-labelledby*="continueWatching"] + div'),
 	// Retrieves progress data from localStorage
-	progressData: () => getFromStorage("miruro:watching:playback"),
+	progressData: () => getFromStorage("priver:playback"),
 	// Retrieves watched episodes data from localStorage
-	watchedData: () => getFromStorage("miruro:watching:history"),
+	watchedData: () => getFromStorage("priver:watching")?.history,
 	// Returns the parent element of the thumbnail that the progress bar should be injected under
-	getProgressBarAnchor: (item) => item.querySelector('img[alt^="Play "]')?.parentElement?.parentElement,
+	getProgressBarAnchor: (item) => item.querySelector('img[alt^="Play "]')?.parentElement?.parentElement?.parentElement,
 	// Extracts the anime ID from the item's href query parameter (?id=...)
 	getAnimeId: (item) => {
-		const href = item.getAttribute("href") || "";
+		const href = item.querySelector('a').getAttribute("href") || "";
 		const idMatch = href.match(/watch\/([^&]+)\//);
 		return idMatch ? idMatch[1] : "";
 	},
 	// Extracts the episode number from the item's specific DOM structure
 	getEpNumber: (item) => {
-		const divs = item.querySelectorAll(`svg[stroke*="currentColor"]`)[2].parentElement.parentElement.getElementsByTagName("div");
-		if (!divs || divs.length < 3) return 0;
-		const text = divs[2].textContent || "";
+		const text = item.querySelector(`svg[stroke*="currentColor"] + strong`).textContent || "";
 		return parseInt(text.split("/")[0].trim(), 10) || 0;
 	},
 };
@@ -58,12 +57,13 @@ console.log("AniMARK: Injecting progress bars under episode thumbnails...");
 
 		const animeId = miruro.getAnimeId(item);
 		const epNumber = miruro.getEpNumber(item);
-		const watched = miruro.watchedData()[animeId] || [];
-        const episodeInfo = watched
-            .filter((ep) => ep.number == epNumber)
-            .sort((a, b) => (b.lastVisited || 0) - (a.lastVisited || 0))[0] || {};
-		const episodeId = episodeInfo.id || "";
-		if (!episodeId) return;
+		// const watched = miruro.watchedData()[animeId] || [];
+        // const episodeInfo = watched
+        //     .filter((ep) => ep.number == epNumber)
+        //     .sort((a, b) => (b.lastVisited || 0) - (a.lastVisited || 0))[0] || {};
+		// const episodeId = episodeInfo.id || "";
+		const episodeId = `${animeId}:${epNumber}`
+		// if (!episodeId) return;
 		const progressObj = miruro.progressData()[episodeId] || {};
 		const playbackPercentage = progressObj.playbackPercentage || 0;
 
