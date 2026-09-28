@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     7.1.5
+// @version     7.1.6
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -113,6 +113,9 @@
 // TODO: Show note when "browser download API" needs to be enabled in GM extension manager settings.
 // TODO: Fix download progress for tracks—it shows the current size as total size instead of either true total size or total number of segments
 // TODO: If selected folder is not empty or is downloads folder, then download to a subfolder named after the anime title.
+// TODO: Add backoff retrying to downloader.
+// TODO: Add notificon option for "Failed Only"
+// TODO: Improve animepahe ep list fetching
 
 // track last version for managing backwards compatability for script updates
 if (GM_info.script.version >= GM_getValue('script_version', '0')) {
@@ -493,6 +496,9 @@ const Websites = [
         animeTitle: '.anime-title > a',
         thumbnail: 'a[href^="/info?id="] > img',
         baseApiUrl: `${location.origin}/api`,
+        _catalogKey: new TextEncoder().encode('miruro/catalog'),   // XOR key for /api/v1 octet-stream gzip responses
+        _obfKey: Uint8Array.from('a54d389c18527d9fd3e7f0643e27edbe'.match(/.{2}/g).map(b => parseInt(b, 16))),   // VITE_PROXY_OBF_KEY from env2.js
+        _proxies: ['https://s1.keeply.top/', 'https://s2.keeply.top/'],
         addStartButton: function (id) {
             let last_known = { location: location.href, source: null };
             const intervalId = setInterval(() => {
@@ -520,53 +526,75 @@ const Websites = [
         },
         extractEpisodes: async function* (status) {
             status.text = 'Fetching episode list...';
-            const animeTitle = (document.querySelector('p.title-romaji') || document.querySelector(this.animeTitle)).textContent;
-            const anilistId = document.querySelector(`a[href*="/anilist.co/anime/"]`)?.href.split('/').pop();
-            if (!anilistId) return showToast('anilistId not found.');
+            const animeTitle = (document.querySelector('p.title-romaji') || document.querySelector(this.animeTitle))?.textContent || 'Anime';
+            const animeId = location.pathname.split('/')[2] || new URLSearchParams(location.search).get('id') || document.querySelector('a[href^="/watch/"]')?.href.split('/')[2];
+            if (!animeId) return showToast('Anime ID not found.');
 
-            const res = await this._secureFetch(`${this.baseApiUrl}/episodes`, { query: { anilistId } });
-            const eps = Object.entries(res.providers).reduce((a, [provider, { episodes }]) => (
-                Object.entries(episodes).forEach(([type, list]) => list.forEach(ep => (a[ep.number] ??= []).push({ ...ep, provider, type: ((['hop', 'bee'].includes(provider) && type == 'sub') ? 's' : "") + type }))), a
-            ), {});
+            const epData = await this._api('/v1/anime/' + animeId + '/episodes', { kind: 'regular', limit: 10000 });
+            const eps = Object.fromEntries((epData.data || []).map(ep => [ep.episode_number, ep]));
+            if (!Object.keys(eps).length) return showToast('No episodes found.');
 
-            const allSources = [...new Set(Object.values(eps).flat().map(e => this._getLocalSourceName(e.provider, e.type)))];
+            // Providers/servers/streams now only exist in per-episode /play responses (the old /episodes?anilistId= + /sources endpoints are gone),
+            // so probe the first episode to build the source list for the picker.
+            const playCache = new Map();
+            const getPlay = async n => { if (!playCache.has(n)) playCache.set(n, await this._api(`/v1/anime/${animeId}/episodes/${n}/play`)); return playCache.get(n); };
+            const sourceMap = play => new Map((play?.tracks || []).flatMap(t => (t.providers || []).map(p => [this._getLocalSourceName(p.provider, t.track), p])));
+            const firstEp = Object.keys(eps).map(Number).sort((a, b) => a - b)[0];
+            const allSources = [...sourceMap(await getPlay(firstEp)).keys()];
             const srcCfg = await showSourceSelector(allSources, 'miruro', { sources: allSources.filter(s => s.startsWith('kiwi')), mode: 'single' });
 
             for (const epNum of await applyEpisodeRangeFilter(Object.keys(eps).sort((a, b) => a - b))) {
-                const baseEp = eps[epNum][0]; status.text = `Fetching Ep ${epNum}...`;
-                const links = {}, fetchSource = async ({ id, provider, type }) => {
-                    const source = this._getLocalSourceName(provider, type);
-                    try {
-                        const sresJson = await this._secureFetch(`${this.baseApiUrl}/sources`, { query: { episodeId: id, provider, category: type } });
-                        const stream = sresJson.streams?.find(s => s.type === 'hls') || sresJson.streams?.[0];
-                        const referer = stream?.referer || `https://${{kaa:'kaa.to', zoro:'megacloud.blog', bonk:'anineko.to', kiwi:'kwik.cx', hop:'krussdomi.com', moo:'www.animegg.org', bee:'megaplay.buzz'}[provider] || location.host}/`;
-                        if (stream?.type === 'embed') { links[source] = await Extractors.use(stream.url, referer) } else links[source] = this._buildProxiedLink({ stream: stream.url, type: "m3u8", tracks: sresJson.tracks || sresJson.subtitles || [], referer });
-                    } catch (e) { showToast(`Failed to fetch ep-${epNum} from ${source}: ${e}`); }
-                };
-                if (srcCfg?.mode === 'single') { for (const src of srcCfg.sources) { const e = eps[epNum].find(ep => this._getLocalSourceName(ep.provider, ep.type) === src); if (e) { await fetchSource(e); if (Object.keys(links).length) break; } } }
-                else for (const src of srcCfg.sources) { const e = eps[epNum].find(ep => this._getLocalSourceName(ep.provider, ep.type) === src); if (e) await fetchSource(e); } // Sequential to avoid rate limit
-                yield new Episode(epNum, animeTitle, links, baseEp.image, baseEp.title);
+                const baseEp = eps[epNum]; status.text = `Fetching Ep ${epNum}...`;
+                const links = {};
+                let available;
+                try { available = sourceMap(await getPlay(epNum)); }
+                catch (e) { showToast(`Failed to fetch ep-${epNum}: ${e}`); yield new Episode(epNum, animeTitle, links, baseEp.thumbnail_url, baseEp.title); continue; }
+                for (const src of srcCfg.sources) {
+                    const provider = available.get(src);
+                    if (!provider) continue; // provider+track unavailable for this episode
+                    try { const link = await this._resolveSource(provider); if (link) links[src] = link; }
+                    catch (e) { showToast(`Failed to fetch ep-${epNum} from ${src}: ${e}`); }
+                    if (srcCfg.mode === 'single' && Object.keys(links).length) break; // Sequential to avoid rate limit
+                }
+                yield new Episode(epNum, animeTitle, links, baseEp.thumbnail_url, baseEp.title);
             }
         },
-        _secureFetch: async (url, options = {}) => {
-            const payload = { path: url.split('/api/').pop(), method: 'GET', query: options.query || {}, body: null, version: '0.2.0' };
-            const encode = o => btoa(encodeURIComponent(JSON.stringify(o)).replace(/%([0-9A-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-			const decode2 = async s => { const raw = Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)); const key = [113,149,16,52,248,251,207,83,216,157,181,44,235,61,194,44]; for (let i = 0; i < raw.length; i++) raw[i] ^= key[i % key.length]; return JSON.parse(new TextDecoder().decode(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer())); };
-            const decode1 = async s => JSON.parse(new TextDecoder().decode(await new Response(new Blob([Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()));
-            let res = await fetch(`${location.origin}/api/secure/pipe?e=${encode(payload)}`, { headers: { 'x-protocol-version': payload.version } });
-            if (res.status == 500) { await new Promise(r => { showToast(`Error ${res.status}: Rate Limited! Waiting 60s before continuing...`, 60000); setTimeout(r, 60000) }); res = await fetch(`${location.origin}/api/secure/pipe?e=${encode(payload)}`, { headers: { 'x-protocol-version': payload.version } }); }
-            if (res.status == 444) throw new Error(`Error ${res.status}: Server is not reachable!`);
-            if (res.headers.get('x-obfuscated') === '2') return await decode2(await res.text());
-			if (res.headers.get('x-obfuscated') === '1') return await decode1(await res.text());
-            return await res.json();
+        _api: async function (path, query) {
+            const url = `${this.baseApiUrl}${path}${query ? '?' + new URLSearchParams(query) : ''}`;
+            for (let attempt = 0; ; attempt++) {
+                let res;
+                try { res = await fetch(url, { headers: { 'accept': '*/*' } }); }
+                catch (e) { if (attempt < 2) { await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); continue; } throw e; }
+                if ((res.status === 502 || res.status === 503) && attempt < 2) { await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); continue; }
+                if (!res.ok) throw new Error(`HTTP ${res.status} for ${path}`);
+                if ((res.headers.get('content-type') || '').split(';')[0] !== 'application/octet-stream') return await res.json();
+                const raw = new Uint8Array(await res.arrayBuffer());
+                for (let i = 0; i < raw.length; i++) raw[i] ^= this._catalogKey[i % this._catalogKey.length];   // XOR with 'miruro/catalog', then gunzip
+                return JSON.parse(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('gzip'))).text());
+            }
         },
-        _buildProxiedLink: function(link) {
-            const K = [165,77,56,156,24,82,125,159,211,231,240,100,62,39,237,190],
-                hash = s => { let h = 0; for (let i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i); h |= 0; } return h; },
-                enc = v => { const b = Uint8Array.from(v, c => c.charCodeAt(0)); for (let i = 0; i < b.length; i++) b[i] ^= K[i % 16]; return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, ''); };
-            const h = hash(link.stream) & 1, u = (h ? 'https://s1.piltover.li/' : 'https://s1.watami.win/') + enc(link.stream) + (link.referer ? '~' + enc(link.referer) : '') + '/pl.m3u8';
-            if (link.tracks) for (const t of link.tracks) if (t.file) { const r = hash(t.file) & 1; t.file = (r ? 'https://s1.piltover.li/' : 'https://s1.watami.win/') + enc(t.file) + (link.referer ? '~' + enc(link.referer) : '') + '/sub.vtt'; }
-            link.stream = u; link.referer = 'https://strm.cx/';
+        _resolveSource: async function (provider) {
+            const refOf = srv => srv.headers?.Referer || srv.headers?.Origin || '';
+            const servers = provider.servers || [];
+            // Prefer a server with direct streams (hls first, like the old /sources flow)
+            for (const srv of servers) {
+                const stream = (srv.streams || []).find(s => s.format === 'hls') || srv.streams?.[0];
+                if (!stream) continue;
+                const tracks = (provider.subtitles || []).filter(sub => sub.file).map(sub => ({ file: sub.file, label: sub.label || sub.language || 'Subtitle', language: sub.language, kind: 'caption', default: !!sub.default }));
+                return this._buildProxiedLink({ stream: stream.url, type: 'm3u8', tracks, referer: refOf(srv) });
+            }
+            // Embed-only servers go through an extractor
+            const embed = servers.find(s => s.embed?.url);
+            if (embed) return await Extractors.use(embed.embed.url, refOf(embed));
+            return null;
+        },
+        _buildProxiedLink: function (link) {
+            const enc = v => { const b = new TextEncoder().encode(v), x = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) x[i] = b[i] ^ this._obfKey[i % this._obfKey.length]; return btoa(String.fromCharCode(...x)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); },
+                hash = s => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; },   // FNV-1a, same as the site
+                pick = u => this._proxies[hash(`${u}|${link.referer || ''}`) % 2];
+            link.stream = pick(link.stream) + enc(link.stream) + (link.referer ? '~' + enc(link.referer) : '') + '/pl.m3u8';
+            if (link.tracks) for (const t of link.tracks) if (t.file) t.file = pick(t.file) + enc(t.file) + (link.referer ? '~' + enc(link.referer) : '') + '/sub.vtt';
+            link.referer = 'https://strm.cx/';
             return link;
         },
         _getLocalSourceName: function (source, type) {
