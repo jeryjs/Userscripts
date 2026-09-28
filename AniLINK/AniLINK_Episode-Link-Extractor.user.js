@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     7.1.6
+// @version     7.1.7
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -114,7 +114,6 @@
 // TODO: Fix download progress for tracks—it shows the current size as total size instead of either true total size or total number of segments
 // TODO: If selected folder is not empty or is downloads folder, then download to a subfolder named after the anime title.
 // TODO: Add backoff retrying to downloader.
-// TODO: Add notificon option for "Failed Only"
 // TODO: Improve animepahe ep list fetching
 
 // track last version for managing backwards compatability for script updates
@@ -599,7 +598,7 @@ const Websites = [
         },
         _getLocalSourceName: function (source, type) {
             source = source.toLowerCase();
-            const sourceNames = { 'allmanga': 'ally', 'anineko': 'bonk', 'anidbapp': 'pewe', 'animepahe': 'kiwi', 'kickassanime': 'hop', 'animegg': 'moo', 'anikoto': 'bee', 'animekai': 'arc', 'animez': 'jet', 'zoro': 'zoro', 'megaplay': 'bee', 'bunnies': 'bun'};
+            const sourceNames = { 'allmanga': 'ally', 'animedao': 'bonk', 'anidbapp': 'pewe', 'animepahe': 'kiwi', 'kickassanime': 'hop', 'animegg': 'moo', 'anikoto': 'bee', 'animekai': 'arc', 'animez': 'jet', 'zoro': 'zoro', 'megaplay': 'bee', 'bunnies': 'bun', 'aniwaves': 'knob', 'icarus': 'sun', 'bun': 'bun', 'cog': 'cog', 'kwik': 'telli', 'nun': 'nun', 'twin': 'twin'};   // labels mirror window.__SSR_CONFIG__.streaming
             return (sourceNames[source] || source) + (type !== undefined ? `-${type.toLowerCase()}` : '');
         },
     },
@@ -3821,7 +3820,7 @@ class Downloader {
         next.convertTsToMp4 = next.convertTsToMp4 !== false;
         next.audioTrackLanguages = normalizeTrackLanguageSetting(next.audioTrackLanguages);
         next.captionTrackLanguages = normalizeTrackLanguageSetting(next.captionTrackLanguages);
-        if (!['off', 'completed', 'completed-and-failed', 'all'].includes(next.notifications)) next.notifications = 'completed-and-failed';
+        if (!['off', 'failed', 'completed', 'completed-and-failed', 'all'].includes(next.notifications)) next.notifications = 'completed-and-failed';
         this.#settings = next;
         this.#saveStore();
         this.#emit('history', this);
@@ -4156,7 +4155,7 @@ class Downloader {
 
     #notifyTask(task) {
         const preference = this.#settings.notifications;
-        const shouldNotify = preference === 'all' || preference === 'completed' && task.status === 'completed' || preference === 'completed-and-failed' && ['completed', 'failed'].includes(task.status);
+        const shouldNotify = preference === 'all' || preference === 'failed' && task.status === 'failed' || preference === 'completed' && task.status === 'completed' || preference === 'completed-and-failed' && ['completed', 'failed'].includes(task.status);
         const message = task.status === 'completed' ? `${task.filename} finished.` : task.status === 'failed' ? `${task.filename} failed: ${task.error || 'unknown error'}` : `${task.filename}: ${task.status}.`;
         if (task.status === 'failed') showToast(`Download failed: ${dlUtils.anlinkEscapeHtml(task.filename)} — ${dlUtils.anlinkEscapeHtml(task.error || 'unknown error')}`);
         if (!shouldNotify) return;
@@ -5735,6 +5734,7 @@ class DownloaderUI {
                 <div style="display: flex; flex-direction: column;"><label style="margin-bottom: -4px;">Convert downloads to MP4</label><label style="display: flex; align-items: center; gap: 12px; background-color: #18211f; border: 1px solid #343c3a; border-radius: 6px; padding: 6px 10px; cursor: pointer;"><input name="convertTsToMp4" type="checkbox" ${settings.convertTsToMp4 !== false ? 'checked' : ''} onchange="this.nextElementSibling.textContent = this.checked ? 'True' : 'False'" style="accent-color: #3f51b5; width: 14px; height: 14px; margin: 0; cursor: pointer;"><span style="font-size: 14px; font-family: sans-serif; opacity: 0.85;">${settings.convertTsToMp4 !== false ? 'True' : 'False'}</span></label><small>Lossless remux; selected audio tracks are embedded and captions remain sidecar files.</small></div>
                 <div><label>Notifications</label><select name="notifications">
                     <option value="off" ${settings.notifications==='off' ? 'selected' : '' }>Off</option>
+                    <option value="failed" ${settings.notifications==='failed' ? 'selected' : '' }>Failed only</option>
                     <option value="completed" ${settings.notifications==='completed' ? 'selected' : '' }>Completed only</option>
                     <option value="completed-and-failed" ${settings.notifications==='completed-and-failed' ? 'selected' : ''}>Completed and failed</option>
                     <option value="all" ${settings.notifications==='all' ? 'selected' : '' }>All state changes</option>
