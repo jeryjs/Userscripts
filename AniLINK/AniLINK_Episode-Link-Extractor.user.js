@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     7.1.8
+// @version     7.1.9
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -115,6 +115,7 @@
 // TODO: If selected folder is not empty or is downloads folder, then download to a subfolder named after the anime title.
 // TODO: Improve animepahe ep list fetching
 // TODO: Clear history button doesnt appear until collapse/expand history is clicked once. Fix this.
+// TODO: Fix audio track not embedded in mp4 (tested on anizone)
 
 // track last version for managing backwards compatability for script updates
 if (GM_info.script.version >= GM_getValue('script_version', '0')) {
@@ -3710,7 +3711,6 @@ class Downloader {
     #dirHandle = null;
     #fallbackMode = false;
     #tasks = new Map();
-    #keyCache = new Map();
     #queue = [];
     #activeTasks = new Set();
     #settings;
@@ -4091,8 +4091,10 @@ class Downloader {
             if (task._cancelled) throw Object.assign(new Error('Download cancelled'), { name: 'AbortError' });
             const mp4Converter = new Mp4Converter(this);
             if (task.options.convertTsToMp4 && this.#isTsDownload(task)) await mp4Converter.convertTsToMp4(task);
+            if (task._cancelled) throw Object.assign(new Error('Download cancelled'), { name: 'AbortError' });
             await this.closeWriter(task);
             await this.#finalizeFile(task);
+            if (task._cancelled) throw Object.assign(new Error('Download cancelled'), { name: 'AbortError' });
             await this.#downloadTracks(task);
             task._stats.finishedAt = Date.now();
             task._setStatus('completed');
@@ -4873,7 +4875,8 @@ class Downloader {
             return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: realIv }, keyObj, ciphertext));
         };
 
-        if (!this.#keyCache.has(keyUrl)) {
+        const keyCache = task._keyCache ||= new Map();
+        if (!keyCache.has(keyUrl)) {
             let rawKey;
             // Special handling for mediacache.cc (UniqueStream)
             if (/mediacache\.cc/.test(keyUrl) || /mediacache\.cc/.test(baseUrl)) {
@@ -4887,9 +4890,9 @@ class Downloader {
                 });
             }
             if (rawKey.byteLength !== 16) throw new Error(`Invalid AES-128 key length: ${rawKey.byteLength}.`);
-            this.#keyCache.set(keyUrl, crypto.subtle.importKey('raw', rawKey, { name: 'AES-CBC' }, false, ['decrypt']));
+            keyCache.set(keyUrl, crypto.subtle.importKey('raw', rawKey, { name: 'AES-CBC' }, false, ['decrypt']));
         }
-        return { cryptoKey: await this.#keyCache.get(keyUrl) };
+        return { cryptoKey: await keyCache.get(keyUrl) };
     }
 
     async #runHls(task) {
@@ -4978,10 +4981,17 @@ class Mp4Converter {
     #mp4Boxes(data) {
         const boxes = [];
         for (let offset = 0; offset + 8 <= data.byteLength;) {
-            const size = new DataView(data.buffer, data.byteOffset + offset, 4).getUint32(0);
+            let size = new DataView(data.buffer, data.byteOffset + offset, 4).getUint32(0);
+            let header = 8;
+            // Handle "large" boxes with 64-bit size field (> 4GB)
+            if (size === 1) {
+                if (offset + 16 > data.byteLength) break;
+                size = Number(new DataView(data.buffer, data.byteOffset + offset + 8, 8).getBigUint64(0));
+                header = 16;
+            }
             const end = size > 1 ? offset + size : data.byteLength;
             if (end <= offset || end > data.byteLength) break;
-            boxes.push({ type: String.fromCharCode(...data.subarray(offset + 4, offset + 8)), data: data.subarray(offset + 8, end) });
+            boxes.push({ type: String.fromCharCode(...data.subarray(offset + 4, offset + 8)), data: data.subarray(offset + header, end) });
             offset = end;
         }
         return boxes;
@@ -5001,11 +5011,13 @@ class Mp4Converter {
         const containers = new Set(['moov', 'mvex', 'trak', 'mdia', 'minf', 'stbl', 'moof', 'traf']);
         const walk = (start, end) => {
             for (let offset = start; offset + 8 <= end;) {
-                const size = new DataView(result.buffer, offset, 4).getUint32(0);
+                // Handle "large" boxes with 64-bit size field (> 4GB)
+                let size = new DataView(result.buffer, offset, 4).getUint32(0), header = 8;
+                if (size === 1) { if (offset + 16 > end) break; size = Number(new DataView(result.buffer, offset + 8, 8).getBigUint64(0)); header = 16; }
                 const boxEnd = size > 1 ? offset + size : end;
                 if (boxEnd <= offset || boxEnd > end) break;
                 const type = String.fromCharCode(...result.subarray(offset + 4, offset + 8));
-                const payload = offset + 8;
+                const payload = offset + header;
                 if (boxTypes.has(type)) {
                     const idOffset = payload + (type === 'tkhd' && result[payload] === 1 ? 20 : type === 'tkhd' ? 12 : 4);
                     if (idOffset + 4 <= boxEnd && new DataView(result.buffer).getUint32(idOffset) === from) new DataView(result.buffer).setUint32(idOffset, to);
@@ -5015,6 +5027,28 @@ class Mp4Converter {
             }
         };
         walk(0, result.byteLength);
+        return result;
+    }
+
+    #setFragmentSequence(data, sequence) {
+        const result = new Uint8Array(data);
+        for (let offset = 0; offset + 8 <= result.byteLength;) {
+            let size = new DataView(result.buffer, offset, 4).getUint32(0), header = 8;
+            if (size === 1) { if (offset + 16 > result.byteLength) break; size = Number(new DataView(result.buffer, offset + 8, 8).getBigUint64(0)); header = 16; }
+            const end = size > 1 ? offset + size : result.byteLength;
+            if (end <= offset || end > result.byteLength) break;
+            if (String.fromCharCode(...result.subarray(offset + 4, offset + 8)) === 'moof') {
+                for (let child = offset + header; child + 8 <= end;) {
+                    let childSize = new DataView(result.buffer, child, 4).getUint32(0), childHeader = 8;
+                    if (childSize === 1) { if (child + 16 > end) break; childSize = Number(new DataView(result.buffer, child + 8, 8).getBigUint64(0)); childHeader = 16; }
+                    const childEnd = childSize > 1 ? child + childSize : end;
+                    if (childEnd <= child || childEnd > end) break;
+                    if (String.fromCharCode(...result.subarray(child + 4, child + 8)) === 'mfhd' && child + childHeader + 8 <= childEnd) new DataView(result.buffer).setUint32(child + childHeader + 4, sequence);
+                    child = childEnd;
+                }
+            }
+            offset = end;
+        }
         return result;
     }
 
@@ -5033,19 +5067,18 @@ class Mp4Converter {
         return this.#concatBytes([this.#mp4Box(ftyp.type, [ftyp.data]), this.#mp4Box('moov', [...moovChildren, ...tracks, this.#mp4Box('mvex', trex)])]);
     }
 
-    #tsPacketPayload(packet) {
-        let offset = 4;
-        if ((packet[3] & 0x30) > 0x10) offset += packet[4] + 1;
-        return packet.subarray(offset);
-    }
-
     #findTsAudioPids(bytes) {
+        const tsPacketPayload = (packet) => {
+            let offset = 4;
+            if ((packet[3] & 0x30) > 0x10) offset += packet[4] + 1;
+            return packet.subarray(offset);
+        }
         let pmtPid = null, section;
         for (let offset = 0; offset + 188 <= bytes.byteLength && (!pmtPid || !section); offset += 188) {
             const packet = bytes.subarray(offset, offset + 188);
             if (packet[0] !== 0x47) continue;
             const pid = (packet[1] & 0x1f) << 8 | packet[2];
-            const payload = this.#tsPacketPayload(packet);
+            const payload = tsPacketPayload(packet);
             if (pid === 0 && packet[1] & 0x40) {
                 const start = payload[0] + 1;
                 pmtPid = (payload[start + 10] & 0x1f) << 8 | payload[start + 11];
@@ -5073,9 +5106,17 @@ class Mp4Converter {
         const sectionLength = 9 + programInfoLength + entry.bytes.byteLength + 4;
         const section = new Uint8Array(3 + sectionLength);
         section.set(program.section.subarray(0, 12 + programInfoLength));
-        section[1] = 0xb0 | (sectionLength >>> 8);
+        section[1] = 0xb0 | (sectionLength >>> 8 & 0x0f);
         section[2] = sectionLength & 0xff;
+        section[8] = 0xe0 | (audioPid >>> 8 & 0x1f);
+        section[9] = audioPid & 0xff;
         section.set(entry.bytes, 12 + programInfoLength);
+        let crc = 0xffffffff;
+        for (let i = 0; i < section.length - 4; i++) {
+            crc ^= section[i] << 24;
+            for (let bit = 0; bit < 8; bit++) crc = crc & 0x80000000 ? crc << 1 ^ 0x04c11db7 : crc << 1;
+        }
+        new DataView(section.buffer).setUint32(section.length - 4, crc >>> 0);
         const packet = new Uint8Array(188);
         packet.fill(0xff);
         packet.set([0x47, 0x40 | program.pmtPid >>> 8, program.pmtPid & 0xff, 0x10], 0);
@@ -5113,9 +5154,11 @@ class Mp4Converter {
             const fail = error => { if (!settled) { settled = true; reject(error); } };
             transmuxer.on('data', event => { if (event.initSegment) output.init = new Uint8Array(event.initSegment); if (event.data) output.data.push(new Uint8Array(event.data)); });
             transmuxer.on('log', event => task._log(`${label}: ${event.message || JSON.stringify(event)}`, event.level || 'info'));
-            transmuxer.on('done', () => { if (settled) return; settled = true; output.data.length ? resolve(output) : reject(new Error(`${label} produced no MP4 media data.`)); });
+            transmuxer.on('error', error => fail(error instanceof Error ? error : new Error(error?.message || `${label} failed.`)));
+            transmuxer.on('done', () => { if (settled) return; settled = true; output.init && output.data.length ? resolve(output) : reject(new Error(`${label} produced no MP4 media data.`)); });
             try {
                 for (let offset = 0; offset < bytes.byteLength; offset += 1024 * 1024) {
+                    if (task._cancelled) throw Object.assign(new Error('Download cancelled'), { name: 'AbortError' });
                     const chunk = bytes.subarray(offset, Math.min(bytes.byteLength, offset + 1024 * 1024));
                     transmuxer.push(chunk);
                     if (task._stats.phase === 'converting') { task._stats.conversionBytes = Math.min(task._stats.conversionTotal, task._stats.conversionBytes + chunk.byteLength); task._emit('progress', task.stats); }
@@ -5125,10 +5168,156 @@ class Mp4Converter {
         });
     }
 
+    /**
+     * Finalises a fragmented MP4 produced by mux.js so it plays correctly in desktop players (mpv, VLC):
+     *  - adds the `iso6` brand so players detect a fragmented MP4,
+     *  - clears mux.js' bogus creation/modification timestamps (read as 1970 unix times),
+     *  - writes real track/movie durations (mux.js leaves them 0xffffffff/0, which shows a wrong runtime),
+     *  - inserts a `mehd` total-duration box.
+     * @param {Uint8Array} initSegment - ftyp+moov init segment produced by mux.js
+     * @param {Uint8Array[]} fragments - media segments (moof[+mdat])
+     * @returns {Uint8Array} - finalised MP4 bytes
+     */
+    #anlinkFinalizeMp4(initSegment, fragments) {
+        const typeAt = (buf, o) => String.fromCharCode(buf[o+4], buf[o+5], buf[o+6], buf[o+7]);
+        const u32 = (buf, o) => (buf[o] << 24 | buf[o+1] << 16 | buf[o+2] << 8 | buf[o+3]) >>> 0;
+        const u64 = (buf, o) => { let v = 0; for (let i = 0; i < 8; i++) v = v * 256 + buf[o+i]; return v; };
+        const writeU32 = (buf, o, v) => { buf[o] = v >>> 24 & 255; buf[o+1] = v >>> 16 & 255; buf[o+2] = v >>> 8 & 255; buf[o+3] = v & 255; };
+        const writeU64 = (buf, o, v) => { let value = BigInt(Math.max(0, Math.floor(Number(v) || 0))); for (let i = 7; i >= 0; i--) { buf[o+i] = Number(value & 255n); value >>= 8n; } };
+        const mkU32 = v => { const out = new Uint8Array(4); writeU32(out, 0, v); return out; };
+        const mkU64 = v => { const out = new Uint8Array(8); writeU64(out, 0, v); return out; };
+        const parseBoxes = (buf, start, end) => {
+            const out = [];
+            for (let o = start; o + 8 <= end;) {
+                const size = u32(buf, o), type = typeAt(buf, o);
+                let payload = o + 8, boxEnd;
+                if (size === 1) { if (o + 16 > end) break; boxEnd = o + u64(buf, o + 8); payload = o + 16; }
+                else if (size === 0) boxEnd = end;
+                else boxEnd = o + size;
+                if (boxEnd <= o || boxEnd > end) break;
+                out.push({ type, start: o, payload, end: boxEnd });
+                o = boxEnd;
+            }
+            return out;
+        };
+        const concat = parts => { let n = 0; for (const p of parts) n += p.byteLength; const out = new Uint8Array(n); let o = 0; for (const p of parts) { out.set(p, o); o += p.byteLength; } return out; };
+        const mkBox = (type, ...parts) => { const payload = concat(parts), out = new Uint8Array(payload.byteLength + 8); new DataView(out.buffer).setUint32(0, out.byteLength); for (let i = 0; i < 4; i++) out[4+i] = type.charCodeAt(i); out.set(payload, 8); return out; };
+
+        const top = parseBoxes(initSegment, 0, initSegment.byteLength);
+        const ftyp = top.find(b => b.type === 'ftyp'), moov = top.find(b => b.type === 'moov');
+        if (!ftyp || !moov) return initSegment;
+
+        const tracks = [];
+        for (const trak of parseBoxes(initSegment, moov.payload, moov.end).filter(b => b.type === 'trak')) {
+            const kids = parseBoxes(initSegment, trak.payload, trak.end);
+            const tkhd = kids.find(b => b.type === 'tkhd');
+            const id = tkhd ? u32(initSegment, tkhd.payload + (initSegment[tkhd.payload] === 1 ? 20 : 12)) : 0;
+            const mdia = kids.find(b => b.type === 'mdia');
+            const mdhd = mdia && parseBoxes(initSegment, mdia.payload, mdia.end).find(b => b.type === 'mdhd');
+            tracks.push({ id, timescale: mdhd ? u32(initSegment, mdhd.payload + (initSegment[mdhd.payload] === 1 ? 20 : 12)) : 0 });
+        }
+        const mvhd = parseBoxes(initSegment, moov.payload, moov.end).find(b => b.type === 'mvhd');
+        const movieTimescale = mvhd ? u32(initSegment, mvhd.payload + (initSegment[mvhd.payload] === 1 ? 20 : 12)) : 90000;
+
+        const defaultDurations = new Map();
+        const mvex = parseBoxes(initSegment, moov.payload, moov.end).find(b => b.type === 'mvex');
+        for (const trex of mvex ? parseBoxes(initSegment, mvex.payload, mvex.end).filter(b => b.type === 'trex') : []) defaultDurations.set(u32(initSegment, trex.payload + 4), u32(initSegment, trex.payload + 12));
+        const durations = new Map();   // trackId -> total duration in that track's timescale
+        for (const fragment of fragments) for (const box of parseBoxes(fragment, 0, fragment.byteLength)) {
+            if (box.type !== 'moof') continue;
+            for (const traf of parseBoxes(fragment, box.payload, box.end).filter(b => b.type === 'traf')) {
+                let id = 0, defDur = 0, base = 0, total = 0;
+                for (const c of parseBoxes(fragment, traf.payload, traf.end)) {
+                    if (c.type === 'tfhd') {
+                        const flags = (fragment[c.payload+1] << 16) | (fragment[c.payload+2] << 8) | fragment[c.payload+3];
+                        id = u32(fragment, c.payload + 4);
+                        let o = c.payload + 8;
+                        if (flags & 0x01) o += 8;   // base-data-offset
+                        if (flags & 0x02) o += 4;   // sample-description-index
+                        if (flags & 0x08) defDur = u32(fragment, o);
+                        else defDur = defaultDurations.get(id) || 0;
+                    } else if (c.type === 'tfdt') {
+                        base = fragment[c.payload] === 1 ? u64(fragment, c.payload + 4) : u32(fragment, c.payload + 4);
+                    } else if (c.type === 'trun') {
+                        const flags = (fragment[c.payload+1] << 16) | (fragment[c.payload+2] << 8) | fragment[c.payload+3];
+                        const count = u32(fragment, c.payload + 4);
+                        let o = c.payload + 8;
+                        if (flags & 0x01) o += 4;   // data-offset
+                        if (flags & 0x04) o += 4;   // first-sample-flags
+                        if (flags & 0x100) for (let i = 0; i < count; i++) { total += u32(fragment, o); o += 4; if (flags & 0x200) o += 4; if (flags & 0x400) o += 4; if (flags & 0x800) o += 4; }
+                        else total += defDur * count;
+                    }
+                }
+                durations.set(id, Math.max(durations.get(id) || 0, base + total));
+            }
+        }
+        const trackOf = id => tracks.find(t => t.id === id);
+        const toMovie = (id, dur) => { const t = trackOf(id); return t && t.timescale ? Math.round(dur * movieTimescale / t.timescale) : 0; };
+        const movieDuration = Math.max(0, ...[...durations.keys()].map(id => toMovie(id, durations.get(id))));
+
+        const containers = new Set(['moov', 'mdia', 'minf', 'stbl', 'edts', 'dinf', 'udta']);
+        const build = (buf, start, end, trackId) => {
+            const boxes = parseBoxes(buf, start, end);
+            if (!boxes.length) return [buf.subarray(start, end)];
+            const parts = [];
+            if (boxes[0].start > start) parts.push(buf.subarray(start, boxes[0].start));
+            for (const b of boxes) {
+                if (b.type === 'trak') {
+                    const tkhd = parseBoxes(buf, b.payload, b.end).find(x => x.type === 'tkhd');
+                    const id = tkhd ? u32(buf, tkhd.payload + (buf[tkhd.payload] === 1 ? 20 : 12)) : 0;
+                    parts.push(mkBox('trak', ...build(buf, b.payload, b.end, id)));
+                } else if (b.type === 'mvhd' || b.type === 'tkhd' || b.type === 'mdhd') {
+                    const data = buf.subarray(b.payload, b.end).slice();
+                    const version = data[0], ts = version === 1 ? 8 : 4;
+                    for (let i = 0; i < ts * 2; i++) data[4 + i] = 0;   // clear creation/modification times
+                    // mvhd/mdhd: version/flags + creation + modification + timescale, then duration;
+                    // tkhd additionally has track_ID + reserved before duration.
+                    const durationOffset = b.type === 'tkhd' ? (version === 1 ? 28 : 20) : 4 + ts * 2 + 4;
+                    const duration = b.type === 'mvhd' ? movieDuration : b.type === 'tkhd' ? toMovie(trackId, durations.get(trackId) || 0) : (durations.get(trackId) || 0);
+                    if (version === 1) writeU64(data, durationOffset, duration); else writeU32(data, durationOffset, duration);
+                    parts.push(mkBox(b.type, data));
+                } else if (b.type === 'stsd') {
+                    const data = buf.subarray(b.payload, b.end);
+                    const rebuilt = parseBoxes(data, 8, data.byteLength).map(e => {
+                        const ed = data.subarray(e.payload, e.end);
+                        if (e.type !== 'mp4a') return data.subarray(e.start, e.end);
+                        const version = (ed[8] << 8) | ed[9], prefixLength = 8 + 20 + (version ? 16 : 0);
+                        const kids = parseBoxes(ed, prefixLength, ed.byteLength);
+                        return kids.length && kids[0].start === prefixLength ? mkBox(e.type, ed.subarray(0, prefixLength), ...build(ed, prefixLength, ed.byteLength, trackId)) : data.subarray(e.start, e.end);
+                    });
+                    parts.push(mkBox('stsd', data.subarray(0, 8), ...rebuilt));
+                } else if (b.type === 'mvex') {
+                    const kids = parseBoxes(buf, b.payload, b.end).filter(c => c.type !== 'mehd').map(c => buf.subarray(c.start, c.end));
+                    const mehd = movieDuration > 0xffffffff ? mkBox('mehd', Uint8Array.from([1, 0, 0, 0]), mkU64(movieDuration)) : mkBox('mehd', Uint8Array.from([0, 0, 0, 0]), mkU32(movieDuration));
+                    parts.push(mkBox('mvex', mehd, ...kids));
+                } else if (containers.has(b.type)) {
+                    parts.push(mkBox(b.type, ...build(buf, b.payload, b.end, trackId)));
+                } else {
+                    parts.push(buf.subarray(b.start, b.end));
+                }
+            }
+            return parts;
+        };
+
+        const compatible = [];
+        for (let o = ftyp.payload + 8; o + 4 <= ftyp.end; o += 4) compatible.push(initSegment.subarray(o, o + 4));
+        if (!compatible.some(b => String.fromCharCode(...b) === 'iso6')) compatible.push(Uint8Array.from([...'iso6'].map(c => c.charCodeAt(0))));
+        const newFtyp = mkBox('ftyp', initSegment.subarray(ftyp.payload, ftyp.payload + 4), initSegment.subarray(ftyp.payload + 4, ftyp.payload + 8), ...compatible);
+
+        return concat([newFtyp, ...build(initSegment, moov.start, moov.end, 0), ...fragments]);
+    }
+
     /**@param {DownloadTask} task  */
     async convertTsToMp4(task) {
         await this.downloader.closeWriter(task);
         const input = await this.#readTaskBytes(task);
+        const isTs = input.byteLength >= 188 && input[0] === 0x47 && (input.byteLength < 376 || input[188] === 0x47);
+        if (!isTs) {
+            if (String.fromCharCode(...input.subarray(4, 8)) !== 'ftyp') throw new Error('Downloaded stream is neither MPEG-TS nor MP4.');
+            task._stats.contentType = 'video/mp4';
+            task._log('Downloaded stream is already MP4; skipped TS conversion.');
+            return;
+        }
         task._stats.phase = 'converting';
         task._stats.conversionBytes = 0;
         task._stats.conversionTotal = input.byteLength;
@@ -5152,8 +5341,12 @@ class Mp4Converter {
                 task._stats.trackBytesReceived = task._stats.trackBytesTotal = 0;
                 task._emit('progress', task.stats);
                 const response = await this.downloader.fetchTrack(task, track);
-                outputs.push(await this.#transmux(task, mux, new Uint8Array(response.response || new ArrayBuffer(0)), `Audio track ${track.label || track.file}`));
-                task._embeddedTrackFiles.add(track.file);
+                const audioBytes = new Uint8Array(response.response || new ArrayBuffer(0));
+                const isTs = audioBytes.byteLength >= 188 && audioBytes[0] === 0x47 && (audioBytes.byteLength < 376 || audioBytes[188] === 0x47);
+                if (isTs) {
+                    outputs.push(await this.#transmux(task, mux, audioBytes, `Audio track ${track.label || track.file}`));
+                    task._embeddedTrackFiles.add(track.file);
+                } else task._log(`Audio track ${track.label || track.file} is not MPEG-TS; keeping it as a sidecar track.`, 'warning');
                 task._stats.trackIndex++;
                 task._stats.trackLabel = '';
                 task._emit('progress', task.stats);
@@ -5170,7 +5363,8 @@ class Mp4Converter {
                 }
                 usedIds.add(track.id);
             }
-            const mp4 = this.#concatBytes([this.#combineMp4InitSegments(outputs), ...outputs.flatMap(output => output.data)]);
+            let sequence = 1; const fragments = outputs.flatMap(output => output.data.map(data => this.#setFragmentSequence(data, sequence++)));
+            const mp4 = this.#anlinkFinalizeMp4(this.#combineMp4InitSegments(outputs), fragments);
             await this.#writeTaskBytes(task, mp4);
             task._stats.bytesWritten = task._stats.bytesReceived = mp4.byteLength;
             task._stats.totalSize = mp4.byteLength;
@@ -5776,7 +5970,7 @@ class DownloaderUI {
                 <div><label>Preferred caption languages</label><input name="captionTrackLanguages" type="text" value="${escape(settings.captionTrackLanguages)}" placeholder="en,eng,enUS,english"><small>Comma-separated language codes or names; blank keeps all captions.</small></div>
                 <div style="display: flex; flex-direction: column;"><label style="margin-bottom: -4px;">Always show floating button</label><label style="display: flex; align-items: center; gap: 12px; background-color: #18211f; border: 1px solid #343c3a; border-radius: 6px; padding: 6px 10px; cursor: pointer;"><input name="fabAlwaysVisible" type="checkbox" ${settings.fabAlwaysVisible === true ? 'checked' : ''} onchange="this.nextElementSibling.textContent = this.checked ? 'True' : 'False'" style="accent-color: #3f51b5; width: 14px; height: 14px; margin: 0; cursor: pointer;"><span style="font-size: 14px; font-family: sans-serif; opacity: 0.85;">${settings.fabAlwaysVisible === true ? 'True' : 'False'}</span></label></div>
                 <div style="display: flex; flex-direction: column;"><label style="margin-bottom: -4px;">Keep partial files on failure</label><label style="display: flex; align-items: center; gap: 12px; background-color: #18211f; border: 1px solid #343c3a; border-radius: 6px; padding: 6px 10px; cursor: pointer;"><input name="keepPartialFiles" type="checkbox" ${settings.keepPartialFiles !== false ? 'checked' : ''} onchange="this.nextElementSibling.textContent = this.checked ? 'True' : 'False'" style="accent-color: #3f51b5; width: 14px; height: 14px; margin: 0; cursor: pointer;"><span style="font-size: 14px; font-family: sans-serif; opacity: 0.85;">${settings.keepPartialFiles !== false ? 'True' : 'False'}</span></label></div>
-                <div style="display: flex; flex-direction: column;"><label style="margin-bottom: -4px;">Convert downloads to MP4</label><label style="display: flex; align-items: center; gap: 12px; background-color: #18211f; border: 1px solid #343c3a; border-radius: 6px; padding: 6px 10px; cursor: pointer;"><input name="convertTsToMp4" type="checkbox" ${settings.convertTsToMp4 !== false ? 'checked' : ''} onchange="this.nextElementSibling.textContent = this.checked ? 'True' : 'False'" style="accent-color: #3f51b5; width: 14px; height: 14px; margin: 0; cursor: pointer;"><span style="font-size: 14px; font-family: sans-serif; opacity: 0.85;">${settings.convertTsToMp4 !== false ? 'True' : 'False'}</span></label><small>Lossless remux; selected audio tracks are embedded and captions remain sidecar files.</small></div>
+                <div style="display: flex; flex-direction: column;"><label style="margin-bottom: -4px;">Convert downloads to MP4</label><label style="display: flex; align-items: center; gap: 12px; background-color: #18211f; border: 1px solid #343c3a; border-radius: 6px; padding: 6px 10px; cursor: pointer;"><input name="convertTsToMp4" type="checkbox" ${settings.convertTsToMp4 !== false ? 'checked' : ''} onchange="this.nextElementSibling.textContent = this.checked ? 'True' : 'False'" style="accent-color: #3f51b5; width: 14px; height: 14px; margin: 0; cursor: pointer;"><span style="font-size: 14px; font-family: sans-serif; opacity: 0.85;">${settings.convertTsToMp4 !== false ? 'True' : 'False'}</span></label><small>Lossless remux; audio tracks are embedded; some players (VLC) tend to have issues and if so then disable this option.</small></div>
                 <div><label>Notifications</label><select name="notifications">
                     <option value="off" ${settings.notifications==='off' ? 'selected' : '' }>Off</option>
                     <option value="failed" ${settings.notifications==='failed' ? 'selected' : '' }>Failed only</option>
