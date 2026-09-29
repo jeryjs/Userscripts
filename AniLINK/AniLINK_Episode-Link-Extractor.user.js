@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     7.1.9
+// @version     7.1.10
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -115,10 +115,16 @@
 // TODO: If selected folder is not empty or is downloads folder, then download to a subfolder named after the anime title.
 // TODO: Improve animepahe ep list fetching
 // TODO: Clear history button doesnt appear until collapse/expand history is clicked once. Fix this.
-// TODO: Fix audio track not embedded in mp4 (tested on anizone)
 
 // track last version for managing backwards compatability for script updates
 if (GM_info.script.version >= GM_getValue('script_version', '0')) {
+    // the old default value of preferred audio/video track languages was not right, so delete it in GM storage and let script set its default value again
+    if (GM_getValue('script_version', '0') < '7.1.10') {
+        GM_deleteValue('audioTrackLanguages');
+        GM_deleteValue('captionTrackLanguages');
+    }
+
+    // Dialog for new AniLINK v7 update announcement (only show once for users updating from v6 to v7)
     if ((GM_getValue('script_version', '0') > '6.0.0') && (GM_getValue('script_version', '0') < '7.0.0')) {
         // Create isolated shadow host for the update dialog to block page style interference
         const dialogHost = document.createElement('div');
@@ -1258,21 +1264,32 @@ const trackKind = track => {
  */
 function filterTracksByLanguagePreferences(tracks, settings) {
     const supportedTracks = (tracks || []).filter(track => trackKind(track));
-    const trackMatchesLanguages = (track, languages) => {
-        const preferences = new Set(normalizeTrackLanguageSetting(languages).toLowerCase().split(',').map(language => language.replace(/[^a-z0-9]+/g, '')).filter(Boolean));
-        const trackLanguageValues = track => [...new Set([track?.language, track?.lang, track?.label, track?.title, track?.name]
-            .filter(Boolean).flatMap(value => {
-                const text = String(value).toLowerCase();
-                return [text.replace(/[^a-z0-9]+/g, ''), ...text.split(/[^a-z0-9]+/).filter(Boolean)];
-            }))];
-        return !preferences.size || trackLanguageValues(track).some(value => preferences.has(value));
+    const normalizeLanguageValue = value => String(value).toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const languageValues = value => {
+        const text = String(value).toLowerCase();
+        return [...new Set([normalizeLanguageValue(text), ...text.split(/[^a-z0-9]+/).map(normalizeLanguageValue)])].filter(Boolean);
     };
-    return supportedTracks.filter(track => {
+    const trackLanguageValues = track => [...new Set([track?.language, track?.lang, track?.label, track?.title, track?.name]
+        .filter(Boolean).flatMap(languageValues))];
+    const preferencesFor = kind => languageValues(normalizeTrackLanguageSetting(kind === 'audio' ? settings.audioTrackLanguages : settings.captionTrackLanguages));
+    const isSubsequence = (shorter, longer) => {
+        let cursor = 0;
+        for (const character of longer) if (character === shorter[cursor]) cursor++;
+        return cursor === shorter.length;
+    };
+    const matches = (preference, candidate) => preference === candidate || candidate.startsWith(preference) || preference.startsWith(candidate) ||
+        preference.length > 1 && candidate.length > preference.length && isSubsequence(preference, candidate);
+    const preferenceIndex = (track, preferences) => preferences.findIndex(preference => trackLanguageValues(track).some(candidate => matches(preference, candidate)));
+    const entries = supportedTracks.map((track, index) => {
         const kind = trackKind(track);
-        const languages = kind === 'audio' ? settings.audioTrackLanguages : settings.captionTrackLanguages;
-        const sameKindTracks = supportedTracks.filter(candidate => trackKind(candidate) === kind);
-        return !normalizeTrackLanguageSetting(languages) || !sameKindTracks.some(candidate => trackMatchesLanguages(candidate, languages)) || trackMatchesLanguages(track, languages);
+        const preferences = preferencesFor(kind);
+        return { track, index, kind, preferences, matchIndex: preferenceIndex(track, preferences) };
     });
+    const hasMatches = new Map([...new Set(entries.map(entry => entry.kind))].map(kind => [kind, entries.some(entry => entry.kind === kind && entry.matchIndex !== -1)]));
+    return entries
+        .filter(entry => !entry.preferences.length || !hasMatches.get(entry.kind) || entry.matchIndex !== -1)
+        .sort((first, second) => first.kind === second.kind ? (first.matchIndex < 0 ? Infinity : first.matchIndex) - (second.matchIndex < 0 ? Infinity : second.matchIndex) || first.index - second.index : first.index - second.index)
+        .map(entry => entry.track);
 }
 
 /***************************************************************
@@ -3659,7 +3676,7 @@ class DownloadTask {
 
     _log(message, level = 'info') {
         this._logs.push({ at: Date.now(), level, message: String(message) });
-        if (this._logs.length > 200) this._logs.splice(0, this._logs.length - 200);
+        if (this._logs.length > 2000) this._logs.splice(0, this._logs.length - 2000);
         this._emit('log', this._logs[this._logs.length - 1]);
     }
 
@@ -3779,8 +3796,8 @@ class Downloader {
             fabAlwaysVisible: false,
             keepPartialFiles: true,
             convertTsToMp4: true,
-            audioTrackLanguages: "japanese,jpn,ja,english,eng,en",
-            captionTrackLanguages: "enUS,english,eng,en",
+            audioTrackLanguages: "japanese,jpn,english,eng",
+            captionTrackLanguages: "english,enUS,eng",
         };
     }
 
@@ -4428,7 +4445,10 @@ class Downloader {
                             headers: job.byteRange ? { Range: `bytes=${job.byteRange.start}-${job.byteRange.end}` } : {},
                             onprogress: details => this.#recordTrackProgress(task, jobKey, details.loaded, details.total)
                         });
-                        const bytes = new Uint8Array(response.response || new ArrayBuffer(0));
+                        const encryptedBytes = new Uint8Array(response.response || new ArrayBuffer(0));
+                        let bytes = encryptedBytes;
+                        const key = await this.#hlsKey(task, job.key, playlist.url);
+                        if (key) bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: this.#hlsIv(job.key.IV, job.sequence) }, key.cryptoKey, encryptedBytes));
                         this.#recordTrackProgress(task, jobKey, bytes.byteLength, Number(dlUtils.anlinkParseHeaders(response.responseHeaders).get('content-length')) || bytes.byteLength);
                         pieces[job.index] = bytes;
                         break;
@@ -4902,7 +4922,7 @@ class Downloader {
 
         const hlsAudioTracks = (playlist.mediaTracks || [])
             .filter(track => (track.TYPE || '').toUpperCase() === 'AUDIO' && track.URI)
-            .map(track => ({ file: track.URI, kind: 'audio', label: track.NAME || track.LANGUAGE || 'Audio' }));
+            .map(track => ({ file: track.URI, kind: 'audio', label: track.NAME || track.LANGUAGE || 'Audio', language: track.LANGUAGE }));
         const existingUrls = new Set((task.options.tracks || []).map(t => t.file));
         for (const audioTrack of hlsAudioTracks) {
             if (!existingUrls.has(audioTrack.file)) {
@@ -5136,6 +5156,28 @@ class Mp4Converter {
         return this.#concatBytes(packets);
     }
 
+    #parseFragmentedMp4(bytes, label) {
+        const boxes = this.#mp4Boxes(bytes);
+        const ftyp = boxes.find(box => box.type === 'ftyp');
+        const moov = boxes.find(box => box.type === 'moov');
+        if (!ftyp || !moov) throw new Error(`${label} is not a fragmented MP4 initialization segment.`);
+
+        const fragments = [];
+        let current = null;
+        for (const box of boxes) {
+            if (box.type === 'ftyp' || box.type === 'moov') continue;
+            if (box.type === 'moof') {
+                if (current) fragments.push(this.#concatBytes(current));
+                current = [];
+            }
+            if (current) current.push(this.#mp4Box(box.type, [box.data]));
+        }
+        if (current) fragments.push(this.#concatBytes(current));
+        if (!fragments.length || !fragments.some(fragment => this.#mp4Boxes(fragment).some(box => box.type === 'mdat'))) throw new Error(`${label} contains no fragmented media data.`);
+
+        return { init: this.#concatBytes([ftyp, moov].map(box => this.#mp4Box(box.type, [box.data]))), data: fragments };
+    }
+
     async #readTaskBytes(task) {
         if (!this.#dirHandle) return this.#concatBytes([...task._memoryParts.entries()].sort(([first], [second]) => first - second).map(([, bytes]) => bytes));
         return new Uint8Array(await (await task._fileHandle.getFile()).arrayBuffer());
@@ -5312,11 +5354,14 @@ class Mp4Converter {
         await this.downloader.closeWriter(task);
         const input = await this.#readTaskBytes(task);
         const isTs = input.byteLength >= 188 && input[0] === 0x47 && (input.byteLength < 376 || input[188] === 0x47);
+        const audioTracks = filterTracksByLanguagePreferences((task.options.tracks || []).filter(track => trackKind(track) === 'audio'), task.options);
         if (!isTs) {
             if (String.fromCharCode(...input.subarray(4, 8)) !== 'ftyp') throw new Error('Downloaded stream is neither MPEG-TS nor MP4.');
-            task._stats.contentType = 'video/mp4';
-            task._log('Downloaded stream is already MP4; skipped TS conversion.');
-            return;
+            if (audioTracks.length === 0) {
+                task._stats.contentType = 'video/mp4';
+                task._log('Downloaded stream is already MP4 and no external audio tracks were selected; skipped conversion.');
+                return;
+            }
         }
         task._stats.phase = 'converting';
         task._stats.conversionBytes = 0;
@@ -5324,12 +5369,24 @@ class Mp4Converter {
         task._emit('progress', task.stats);
         try {
             const mux = await this.#getMuxJs();
-            const program = this.#findTsAudioPids(input);
-            const outputs = [await this.#transmux(task, mux, input, 'Main TS')];
-            const mainAudio = mux.mp4.probe.tracks(outputs[0].init || new Uint8Array()).some(track => track.type === 'audio');
-            for (const audioPid of (mainAudio ? program.audioPids.slice(1) : program.audioPids)) outputs.push(await this.#transmux(task, mux, this.#filterTsForAudio(input, program, audioPid), `Embedded audio ${audioPid}`));
+            let outputs;
+            if (isTs) {
+                const program = this.#findTsAudioPids(input);
+                outputs = [await this.#transmux(task, mux, input, 'Main TS')];
+                const mainAudio = mux.mp4.probe.tracks(outputs[0].init || new Uint8Array()).some(track => track.type === 'audio');
+                for (const audioPid of (mainAudio ? program.audioPids.slice(1) : program.audioPids)) outputs.push(await this.#transmux(task, mux, this.#filterTsForAudio(input, program, audioPid), `Embedded audio ${audioPid}`));
+            } else {
+                try {
+                    outputs = [this.#parseFragmentedMp4(input, 'Main MP4')];
+                } catch (error) {
+                    task._stats.contentType = 'video/mp4';
+                    task._stats.phase = 'main';
+                    task._stats.conversionBytes = task._stats.conversionTotal;
+                    task._log(`Could not embed external audio into the existing MP4; keeping audio tracks as sidecars: ${error.message || error}`, 'warning');
+                    return;
+                }
+            }
 
-            const audioTracks = filterTracksByLanguagePreferences((task.options.tracks || []).filter(track => trackKind(track) === 'audio'), task.options);
             task._stats.phase = audioTracks.length ? 'tracks' : 'converting';
             task._stats.trackIndex = 0;
             task._stats.trackTotal = audioTracks.length;
@@ -5342,11 +5399,21 @@ class Mp4Converter {
                 task._emit('progress', task.stats);
                 const response = await this.downloader.fetchTrack(task, track);
                 const audioBytes = new Uint8Array(response.response || new ArrayBuffer(0));
-                const isTs = audioBytes.byteLength >= 188 && audioBytes[0] === 0x47 && (audioBytes.byteLength < 376 || audioBytes[188] === 0x47);
-                if (isTs) {
+                const isAudioTs = audioBytes.byteLength >= 188 && audioBytes[0] === 0x47 && (audioBytes.byteLength < 376 || audioBytes[188] === 0x47);
+                const isAudioMp4 = String.fromCharCode(...audioBytes.subarray(4, 8)) === 'ftyp';
+                if (isAudioTs) {
                     outputs.push(await this.#transmux(task, mux, audioBytes, `Audio track ${track.label || track.file}`));
                     task._embeddedTrackFiles.add(track.file);
-                } else task._log(`Audio track ${track.label || track.file} is not MPEG-TS; keeping it as a sidecar track.`, 'warning');
+                } else if (isAudioMp4) {
+                    try {
+                        const output = this.#parseFragmentedMp4(audioBytes, `Audio track ${track.label || track.file}`);
+                        if (!mux.mp4.probe.tracks(output.init).some(candidate => candidate.type === 'audio')) throw new Error('The fragmented MP4 does not contain an audio track.');
+                        outputs.push(output);
+                        task._embeddedTrackFiles.add(track.file);
+                    } catch (error) {
+                        task._log(`Audio track ${track.label || track.file} could not be embedded; keeping it as a sidecar track: ${error.message || error}`, 'warning');
+                    }
+                } else task._log(`Audio track ${track.label || track.file} is neither MPEG-TS nor fragmented MP4; keeping it as a sidecar track.`, 'warning');
                 task._stats.trackIndex++;
                 task._stats.trackLabel = '';
                 task._emit('progress', task.stats);
@@ -5355,7 +5422,7 @@ class Mp4Converter {
             let nextId = Math.max(0, ...usedIds) + 1;
             for (const output of outputs.slice(1)) {
                 const track = mux.mp4.probe.tracks(output.init).find(candidate => candidate.type === 'audio');
-                if (!track) throw new Error('An audio transmux result did not contain an audio track.');
+                if (!track) throw new Error('An audio output did not contain an audio track.');
                 if (track.id === 0 || usedIds.has(track.id)) {
                     output.init = this.#patchMp4TrackId(output.init, track.id, nextId, new Set(['tkhd', 'trex']));
                     output.data = output.data.map(data => this.#patchMp4TrackId(data, track.id, nextId, new Set(['tfhd'])));
@@ -5373,11 +5440,12 @@ class Mp4Converter {
             task._stats.phase = 'main';
             task._stats.trackLabel = '';
             task._stats.conversionBytes = task._stats.conversionTotal;
-            task._log(`Converted TS to MP4: inputBytes=${input.byteLength}; outputBytes=${mp4.byteLength}; audioTracks=${outputs.length - 1}`);
+            task._log(`${isTs ? 'Converted TS to MP4' : 'Embedded audio in MP4'}: inputBytes=${input.byteLength}; outputBytes=${mp4.byteLength}; audioTracks=${outputs.length - 1}`);
             task._emit('progress', task.stats);
         } catch (error) {
-            task._log(`TS to MP4 conversion failed: ${error.message || error}`, 'error');
-            throw new Error(`TS to MP4 conversion failed: ${error.message || error}`);
+            const operation = isTs ? 'TS to MP4 conversion' : 'MP4 track embedding';
+            task._log(`${operation} failed: ${error.message || error}`, 'error');
+            throw new Error(`${operation} failed: ${error.message || error}`);
         }
     }
 }
@@ -5966,8 +6034,8 @@ class DownloaderUI {
                 <div><label>Preferred stream resolution (360, 720, 1080, etc)</label><input name="preferredResolution" type="number" min="0" step="1" value="${settings.preferredResolution || ''}" placeholder="Auto"></div>
                 <div><label>Subtitle folder (blank = alongside video)</label><input name="subtitleDirectory" type="text" value="${escape(settings.subtitleDirectory || '')}" placeholder="Optional folder name">${window.showDirectoryPicker ? '<small>This feature might not be supported in your browser. See <a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/showDirectoryPicker#browser_compatibility" target="_blank">MDN</a> for more information.</small>' : ''}</div>
                 <div><label>History retention</label><input name="historyLimit" type="number" min="1" max="100" placeholder="15" value="${Math.min(100, settings.historyLimit)}"></div>
-                <div><label>Preferred audio languages</label><input name="audioTrackLanguages" type="text" value="${escape(settings.audioTrackLanguages)}" placeholder="jp,jpn,japanese"><small>Comma-separated language codes or names; blank keeps all audio tracks.</small></div>
-                <div><label>Preferred caption languages</label><input name="captionTrackLanguages" type="text" value="${escape(settings.captionTrackLanguages)}" placeholder="en,eng,enUS,english"><small>Comma-separated language codes or names; blank keeps all captions.</small></div>
+                <div><label>Preferred audio languages</label><input name="audioTrackLanguages" type="text" value="${escape(settings.audioTrackLanguages)}" placeholder="japanese,jpn"><small>Comma-separated language codes or names; blank keeps all audio tracks.</small></div>
+                <div><label>Preferred caption languages</label><input name="captionTrackLanguages" type="text" value="${escape(settings.captionTrackLanguages)}" placeholder="english,enUS,eng"><small>Comma-separated language codes or names; blank keeps all captions.</small></div>
                 <div style="display: flex; flex-direction: column;"><label style="margin-bottom: -4px;">Always show floating button</label><label style="display: flex; align-items: center; gap: 12px; background-color: #18211f; border: 1px solid #343c3a; border-radius: 6px; padding: 6px 10px; cursor: pointer;"><input name="fabAlwaysVisible" type="checkbox" ${settings.fabAlwaysVisible === true ? 'checked' : ''} onchange="this.nextElementSibling.textContent = this.checked ? 'True' : 'False'" style="accent-color: #3f51b5; width: 14px; height: 14px; margin: 0; cursor: pointer;"><span style="font-size: 14px; font-family: sans-serif; opacity: 0.85;">${settings.fabAlwaysVisible === true ? 'True' : 'False'}</span></label></div>
                 <div style="display: flex; flex-direction: column;"><label style="margin-bottom: -4px;">Keep partial files on failure</label><label style="display: flex; align-items: center; gap: 12px; background-color: #18211f; border: 1px solid #343c3a; border-radius: 6px; padding: 6px 10px; cursor: pointer;"><input name="keepPartialFiles" type="checkbox" ${settings.keepPartialFiles !== false ? 'checked' : ''} onchange="this.nextElementSibling.textContent = this.checked ? 'True' : 'False'" style="accent-color: #3f51b5; width: 14px; height: 14px; margin: 0; cursor: pointer;"><span style="font-size: 14px; font-family: sans-serif; opacity: 0.85;">${settings.keepPartialFiles !== false ? 'True' : 'False'}</span></label></div>
                 <div style="display: flex; flex-direction: column;"><label style="margin-bottom: -4px;">Convert downloads to MP4</label><label style="display: flex; align-items: center; gap: 12px; background-color: #18211f; border: 1px solid #343c3a; border-radius: 6px; padding: 6px 10px; cursor: pointer;"><input name="convertTsToMp4" type="checkbox" ${settings.convertTsToMp4 !== false ? 'checked' : ''} onchange="this.nextElementSibling.textContent = this.checked ? 'True' : 'False'" style="accent-color: #3f51b5; width: 14px; height: 14px; margin: 0; cursor: pointer;"><span style="font-size: 14px; font-family: sans-serif; opacity: 0.85;">${settings.convertTsToMp4 !== false ? 'True' : 'False'}</span></label><small>Lossless remux; audio tracks are embedded; some players (VLC) tend to have issues and if so then disable this option.</small></div>
