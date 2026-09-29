@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     7.1.7
+// @version     7.1.8
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -113,8 +113,8 @@
 // TODO: Show note when "browser download API" needs to be enabled in GM extension manager settings.
 // TODO: Fix download progress for tracks—it shows the current size as total size instead of either true total size or total number of segments
 // TODO: If selected folder is not empty or is downloads folder, then download to a subfolder named after the anime title.
-// TODO: Add backoff retrying to downloader.
 // TODO: Improve animepahe ep list fetching
+// TODO: Clear history button doesnt appear until collapse/expand history is clicked once. Fix this.
 
 // track last version for managing backwards compatability for script updates
 if (GM_info.script.version >= GM_getValue('script_version', '0')) {
@@ -3517,6 +3517,29 @@ const dlUtils = {
         }
         return headers;
     },
+    anlinkRetryableStatuses: new Set([408, 425, 429, 500, 502, 503, 504]),
+    // Exponential backoff with jitter (capped at 30s), honouring Retry-After seconds when present.
+    anlinkRetryDelay: (attempt, retryAfterSeconds = 0) => {
+        if (retryAfterSeconds > 0) return Math.min(retryAfterSeconds * 1000, 60000);
+        const ceiling = Math.min(1000 * 2 ** attempt, 30000);
+        return Math.round(ceiling / 2 + Math.random() * (ceiling / 2));
+    },
+    anlinkIsRetryable: error => {
+        const status = Number(error?.status) || 0;
+        return !status || dlUtils.anlinkRetryableStatuses.has(status);
+    },
+    // Generic retry wrapper for task-less downloader requests (e.g. CDN assets).
+    anlinkWithRetry: async (operation, { retries = 3, onRetry } = {}) => {
+        for (let attempt = 0; ; attempt++) {
+            try { return await operation(attempt); }
+            catch (error) {
+                if (!dlUtils.anlinkIsRetryable(error) || attempt >= retries) throw error;
+                const delay = dlUtils.anlinkRetryDelay(attempt, Number(error.retryAfter) || 0);
+                onRetry?.(error, attempt, delay);
+                await sleep(delay);
+            }
+        }
+    },
 
     anlinkFormatBytes: (bytes) => {
         if (!Number.isFinite(bytes)) return 'N/A';
@@ -4157,8 +4180,8 @@ class Downloader {
         const preference = this.#settings.notifications;
         const shouldNotify = preference === 'all' || preference === 'failed' && task.status === 'failed' || preference === 'completed' && task.status === 'completed' || preference === 'completed-and-failed' && ['completed', 'failed'].includes(task.status);
         const message = task.status === 'completed' ? `${task.filename} finished.` : task.status === 'failed' ? `${task.filename} failed: ${task.error || 'unknown error'}` : `${task.filename}: ${task.status}.`;
-        if (task.status === 'failed') showToast(`Download failed: ${dlUtils.anlinkEscapeHtml(task.filename)} — ${dlUtils.anlinkEscapeHtml(task.error || 'unknown error')}`);
         if (!shouldNotify) return;
+        if (task.status === 'failed') showToast(`Download failed: ${dlUtils.anlinkEscapeHtml(task.filename)} — ${dlUtils.anlinkEscapeHtml(task.error || 'unknown error')}`);
         const icon = GM_info?.script?.icon || 'https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg';
         if (typeof GM_notification === 'function') GM_notification({ title: 'AniLINK Downloader', text: message, image: icon, icon, timeout: 5000 });
         else showToast(message);
@@ -4552,24 +4575,37 @@ class Downloader {
         try { return await request.promise; } finally { task._activeRequests.delete(request); }
     }
 
-    async #requestWithRetry(task, url, options = {}) {
+    async #withRetry(task, label, operation) {
+        const maxRetries = Math.max(0, Math.floor(task.options.retries ?? 3));
         for (let attempt = 0; ; attempt++) {
-            options.onprogress?.({ loaded: 0 });
+            if (task._cancelled) throw Object.assign(new Error('Download cancelled'), { name: 'AbortError' });
             try {
-                task._log(`${options.method || 'GET'} ${url}${options.headers?.Range ? ` (${options.headers.Range})` : ''}`);
-                const response = await this.#request(task, url, options);
-                if (response.status >= 200 && response.status < 300) return response;
-                const error = Object.assign(new Error(`HTTP ${response.status} ${response.statusText || ''}`.trim()), { status: response.status });
-                if (![408, 425, 429, 500, 502, 503, 504].includes(response.status) || attempt >= task.options.retries) throw error;
-                task._stats.retries++;
-                const retryAfter = Number(response.responseHeaders?.match(/(?:^|\n)Retry-After:\s*(\d+)/i)?.[1] || 0);
-                await sleep(Math.max(250, retryAfter * 1000 || 1000 * 2 ** attempt));
+                return await operation();
             } catch (error) {
-                if (error.name === 'AbortError' && task._paused && !task._cancelled) { await task._waitForResume(); continue; }
-                if (!error.status && attempt < task.options.retries && !task._cancelled) { task._stats.retries++; await sleep(1000 * 2 ** attempt); continue; }
-                throw error;
+                if (error?.name === 'AbortError') {
+                    if (task._paused && !task._cancelled) { await task._waitForResume(); continue; }
+                    throw error;
+                }
+                if (!dlUtils.anlinkIsRetryable(error) || attempt >= maxRetries || task._cancelled) throw error;
+                task._stats.retries++;
+                const delay = dlUtils.anlinkRetryDelay(attempt, Number(error.retryAfter) || 0);
+                task._log(`Retrying ${label} in ${Math.round(delay)}ms (attempt ${attempt + 2}/${maxRetries + 1})${error.status ? ` after HTTP ${error.status}` : ''}: ${error.message}`, 'warning');
+                await sleep(delay);
             }
         }
+    }
+
+    async #requestWithRetry(task, url, options = {}) {
+        return await this.#withRetry(task, `${options.method || 'GET'} ${url}`, async () => {
+            options.onprogress?.({ loaded: 0 });
+            task._log(`${options.method || 'GET'} ${url}${options.headers?.Range ? ` (${options.headers.Range})` : ''}`);
+            const response = await this.#request(task, url, options);
+            if (response.status >= 200 && response.status < 300) return response;
+            throw Object.assign(new Error(`HTTP ${response.status} ${response.statusText || ''}`.trim()), {
+                status: response.status,
+                retryAfter: Number(response.responseHeaders?.match(/(?:^|\n)Retry-After:\s*(\d+)/i)?.[1] || 0)
+            });
+        });
     }
 
     async #writeAt(task, position, data) {
@@ -4718,12 +4754,14 @@ class Downloader {
     }
 
     async #fetchText(task, url) {
-        await task._waitForResume();
-        const response = await GM_fetch(url, { headers: this.#headers(task) });
-        if (!response.ok) throw new Error(`HTTP ${response.status} while fetching ${url}`);
-        const text = await response.text();
-        task._log(`Text probe: status=${response.status}; bytes=${text.length}; contentType=${response.headers.get('content-type') || 'unknown'}; url=${response.url || url}`);
-        return { text, url: response.url || url, headers: response.headers };
+        return await this.#withRetry(task, `GET ${url}`, async () => {
+            await task._waitForResume();
+            const response = await GM_fetch(url, { headers: this.#headers(task) });
+            if (!response.ok) throw Object.assign(new Error(`HTTP ${response.status} while fetching ${url}`), { status: response.status, retryAfter: Number(response.headers.get('retry-after') || 0) });
+            const text = await response.text();
+            task._log(`Text probe: status=${response.status}; bytes=${text.length}; contentType=${response.headers.get('content-type') || 'unknown'}; url=${response.url || url}`);
+            return { text, url: response.url || url, headers: response.headers };
+        });
     }
 
     #parseHlsAttributes(value) {
@@ -4819,9 +4857,11 @@ class Downloader {
             if (!mid) throw new Error('Could not extract x-am-media-id from mediacache URL.');
             
             // Fetch key.bin with required x-am-media-id header
-            const response = await GM_fetch(keyUrl, { headers: { ...this.#headers(task), 'x-am-media-id': mid } });
-            if (!response.ok) throw new Error(`HTTP ${response.status} while fetching HLS key.`);
-            const body = await response.text();
+            const body = await this.#withRetry(task, `GET ${keyUrl} (HLS key)`, async () => {
+                const keyResponse = await GM_fetch(keyUrl, { headers: { ...this.#headers(task), 'x-am-media-id': mid } });
+                if (!keyResponse.ok) throw Object.assign(new Error(`HTTP ${keyResponse.status} while fetching HLS key.`), { status: keyResponse.status, retryAfter: Number(keyResponse.headers.get('retry-after') || 0) });
+                return await keyResponse.text();
+            });
             const ciphertext = Uint8Array.from(atob(body.trim()), c => c.charCodeAt(0));
             
             // Derive real key and IV from mid
@@ -4840,9 +4880,11 @@ class Downloader {
                 task._log(`Fetching mediacache key from ${keyUrl} with special handling for UniqueStream.`);
                 rawKey = await _handleMediacacheKey(keyUrl);
             } else {
-                const response = await GM_fetch(keyUrl, { headers: this.#headers(task) });
-                if (!response.ok) throw new Error(`HTTP ${response.status} while fetching HLS key.`);
-                rawKey = new Uint8Array(await response.arrayBuffer());
+                rawKey = await this.#withRetry(task, `GET ${keyUrl} (HLS key)`, async () => {
+                    const response = await GM_fetch(keyUrl, { headers: this.#headers(task) });
+                    if (!response.ok) throw Object.assign(new Error(`HTTP ${response.status} while fetching HLS key.`), { status: response.status, retryAfter: Number(response.headers.get('retry-after') || 0) });
+                    return new Uint8Array(await response.arrayBuffer());
+                });
             }
             if (rawKey.byteLength !== 16) throw new Error(`Invalid AES-128 key length: ${rawKey.byteLength}.`);
             this.#keyCache.set(keyUrl, crypto.subtle.importKey('raw', rawKey, { name: 'AES-CBC' }, false, ['decrypt']));
@@ -4911,8 +4953,11 @@ class Mp4Converter {
             const preloadedMux = globalThis.muxjs;
             if (preloadedMux?.mp4?.Transmuxer && preloadedMux.mp4.probe?.tracks) return preloadedMux;
             const url = 'https://cdnjs.cloudflare.com/ajax/libs/mux.js/7.1.0/mux.js';
-            const response = await dlUtils.anlinkGMRequest(url, { responseType: 'text', timeout: 30000 }).promise;
-            if (response.status < 200 || response.status >= 300 || typeof response.response !== 'string') throw new Error(`Could not load mux.js (${response.status || 'network error'}).`);
+            const response = await dlUtils.anlinkWithRetry(async () => {
+                const muxResponse = await dlUtils.anlinkGMRequest(url, { responseType: 'text', timeout: 30000 }).promise;
+                if (muxResponse.status < 200 || muxResponse.status >= 300 || typeof muxResponse.response !== 'string') throw Object.assign(new Error(`Could not load mux.js (${muxResponse.status || 'network error'}).`), { status: muxResponse.status, retryAfter: Number(muxResponse.responseHeaders?.match(/(?:^|\n)Retry-After:\s*(\d+)/i)?.[1] || 0) });
+                return muxResponse;
+            }, { onRetry: (error, attempt, delay) => console.warn(`[AniLINK Downloader] Retrying mux.js load in ${delay}ms: ${error.message}`) });
             const scope = { window, self: null };
             scope.self = scope;
             const mux = Function('globalThis', `${response.response}\nreturn globalThis.muxjs;`).call(scope, scope);
