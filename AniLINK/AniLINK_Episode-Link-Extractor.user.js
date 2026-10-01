@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     7.1.10
+// @version     7.2.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -61,6 +61,7 @@
 // @match       https://reanime.to/*
 // @match       https://reanime.cz/*
 // @match       https://anineko.to/watch/*
+// @match       https://anihq.cc/*/*
 // @connect     gofile.io
 // @connect     xin-cdn.xyz
 // @connect     owocdn.top
@@ -85,8 +86,11 @@
 // @connect     playmogo.com
 // @connect     workers.dev
 // @connect     vivibebe.site
-// @connect     piltover.li
-// @connect     watami.win
+// @connect     keeply.top
+// @connect     pixeldrain.com
+// @connect     voe.sx
+// @connect     jeremyparticipantanything.com
+// @connect     cloudwindow-route.com
 // @connect     cdnjs.cloudflare.com
 // @connect     xi.pe
 // @connect     paste.rs
@@ -892,6 +896,23 @@ const Websites = [
         },
         _fetchSources: async (url) => await fetchPage(url).then(p => $(p).find('.server-items > button').map(function() { return { name: $(this).find('span').text().trim() + ' - ' + this.childNodes[0].textContent.trim(), url: $(this).data('video') }; }).get()),
         _handleCaptions: async (data, url) => (data.tracks?.length) ? data : { ...data, tracks: url.includes('?caption') ? [{ file: url.match(/caption_\d=(.*?)&/)?.[1], label: url.match(/sub_\d=(.*)/)?.[1], kind: 'caption' }] : [] },
+    },
+    {
+        name: "AniHQ",
+        url: ['anihq.cc/watch', 'anihq.cc/anime-show'],
+        _chunkSize: 3,
+        addStartButton: (id) => document.querySelector('#seasonSlider + div, .episode-list-search-box').after(Object.assign(document.createElement('button'), { id, textContent: "Extract Episode Links", style: "margin-bottom: 10px;width: 98%;max-width: 350px;margin-inline: 4px;font-size: 14px;border-radius: 6px;border: 1px solid #ffffff30;background: #ffffff10;color: var(--color-text); ", onclick: extractEpisodes })),
+        extractEpisodes: async function* (status) {
+            let max_expand = 2; while (_$('button[data-action*="load-more-episodes"]') && max_expand--) { if (!_$('#loading-more:not(.hidden)')) _$('button[data-action*="load-more-episodes"]').click(); await sleep(500); }  // expand episode list upto 2 times
+            const epElms = await applyEpisodeRangeFilter([..._$$('.episode-list-display-box > a, #episodeGrid > a')][_$('#episodeGrid') ? 'reverse' : 'slice']());
+            for (let i = 0; i < epElms.length; i += this._chunkSize)
+                yield* yieldEpisodesFromPromises(epElms.slice(i, i + this._chunkSize).map(async epElm => {
+                    const epNum = (epElm.dataset.search || epElm.dataset.episodeSearchQuery);
+                    status.text = `Extracting episodes ${epNum - Math.min(epNum, this._chunkSize) + 1} - ${epNum}...`;
+                    const page = await fetchPage(epElm.href);
+                    return new Episode(epNum, _$('.anime-data span', page)?.textContent, { 'Download': await Extractors.use(_$('.download-section-item-link', page)?.href || ''), 'Stream': await Extractors.use(_$('.episode-player-box > iframe', page).src || '') }, _$('.wp-post-image', page)?.getAttribute('src'));    // voe.sx, pixeldrain.com
+                }));
+        }
     }
 ];
 
@@ -1106,6 +1127,18 @@ const Extractors = {
         const link = await GM_fetch('https://playmogo.com/'+html.match(/(pass_md5.*?)',/)[1]).then(r=>r.text());
         return { stream: link, type: 'mp4', tracks: subs, referer: 'https://playmogo.com/' };
     },
+    'pixeldrain.com': async (url) => ({ file: `https://pixeldrain.com/api/file/${url.split('/').pop()}`, type: 'mp4', tracks: [] }),
+    'voe.sx': async (url) => {
+        // adapted from https://github.com/p4ul17/voe-dl/blob/b82c920d96f12fb047f7d0ccc4223f6dc08e0578/voe_dl/decoding.py#L39
+        const pad = x => atob(x + '='.repeat((4 - x.length % 4) % 4));   // b64 decode with padding
+        const page = await GM_fetch((await GM_fetch(url).then(r => r.text())).match(/href = '(.*?)';/)?.[1] || url).then(r => r.ok ? r.text() : Promise.reject(new Error('Failed to fetch page: ' + r.status + ' ' + r.statusText + ' for ' + url)));
+        const j = JSON.parse(pad([...(pad(
+            JSON.parse(page.match(/<script type="application\/json">([^<]+)/)[1]).pop()
+                .replace(/[a-z]/gi, c => String.fromCharCode((c <= 'Z' ? 90 : 122) >= (c = c.charCodeAt(0) + 13) ? c : c - 26))   // ROT13, case-preserving
+                .replace(/~@|%\?|!!|#&|\^\^|\*~|@\$/g, '')
+        ))].map(c => String.fromCharCode(c.charCodeAt(0) - 3)).reverse().join('')));
+        return { file: j.direct_access_url || j.source, type: j.direct_access_url ? 'mp4' : 'm3u8', tracks: [] };   // direct mp4 preferred, HLS fallback
+    }
 }
 /**
  * Fetches the HTML content of a given URL and parses it into a DOM object.
@@ -3190,14 +3223,18 @@ function showAniLINKInfoDialog() {
  * Display a simple toast message on the top right of the screen
  ***************************************************************/
 let toasts = [];
-
+/**
+ * Display a simple toast message on the top right of the screen
+ * @param {string|HTMLElement|Error} message 
+ * @param {number} duration 
+ */
 function showToast(message, duration = 5000) {
     const maxToastHeight = window.innerHeight * 0.5;
     const toastHeight = 70;
     const maxToasts = Math.floor(maxToastHeight / toastHeight);
 
     // Explicit override for certain messages:
-    if (message.includes('GM_fetch is not defined')) message += ' (Please reinstall this userscript from <a href="https://greasyfork.org/en/scripts/456789-anilink-episode-link-extractor" target="_blank">GreasyFork</a>.)';
+    if (String(message).includes('GM_fetch is not defined')) message += ' (Please reinstall this userscript from <a href="https://greasyfork.org/en/scripts/456789-anilink-episode-link-extractor" target="_blank">GreasyFork</a>.)';
 
     console.log(message);
 
