@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     7.2.0
+// @version     7.3.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -62,6 +62,8 @@
 // @match       https://reanime.cz/*
 // @match       https://anineko.to/watch/*
 // @match       https://anihq.cc/*/*
+// @match       https://mkissa.to/anime/*
+// @match       https://youtu-chan.com/archives/*
 // @connect     gofile.io
 // @connect     xin-cdn.xyz
 // @connect     owocdn.top
@@ -91,9 +93,12 @@
 // @connect     voe.sx
 // @connect     jeremyparticipantanything.com
 // @connect     cloudwindow-route.com
-// @connect     cdnjs.cloudflare.com
+// @connect     wixmp.com
+// @connect     mp4upload.com
+// @connect     allanime.day
 // @connect     xi.pe
 // @connect     paste.rs
+// @connect     cdnjs.cloudflare.com
 // @connect     *
 // @require     https://cdn.jsdelivr.net/npm/@trim21/gm-fetch@0.3.0
 // @require     https://cdnjs.cloudflare.com/ajax/libs/mux.js/7.1.0/mux.js
@@ -913,6 +918,92 @@ const Websites = [
                     return new Episode(epNum, _$('.anime-data span', page)?.textContent, { 'Download': await Extractors.use(_$('.download-section-item-link', page)?.href || ''), 'Stream': await Extractors.use(_$('.episode-player-box > iframe', page).src || '') }, _$('.wp-post-image', page)?.getAttribute('src'));    // voe.sx, pixeldrain.com
                 }));
         }
+    },
+    {
+        name: "MKissa",
+        url: ['mkissa.to/anime/', 'youtu-chan.com/archives/'],
+        baseApiUrl: 'https://api.mkissa.net',        
+        extractEpisodes: async function* (status) {
+            const [, showId, epPart = 'p-1-sub'] = (location.pathname.includes('/anime') ? location.pathname : _$('link[href^="/anime"]').href).match(/\/anime\/([^/]+)(?:\/([^/]*))?/) || [], trans = epPart.includes('dub') ? 'dub' : 'sub';
+            status.text = 'Fetching episode list...'; const first = await this._api(showId, trans, epPart.replace(/^p-|-(?:sub|dub)$/g, '') || '1').then(d => d.episode).catch(e => { throw `Failed to fetch episode list: ${e.message || e}`; });
+            const eps = await applyEpisodeRangeFilter([...(first.show?.availableEpisodesDetail?.[trans] || [])].reverse()); if (!eps.length) return showToast('No episodes found.');
+            const allSources = this._sources(first.sourceUrls);
+            const srcCfg = await showSourceSelector(allSources.map(s => s.name), 'mkissa', { mode: 'single', sources: allSources.filter(s => ['Default', 'Mp4', 'Ok'].includes(s.name)).map(s => s.name) });   // Uni, Ok, Mp4, Fm-Hls, Vn-Hls, Ss-Hls, Vg, Default, Uv-mp4
+            for (const epNum of eps) {
+                status.text = `Fetching Ep ${epNum}...`;
+                const links = {};
+                try {
+                    const { sourceUrls, show } = await this._api(showId, trans, epNum).then(d => d.episode).catch(e => { throw `Failed to fetch episode ${epNum}: ${e.message || e}`; }), sources = this._sources(sourceUrls);
+                    const results = srcCfg.sources.map(() => undefined);   // undefined = pending, null = failed
+                    await new Promise(settled => {
+                        let pending = results.length, finished = false;
+                        const finish = () => { if (finished) return; finished = true;
+                            const hits = srcCfg.sources.map((s, i) => [s, results[i]]).filter(([, v]) => v);
+                            for (const [src, data] of (srcCfg.mode === 'single' ? hits.slice(0, 1) : hits)) links[src] = data;
+                            settled();
+                        };
+                        srcCfg.sources.forEach(async (src, i) => {   // providers live on different hosts, so only the mkissa api itself needs serialising
+                            const url = sources.find(s => s.name === src)?.url;
+                            let res = null;
+                            if (url) try { res = await Extractors.use(url); } catch (e) { showToast(`Failed Ep ${epNum} from ${src}: ${e.message || e}`); }
+                            results[i] = res;
+                            if (srcCfg.mode === 'single' && res && results.slice(0, i).every(v => v !== undefined && !v)) return finish();   // every higher-priority source already failed
+                            if (!--pending) finish();
+                        });
+                    });
+                    yield new Episode(epNum || '0', show?.name, links, show?.thumbnail, show?.name);
+                } catch (e) { showToast(`Failed to fetch ep-${epNum}: ${e}`); yield new Episode(epNum, showId, links); }
+            }
+        },
+        _lane: 'k7',   // content lane used by the episode() persisted query
+        _qh: '670bbf38d0868f446e2346c1e956ca2c40c416e733ca248fd54e04f1c8b99145',   // persistedQuery sha256: episode(showId, translationType, episodeString)
+        _cfg: { bootPrefix: 'I5AgJjIcVH:', parts: ['group', 'lane', 'host', 'buildId', 'epoch'], saltMul: 20, saltAdd: 73, fragMul: 10, fragAdd: 195 },
+        _frags: ['yWOoNgubFtM=', 'KSFXIy3z700=', 'wnO0Sm9WX3A=', 'aFA1PCbg7Dg='],   // 4 x 8-byte mask fragments baked into mkissa's bundle
+        _xorMasks: ['allanimenews', '1234567890123456789', '1234567890123456789012345', 's5feqxw21', 'feqx1'].map(k => [...k].reduce((m, c) => m ^ c.charCodeAt(0), 0)),   // AllAnime-derived source obfuscation
+        _decodeSource(u) {   // '-'-prefixed sourceUrls are hex-encoded; the prefix picks the XOR mask
+            const m = (u || '').match(/^(--|#-|##|-#|#)([0-9a-f]+)$/i); if (!m) return u || '';
+            const mask = this._xorMasks[{ '--': 3, '#-': 2, '##': 1, '-#': 4, '#': 0 }[m[1]]];
+            return new TextDecoder().decode(Uint8Array.from(m[2].match(/../g), h => parseInt(h, 16) ^ mask));
+        },
+        _sources(list = []) {   // dedupe by url and number repeated server names ('Ss-Hls', 'Ss-Hls (2)') so none collide as a link key
+            const byUrl = new Set(), counts = new Map();
+            return list.filter(s => s.sourceUrl && !byUrl.has(s.sourceUrl) && byUrl.add(s.sourceUrl)).map(s => {
+                const n = (counts.get(s.sourceName) || 0) + 1; counts.set(s.sourceName, n);
+                const url = this._decodeSource(s.sourceUrl);
+                return { name: n > 1 ? `${s.sourceName} (${n})` : s.sourceName, url: url.startsWith('/apivtwo/') ? 'https://allanime.day' + url.replace('/clock?', '/clock.json?') : url.replace(/^\/\//, 'https://') };   // allanime-internal + protocol-relative sources
+            });
+        },
+        _u8: s => Uint8Array.from(atob(s), c => c.charCodeAt(0)),
+        _b64: b => btoa(String.fromCharCode(...new Uint8Array(b))),
+        _hex: b => [...b].map(x => x.toString(16).padStart(2, '0')).join(''),
+        _enc: s => new TextEncoder().encode(s),
+        _mask(buildId) {   // 32-byte mask: buildId keystream XOR 4 baked fragments, each byte further XOR-ed with a rotating byte
+            const c = this._cfg, ks = i => (buildId.charCodeAt(i % buildId.length) || 0) ^ ((i * c.saltMul + c.saltAdd) & 255);
+            return Uint8Array.from([0, 1, 2, 3].flatMap(u => [...this._u8(this._frags[u])].map((v, g) => (v ^ ks(u * 8 + g)) ^ ((u * c.fragMul + g * c.fragAdd) & 255))));
+        },
+        async _hmac(raw, msg) { return new Uint8Array(await crypto.subtle.sign('HMAC', await crypto.subtle.importKey('raw', raw, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']), this._enc(msg))); },
+        async _sha(msg) { return new Uint8Array(await crypto.subtle.digest('SHA-256', this._enc(msg))); },
+        _aes: raw => crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']),
+        async _handshake() {   // mask -> HMAC boot token -> bootstrap -> request key = partB XOR mask (partB rotates weekly)
+            const buildId = String((await fetchJSON(`${location.origin}/_app/version.json`)).version), lane = this._lane, host = location.hostname.replace(/^www\./, ''), mask = this._mask(buildId);
+            const now = Date.now(), epochMs = 604800000, epoch = Math.floor(now / epochMs) - (now % epochMs < 86400000);   // this week, or last week while still inside its 1-day grace window
+            const bootMsg = this._cfg.parts.map(p => ({ group: /youtu-chan|isekai2nd/.test(host) ? 'mirror' : 'mkissa', lane, host, buildId, epoch })[p]).join('/');
+            const boot = this._hex(await this._hmac(await this._hmac(mask, this._cfg.bootPrefix + buildId), bootMsg));   // x-aa-boot
+            const bs = await fetchJSON(`${this.baseApiUrl}/client-crypto/v1/bootstrap?buildId=${buildId}&k=${lane}`, { headers: { 'x-build-id': buildId, 'x-aa-boot': boot } });
+            const partB = atob(bs.partB);
+            this._session = { buildId, lane, epoch: bs.epoch, key: await this._aes(Uint8Array.from(partB, (c, i) => c.charCodeAt(0) ^ mask[i])) };
+            return this._session;
+        },
+        async _api(showId, trans, epNum) {   // aaReq: AES-GCM({v,ts,epoch,buildId,qh,k}) with IV = SHA-256 of those very fields; responses come back sealed the same way
+            const { buildId, lane, epoch, key } = this._session || await this._handshake();
+            const qh = this._qh, ts = Math.floor(Date.now() / 300000) * 300000, iv = (await this._sha(`${epoch}:${buildId}:${qh}:${ts}:${lane}`)).slice(0, 12);
+            const aaReq = this._b64([1, ...iv, ...new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, this._enc(JSON.stringify({ v: 1, ts, epoch, buildId, qh, k: lane }))))]);
+            const vars = { showId, translationType: trans, episodeString: String(epNum) }, ext = { persistedQuery: { version: 1, sha256Hash: qh }, k: lane, aaReq };
+            const res = await fetchJSON(`${this.baseApiUrl}/api?variables=${encodeURIComponent(JSON.stringify(vars))}&extensions=${encodeURIComponent(JSON.stringify(ext))}`, { headers: { 'x-build-id': buildId } });
+            if (res.errors) throw new Error(res.errors[0].message);
+            const blob = this._u8(res.data.tobeparsed);
+            return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: blob.slice(1, 13) }, key, new Uint8Array([...blob.slice(13, -16), ...blob.slice(-16)]))));
+        }
     }
 ];
 
@@ -1138,6 +1229,158 @@ const Extractors = {
                 .replace(/~@|%\?|!!|#&|\^\^|\*~|@\$/g, '')
         ))].map(c => String.fromCharCode(c.charCodeAt(0) - 3)).reverse().join('')));
         return { file: j.direct_access_url || j.source, type: j.direct_access_url ? 'mp4' : 'm3u8', tracks: [] };   // direct mp4 preferred, HLS fallback
+    },
+    'ok.ru': async (url) => {
+        const html = await GM_fetch(url).then(r => r.text());
+        const grab = k => {   // ok.ru's player config sits in an html attribute, so its quotes arrive html-escaped
+            const i = html.indexOf(k); if (i < 0) return '';
+            const m = html.slice(i + k.length).match(/^(?:&quot;|")?\s*[:=]\s*(?:&quot;|")([\s\S]*?)(?:&quot;|")/);
+            return m ? m[1].replace(/&quot;/g, '"').replace(/\\u0026/g, '&').replace(/\\\//g, '/') : '';
+        };
+        if (grab('ondemandHls')) return { file: grab('ondemandHls'), type: 'm3u8', tracks: [], referer: 'https://ok.ru/' };
+        if (grab('ondemandDash')) return { file: grab('ondemandDash'), type: 'mpd', tracks: [], referer: 'https://ok.ru/' };
+        const block = html.match(/(?:&quot;|")videos(?:&quot;|")\s*:\s*\[[\s\S]*?\]/)?.[0] ?? '';
+        const mp4 = [...block.matchAll(/(?:&quot;|")url(?:&quot;|")\s*:\s*(?:&quot;|")([\s\S]*?)(?:&quot;|")/g)].pop()?.[1];   // last entry is the best progressive file
+        if (mp4) return { file: mp4.replace(/\\u0026/g, '&').replace(/\\\//g, '/'), type: 'mp4', tracks: [], referer: 'https://ok.ru/' };
+        throw new Error('ok.ru: no ondemandHls / ondemandDash / videos url found');
+    },
+    'mp4upload.com': async (url) => {
+        const html = await GM_fetch(url).then(r => r.text());
+        const mp4 = html.match(/(https?:\/\/[^"'\s]+?\.mp4)(?=["'\s]|$)/)?.[1];   // mp4upload embeds the direct file url in the player html
+        if (!mp4) throw new Error('mp4upload: video url not found');
+        return { file: mp4, type: 'mp4', tracks: [], referer: 'https://mp4upload.com/' };
+    },
+    'vidnest.io': async (url, referer = location.origin+'/') => {   // XFileSharing: the embed form POSTs to /dl and returns the JW player page
+        const code = new URL(url).pathname.split('/').filter(Boolean).pop(), o = new URL(url).origin;
+        const page = await GM_fetch(o + '/dl', { method: 'POST', headers: { referer: url, origin: o, 'content-type': 'application/x-www-form-urlencoded' }, body: `op=embed&file_code=${code}&auto=1&referer=${encodeURIComponent(referer)}` }).then(r => r.text());
+        const file = page.match(/sources\s*:\s*\[([\s\S]*?)\]/)?.[1]?.match(/file\s*:\s*"([^"]+)"/)?.[1];
+        if (!file) throw new Error('vidnest.io: no source found');
+        return { file: file.startsWith('http') ? file : o + file, type: 'mp4', tracks: [], referer: o + '/' };
+    },
+    '/(^|\\.)uns\\.bio$/': async (url) => {   // uns.bio player ('Uni'): hex-encoded AES-CBC JSON listing one HLS playlist per delivery network (host is watchanime.uns.bio, so match by suffix)
+        const o = new URL(url).origin, id = new URL(url).hash.slice(1).split('&')[0];
+        const hex = await GM_fetch(`${o}/api/v1/video?id=${id}&w=1920&h=1080&r=${location.hostname}`, { headers: { referer: o + '/' } }).then(r => r.text());
+        const key = await crypto.subtle.importKey('raw', new TextEncoder().encode('kiemtienmua911ca'), 'AES-CBC', false, ['decrypt']);
+        const j = JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: new TextEncoder().encode('1234567890oiuytr') }, key, Uint8Array.from(hex.trim().match(/../g), h => parseInt(h, 16)))));
+        return { file: j.cfNative || j.source || new URL(j.hlsVideoTiktok, o).href, type: 'm3u8', tracks: [], referer: o + '/' };
+    },
+    '/bysekoze\\.com|filemoon|moonplayer|fastmoon/': async (url) => {   // Filemoon and its rotating host aliases
+        // ported from https://github.com/yuzono/anime-extensions/blob/27c306ab/lib/filemoonextractor/src/aniyomi/lib/filemoonextractor/FilemoonExtractor.kt
+        const code = new URL(url).pathname.split('/').filter(Boolean).pop().replace(/\.html$/, ''), json = { accept: '*/*', 'content-type': 'application/json' }, b64u = b => btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        const frame = await GM_fetch(`https://${new URL(url).host}/api/videos/${code}/embed/details`, { headers: json }).then(r => r.json()).then(d => d.embed_frame_url);
+        const o = new URL(frame).origin, api = { ...json, referer: frame, origin: o };
+        const ch = await GM_fetch(`${o}/api/videos/access/challenge`, { method: 'POST', headers: api, body: '{}' }).then(r => r.json());
+        const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']), jwk = await crypto.subtle.exportKey('jwk', kp.publicKey);
+        const raw = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, kp.privateKey, new TextEncoder().encode(ch.nonce)));
+        const der = s => { const pad = x => x[0] & 128 ? [0, ...x] : x, r = pad([...s.slice(0, 32)]), q = pad([...s.slice(32)]), b = [2, r.length, ...r, 2, q.length, ...q]; return Uint8Array.from([48, b.length, ...b]); };   // WebCrypto returns raw r||s; the server wants DER
+        const hash = () => b64u(crypto.getRandomValues(new Uint8Array(32)));
+        const fp = await GM_fetch(`${o}/api/videos/access/attest`, { method: 'POST', headers: api, body: JSON.stringify({ viewer_id: '', device_id: '', challenge_id: ch.challenge_id, nonce: ch.nonce, signature: b64u(der(raw)), public_key: { alg: 'ES256', crv: 'P-256', ext: true, key_ops: ['verify'], kty: 'EC', x: jwk.x, y: jwk.y }, client: { user_agent: navigator.userAgent, pixel_ratio: 1, screen_width: 1920, screen_height: 1080, color_depth: 24, languages: ['en-US', 'en'], timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, hardware_concurrency: 8, touch_points: 0, webgl_vendor: 'Google Inc. (Intel)', webgl_renderer: 'ANGLE (Intel, Intel(R) UHD Graphics 630, OpenGL 4.5)', canvas_hash: hash(), audio_hash: hash(), webgl_params_hash: hash(), fonts_hash: hash(), codecs_hash: hash(), media_devices: 'ai0ao0vi0', pointer_type: 'fine,hover', extra: { vendor: '', appVersion: '5.0 (X11)' } }, storage: {}, attributes: { entropy: 'low' } }) }).then(r => r.json());
+        const f = { token: fp.token, viewer_id: fp.viewer_id, device_id: fp.device_id, confidence: fp.confidence };
+        const h = { ...api, 'x-embed-origin': new URL(frame).host, 'x-embed-referer': o + '/', 'x-embed-parent': url, cookie: `byse_viewer_id=${fp.viewer_id}; byse_device_id=${fp.device_id}` };
+        const cap = await GM_fetch(`${o}/api/videos/${code}/embed/captcha`, { method: 'POST', headers: h, body: JSON.stringify({ fingerprint: f }) }).then(r => r.json());
+        /** finds the counter whose memory-hard hash has `difficulty` leading zero bits. */
+        async function solvePow(nonce, difficulty, maxIter = 300000) {
+            const pre = new TextEncoder().encode(nonce + ':'), buf = new Uint32Array(512), rotl = (v, s) => ((v << s) | (v >>> (32 - s))) >>> 0;
+            for (let n = 0; n <= maxIter; n++) {
+                if (!(n & 8191)) await new Promise(r => setTimeout(r));   // yield: this loop runs for seconds and would otherwise freeze the tab
+                let s0 = 1779033703, s1 = 3144134277, s2 = 1013904242, s3 = 2773480762;
+                const mix = () => { s0 = (s0 + s1) >>> 0; s3 = rotl(s3 ^ s0, 16); s2 = (s2 + s3) >>> 0; s1 = rotl(s1 ^ s2, 12); s0 = (s0 + s1) >>> 0; s3 = rotl(s3 ^ s0, 8); s2 = (s2 + s3) >>> 0; s1 = rotl(s1 ^ s2, 7); };
+                for (const b of [...pre, ...String(n)].map(c => typeof c === 'number' ? c : c.charCodeAt(0))) { s0 = (s0 + b) >>> 0; s0 = rotl(s0, 7); mix(); }
+                for (let i = 0; i < 8; i++) mix();
+                for (let i = 0; i < 512; i++) { mix(); buf[i] = (s0 ^ s2) >>> 0; }
+                for (let r = 0; r < 2; r++) for (let i = 0; i < 512; i++) { const a = buf[i] & 511; let c = rotl((buf[i] + buf[a]) >>> 0, 13); c = (c ^ Math.imul(buf[(i + 1) & 511], 2654435761)) >>> 0; buf[i] = c; s0 = (s0 ^ c) >>> 0; mix(); }
+                mix();
+                let o = s0;
+                for (let i = 0; i < 64; i++) { const d = buf[i]; o = rotl((o + d) >>> 0, 5); o = (o ^ Math.imul(d, 2246822519)) >>> 0; }
+                if (Math.clz32((o ^ s2) >>> 0) >= difficulty) return String(n);
+            }
+            throw new Error('Filemoon: PoW solution not found');
+        }
+        const ver = await GM_fetch(`${o}/api/videos/${code}/embed/captcha/verify`, { method: 'POST', headers: h, body: JSON.stringify({ pow_token: cap.pow_token, solution: await solvePow(cap.pow_nonce, cap.pow_difficulty), fingerprint: f }) }).then(r => r.json());
+        const pb = await GM_fetch(`${o}/api/videos/${code}/embed/playback`, { method: 'POST', headers: { ...h, 'x-captcha-token': ver.token }, body: JSON.stringify({ fingerprint: f }) }).then(r => r.json()).then(r => r.playback);
+        const ub = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)), v = +pb.version || 1;
+        const parts = pb.key_parts.length >= v ? [pb.key_parts[v - 1], pb.key_parts[pb.key_parts.length - v]] : pb.key_parts;   // version picks which key parts get combined
+        const key = await crypto.subtle.importKey('raw', Uint8Array.from(parts.flatMap(p => [...ub(p)])), 'AES-GCM', false, ['decrypt']);
+        const pl = ub(pb.payload), out = JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: ub(pb.iv) }, key, new Uint8Array([...pl.slice(0, -16), ...pl.slice(-16)]))));
+        return { file: out.sources[0].url, type: 'm3u8', tracks: (out.tracks || []).map(t => ({ file: t.file || t.url, label: t.label || t.language, kind: 'caption' })), referer: o + '/' };
+    },
+    'allanime.day': async (url) => {
+        const j = await (async () => { for (let a = 0; ; a++) { try { return await GM_fetchJSON(url); } catch (e) { if (a >= 2) throw e; await sleep(700 * (a + 1)); } } })();   // clock.json answers 500 in bursts - back off and retry
+        const l = j.links.find(x => x.hls) || j.links.find(x => x.mp4) || j.links[0];
+        if (!l?.link) throw new Error('allanime: no playable link');
+        return { file: l.link, type: l.hls ? 'm3u8' : 'mp4', tracks: (l.subtitles || []).map(s => ({ file: s.src, label: s.label || s.lang, kind: 'caption' })), referer: 'https://allanime.day/' };
+    },
+    'streamsb.net': async (url) => {   // cloudstream-style: GET /<hexToken>/<hexId> with header watchsb:sbstream
+        const id = (url.match(/(?:embed-|\/e\/)[a-zA-Z\d]{0,8}[a-zA-Z\d_-]+/) || [''])[0].replace(/^(?:\/e\/|embed-)/, '');
+        if (!id) throw new Error('streamsb: bad embed id');
+        const al = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789', hs = Array.from({ length: 12 }, () => al[Math.random() * al.length | 0]).join('');
+        const hex = [...`${hs}||${id}||${hs}||streamsb`].map(c => c.charCodeAt(0).toString(16)).join('');
+        const j = await GM_fetchJSON('https://streamsb.net/375664356a494546326c4b797c7c6e756577776778623171737/' + hex, { headers: { 'watchsb': 'sbstream', referer: url } });
+        const d = j.stream_data;
+        if (!d?.file) throw new Error(`streamsb: no stream (${j.status_code ?? 'unknown status'})`);
+        return { file: d.file, type: 'm3u8', tracks: (d.subs || []).map(s => ({ file: s.file, label: s.label, kind: 'caption' })), referer: url };
+    },
+    '/listeamed\\.net|vidguard|vgembed/': async (url) => {   // ported from aniyomi lib/vidguardextractor: jwt challenge -> eval(script) -> svg.stream -> sigDecode
+        const page = await GM_fetch(url).then(r => r.text());
+        const next = page.match(/window\.location\.replace\('([^']+)'\)/)?.[1];   // some mirrors wrap the player in a jwt challenge page
+        const html = next ? await GM_fetch(next, { headers: { referer: url } }).then(r => r.text()) : page;
+        const js = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]).find(s => s.includes('eval('));
+        if (!js) throw new Error('vidguard: player script not found');
+        delete window.svg; (0, eval)(js);   // the obfuscated script drops a global svg = { stream, hash }
+        const svg = window.svg, sig = svg?.stream?.match(/sig=([^&]+)/)?.[1];
+        if (!sig) throw new Error('vidguard: no stream/sig in player script');
+        const b = Uint8Array.from(sig.match(/../g), h => parseInt(h, 16) ^ 2);   // hex pairs ^ 2 -> base64 -> drop 5 -> reverse -> swap pairs -> drop 5
+        let t = [...atob(String.fromCharCode(...b) + '='.repeat((4 - b.length % 4) % 4)).slice(0, -5)].reverse();
+        for (let i = 0; i + 1 < t.length; i += 2) { const x = t[i]; t[i] = t[i + 1]; t[i + 1] = x; }
+        return { file: svg.stream.replace(sig, t.join('').slice(0, -5)), type: 'm3u8', tracks: [], referer: new URL(url).origin + '/' };
+    },
+    '/streamwish|niramirus|medixiru/': async (url) => {   // ported from aniyomi lib/streamwishextractor: try mirrors, unpack the player script, pull the m3u8 + caption tracks
+        const id = url.match(/\/(?:e|f|d)\/([a-zA-Z0-9]+)/)?.[1] || new URL(url).pathname.split('/').filter(Boolean).pop();
+        for (const h of [...new Set([new URL(url).host, 'streamwish.com', 'niramirus.com', 'medixiru.com'])]) {
+            try {
+                const page = await GM_fetch(`https://${h}/${id}`, { headers: { referer: url } }).then(r => r.text());
+                let body = [...page.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]).find(s => s.includes('m3u8'));
+                if (!body) continue;
+                const p = body.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]*?\}\(\s*'([\s\S]+?)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'([\s\S]+?)'\.split\('\|'\)/);   // packed player script
+                if (p) { let [, t, a, c, k] = p; a = +a; c = +c; k = k.split('|'); while (c--) if (k[c]) t = t.replace(new RegExp('\\b' + c.toString(a) + '\\b', 'g'), k[c]); body = t; }
+                const file = body.match(/https[^"']*m3u8[^"']*/)?.[0];
+                if (!file) continue;
+                const ti = body.indexOf('tracks'), arr = ti < 0 ? '' : body.slice(ti).match(/\[([\s\S]*?)\]/)?.[1] || '';
+                const tracks = [...arr.matchAll(/file\s*:?\s*["']([^"']+)["'][^}]*?label\s*:?\s*["']([^"']*)["']/g)].map(m => ({ file: m[1], label: m[2] || 'Subtitle', kind: 'caption' }));
+                return { file, type: 'm3u8', tracks, referer: `https://${new URL(file).host}/` };
+            } catch (e) { /* mirror dead - try the next one */ }
+        }
+        throw new Error('streamwish: no m3u8 on any mirror');
+    },
+    '/dood|ds2play|ds2video/': async (url) => {   // ported from aniyomi lib/doodextractor (the pass_md5 + token dance)
+        const res = await GM_fetch(url);
+        const html = await res.text(), o = new URL(res.url || url).origin;
+        const md5 = html.match(/\/pass_md5\/[^']+/)?.[0];
+        if (!md5) throw new Error('dood: no pass_md5 in page');
+        const token = md5.split('/').pop(), al = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        const pre = await GM_fetch(o + md5, { headers: { referer: url } }).then(r => r.text());
+        const rnd = Array.from({ length: 10 }, () => al[Math.random() * al.length | 0]).join('');
+        return { file: `${pre}${rnd}?token=${token}&expiry=${Date.now()}`, type: 'mp4', tracks: [], referer: o + '/' };
+    },
+    'streamlare.com': async (url) => {   // slwatch api: POST {"id"} -> hls master or per-label mp4
+        const id = new URL(url).pathname.split('/').filter(Boolean).pop();
+        const j = await GM_fetchJSON('https://slwatch.co/api/video/stream/get', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) });
+        const s = j.type === 'hls' ? j : (j.sources || []).find(x => x?.file);
+        if (!s?.file) throw new Error('streamlare: no stream in api reply');
+        return { file: s.file.replace(/\\\//g, '/'), type: j.type === 'hls' ? 'm3u8' : 'mp4', tracks: [], referer: 'https://slwatch.co/' };
+    },
+    '/vidstreaming|gogostream|playtaku|playgo1|vidcloud/': async (url, referer = url) => {   // ported from aniyomi lib/gogostreamextractor: AES-CBC keys are hidden in css class names
+        const doc = new DOMParser().parseFromString(await GM_fetch(url).then(r => r.text()), 'text/html');
+        const bytesAfter = (el, item) => Uint8Array.from(((el?.className || '').split(item)[1] || '').replace(/\D/g, ''), c => c.charCodeAt(0));
+        const iv = bytesAfter(doc.querySelector('div.wrapper'), 'container-'), key = bytesAfter(doc.querySelector('body[class]'), 'container-'), dkey = bytesAfter(doc.querySelector('div.videocontent'), 'videocontent-');
+        const dec = async (b64, k) => new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-CBC', iv }, await crypto.subtle.importKey('raw', k, 'AES-CBC', false, ['decrypt']), Uint8Array.from(atob(b64.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))));
+        const enc = async str => btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-CBC', iv }, await crypto.subtle.importKey('raw', key, 'AES-CBC', false, ['encrypt']), new TextEncoder().encode(str)))));
+        const params = (await dec(doc.querySelector('script[data-value]').getAttribute('data-value'), key)).split('&').slice(1).join('&');
+        const id = new URL(url).searchParams.get('id');
+        const j = await GM_fetchJSON(`https://${new URL(url).host}/encrypt-ajax.php?id=${encodeURIComponent(await enc(id))}&${params}&alias=${id}`, { headers: { 'x-requested-with': 'XMLHttpRequest' } });
+        const src = JSON.parse(await dec(j.data, dkey)).source;
+        if (!src?.[0]?.file) throw new Error('vidstreaming: no source in ajax reply');
+        return { file: src[0].file, type: src[0].type === 'hls' ? 'm3u8' : 'mp4', tracks: [], referer };
     }
 }
 /**
@@ -2744,7 +2987,7 @@ async function applyEpisodeRangeFilter(allEpLinks) {
 /***************************************************************
  * Source Picker Modal - Select preferred sources and fallback order
  ***************************************************************/
-async function showSourceSelector(sourcesGetter, siteKey, defaults = {}) {
+async function showSourceSelector(sourcesGetter, siteKey, defaults = { mode: 'single', sources: [] }) {
     const storageKey = `sources_config`;
     const saved = GM_getValue(storageKey, {})[siteKey];
     const availableSources = await (typeof sourcesGetter === 'function' ? sourcesGetter() : sourcesGetter);
