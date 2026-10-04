@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     7.4.0
+// @version     7.5.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -121,10 +121,7 @@
 // @updateURL https://update.greasyfork.org/scripts/492029/AniLINK%20-%20Episode%20Link%20Extractor.meta.js
 // ==/UserScript==
 
-// TODO: Show note when browser isnt fully compatible.
-// TODO: Show note when "browser download API" needs to be enabled in GM extension manager settings.
 // TODO: Fix download progress for tracks—it shows the current size as total size instead of either true total size or total number of segments
-// TODO: If selected folder is not empty or is downloads folder, then download to a subfolder named after the anime title.
 // TODO: Improve animepahe ep list fetching
 // TODO: Clear history button doesnt appear until collapse/expand history is clicked once. Fix this.
 
@@ -2858,7 +2855,7 @@ async function extractEpisodes() {
 /***************************************************************
  * Shared Modal Builder - DRY base for all selection modals
  ***************************************************************/
-function createModal({ title, icon, subtitle, bodyHTML, width = '420px', onConfirm, onCancel }) {
+function createModal({ title, icon, subtitle, bodyHTML, width = '420px', onConfirm, onCancel, confirmLabel = 'Confirm', cancelLabel = 'Cancel' }) {
     const modal = Object.assign(document.createElement('div'), {
         innerHTML: `
             <div class="anilink-modal-backdrop">
@@ -2870,8 +2867,8 @@ function createModal({ title, icon, subtitle, bodyHTML, width = '420px', onConfi
                     </div>
                     <div class="anilink-modal-body">${bodyHTML}</div>
                     <div class="anilink-modal-footer">
-                        <button class="anilink-btn anilink-btn-cancel"><kbd>Esc</kbd> Cancel</button>
-                        <button class="anilink-btn anilink-btn-primary"><kbd>Enter</kbd> Confirm</button>
+                        ${cancelLabel === null ? '' : `<button class="anilink-btn anilink-btn-cancel"><kbd>Esc</kbd> ${cancelLabel}</button>`}
+                        <button class="anilink-btn anilink-btn-primary"><kbd>Enter</kbd> ${confirmLabel}</button>
                     </div>
                 </div>
             </div>
@@ -2930,7 +2927,7 @@ function createModal({ title, icon, subtitle, bodyHTML, width = '420px', onConfi
         // passthrough all other keys to target (workaround for sites like Miruro that have global keydown handlers that prevent default behavior)
         else if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') try { e.stopPropagation(); e.target.dispatchEvent(new KeyboardEvent('keydown', e)); } catch (err) { /* ignore */ }
     });
-    cancelBtn.addEventListener('click', handleCancel);
+    cancelBtn?.addEventListener('click', handleCancel);
     primaryBtn.addEventListener('click', handleConfirm);
 
     primaryBtn.focus(); // Focus primary button by default for accessibility
@@ -4012,7 +4009,7 @@ class DownloadTask {
 
     _log(message, level = 'info') {
         this._logs.push({ at: Date.now(), level, message: String(message) });
-        if (this._logs.length > 2000) this._logs.splice(0, this._logs.length - 2000);
+        if (this._logs.length > 200) this._logs.splice(0, this._logs.length - 200);
         this._emit('log', this._logs[this._logs.length - 1]);
     }
 
@@ -4288,6 +4285,47 @@ class Downloader {
             showToast('Direct folder access is unavailable here. Browser download fallback is enabled.');
             return Promise.resolve(true);
         }
+    }
+
+    /**
+     * Resolves the folder a task is written into. The folder picked by the user is used as-is when it is
+     * already named after this anime or still only holds this anime's own files; a folder that is in use by
+     * anything else (or the OS downloads folder) gets an "<Anime Title>" subfolder so episodes stay grouped.
+     */
+    async #resolveAnimeDirectory(task) {
+        const root = this.#dirHandle;
+        if (!root) return null;
+        const folderName = dlUtils.anlinkSafeDirectoryName(task.anime) || 'AniLINK';
+        const comparable = value => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+        const anime = comparable(folderName);
+        if (anime && comparable(root.name) === anime) return root;
+        // The picker never exposes a full path, so the folder name is the only hint that this is the OS download folder.
+        const downloadsNames = /^(?:downloads?|t[eé]l[eé]chargements|herunterladen|descargas?|scaricati|download|下載|下载|ダウンロード|다운로드|تنزيل|загрузки|baixados|pobrane)$/i;
+        let dedicated = !downloadsNames.test(root.name.trim());
+        if (dedicated) {
+            try { for await (const entry of root.keys()) if (!/^(?:desktop\.ini|thumbs\.db|\..*)$/i.test(entry) && !(anime && comparable(entry).startsWith(anime))) { dedicated = false; break; } }
+            catch { dedicated = false; }
+        }
+        if (dedicated) return root;
+        try { return await root.getDirectoryHandle(folderName, { create: true }); }
+        catch (error) { task._log(`Could not create the "${folderName}" folder (${error.message || error}); saving into "${root.name}".`, 'warning'); return root; }
+    }
+
+    /** Path shown in logs and history entries for files written through the File System Access API. */
+    #displayPath(task, filename) {
+        const subfolder = task._targetDir && task._targetDir !== this.#dirHandle ? task._targetDir.name : '';
+        return [this.#dirHandle?.name, subfolder, filename].filter(Boolean).join('\\');
+    }
+
+    /**
+     * Prefix used when saving through the browser download manager. Only the browser downloads API
+     * understands subpaths; native mode would flatten "<folder>/<file>" into "<folder>_<file>", so the
+     * anime folder is skipped there instead of bloating every filename.
+     */
+    #subfolderPrefix(task) {
+        if (GM_info?.downloadMode !== 'browser') return '';
+        const folderName = dlUtils.anlinkSafeDirectoryName(task.anime);
+        return folderName ? `${folderName}/` : '';
     }
 
     addTask(filename, anime, url, options = {}) {
@@ -4572,7 +4610,7 @@ class Downloader {
         if (!this.#dirHandle) {
             const filename = task.filename;
             task._partialFilename = filename.replace(/(\.[^.]+)?$/, '.partial$1');
-            task._filepath = `browser downloads\\${filename}`;
+            task._filepath = `browser downloads\\${(this.#subfolderPrefix(task) + filename).replace(/\//g, '\\')}`;
             task._memoryParts = new Map();
             task._writer = {
                 write: async command => {
@@ -4584,13 +4622,15 @@ class Downloader {
             task._log('Using browser download fallback; no local partial file can be retained.', 'warning');
             return;
         }
+        task._targetDir = await this.#resolveAnimeDirectory(task);
+        const directory = task._targetDir || this.#dirHandle;
         let filename = task.filename;
         if (!task.options.overwrite) {
             const extension = filename.match(/\.[^.]+$/)?.[0] || '';
             const stem = extension ? filename.slice(0, -extension.length) : filename;
             for (let suffix = 0; ; suffix++) {
                 const candidate = `${stem}${suffix ? ` (${suffix})` : ''}${extension}`;
-                try { await this.#dirHandle.getFileHandle(candidate); } catch { filename = candidate; break; }
+                try { await directory.getFileHandle(candidate); } catch { filename = candidate; break; }
             }
             task.filename = filename;
         }
@@ -4599,7 +4639,7 @@ class Downloader {
         let partialFilename = `${stem}.partial${extension}`;
         let fileHandle;
         try {
-            fileHandle = await this.#dirHandle.getFileHandle(partialFilename, { create: true });
+            fileHandle = await directory.getFileHandle(partialFilename, { create: true });
         } catch (error) {
             const fallbackStem = `AniLINK-${Date.now()}-${task.id.slice(0, 8)}`;
             stem = fallbackStem;
@@ -4607,11 +4647,11 @@ class Downloader {
             partialFilename = `${fallbackStem}.partial${extension}`;
             task.filename = filename;
             task._log(`Filename rejected; using ${partialFilename}: ${error.message || error}`, 'warning');
-            fileHandle = await this.#dirHandle.getFileHandle(partialFilename, { create: true });
+            fileHandle = await directory.getFileHandle(partialFilename, { create: true });
         }
         task._fileHandle = fileHandle;
         task._partialFilename = partialFilename;
-        task._filepath = `${this.#dirHandle.name}\\${partialFilename}`;
+        task._filepath = this.#displayPath(task, partialFilename);
         task._writer = await fileHandle.createWritable({ keepExistingData: false });
         task._log(`Opened ${partialFilename}`);
     }
@@ -4622,19 +4662,21 @@ class Downloader {
                 .sort(([first], [second]) => first - second)
                 .map(([, bytes]) => bytes);
             const blob = new Blob(parts, { type: task._stats.contentType || 'application/octet-stream' });
-            await this.#saveBlob(task, blob, task.filename);
+            const saveName = `${this.#subfolderPrefix(task)}${task.filename}`;
+            await this.#saveBlob(task, blob, saveName);
             task._memoryParts = null;
             task._partialFilename = '';
-            task._filepath = `browser downloads\\${task.filename}`;
-            task._log(`Saved ${task.filename} through the browser download manager.`);
+            task._filepath = `browser downloads\\${(this.#subfolderPrefix(task) + task.filename).replace(/\//g, '\\')}`;
+            task._log(`Saved ${saveName} through the browser download manager.`);
             return;
         }
+        const directory = task._targetDir || this.#dirHandle;
         const extension = task.filename.match(/\.[^.]+$/)?.[0] || '';
         const stem = extension ? task.filename.slice(0, -extension.length) : task.filename;
         const finalFilename = `${stem}${extension}`;
-        const partialHandle = await this.#dirHandle.getFileHandle(task._partialFilename);
+        const partialHandle = await directory.getFileHandle(task._partialFilename);
         const partialFile = await partialHandle.getFile();
-        const finalHandle = await this.#dirHandle.getFileHandle(finalFilename, { create: true });
+        const finalHandle = await directory.getFileHandle(finalFilename, { create: true });
         const writer = await finalHandle.createWritable({ keepExistingData: false });
         try {
             const reader = partialFile.stream().getReader();
@@ -4646,15 +4688,16 @@ class Downloader {
         } finally {
             await writer.close();
         }
-        await this.#dirHandle.removeEntry(task._partialFilename);
+        await directory.removeEntry(task._partialFilename);
         task._partialFilename = '';
         task.filename = finalFilename;
-        task._filepath = `${this.#dirHandle.name}\\${finalFilename}`;
+        task._filepath = this.#displayPath(task, finalFilename);
         task._log(`Finalized ${finalFilename} -> ${task._filepath}`);
     }
 
     async #discardPartialFile(task) {
-        if (!this.#dirHandle || !task._partialFilename) {
+        const directory = task._targetDir || this.#dirHandle;
+        if (!directory || !task._partialFilename) {
             task._partialFilename = '';
             return;
         }
@@ -4664,9 +4707,9 @@ class Downloader {
         }
         const partialFilename = task._partialFilename;
         try {
-            await this.#dirHandle.removeEntry(partialFilename);
+            await directory.removeEntry(partialFilename);
             task._partialFilename = '';
-            task._filepath = `${this.#dirHandle.name}\\${task.filename}`;
+            task._filepath = this.#displayPath(task, task.filename);
             task._log(`Removed failed partial file: ${partialFilename}`, 'warning');
         } catch (error) {
             if (error?.name === 'NotFoundError') {
@@ -4699,7 +4742,12 @@ class Downloader {
                         } catch (error) { finish(reject, error); }
                     });
                     return;
-                } catch (error) { task._log(`GM.download fallback failed: ${error.message || error}`, 'warning'); }
+                } catch (error) {
+                    const code = String(error?.message || error);
+                    task._log(`GM.download fallback failed: ${code}`, 'warning');
+                    if (/not_permitted|not_enabled|not_supported/i.test(code)) showToast('Your userscript manager blocked the automated download. Enable the browser download API (Download Center ⚙ → status) to save without prompts.');
+                    else if (/not_whitelisted/i.test(code)) showToast('Your userscript manager does not allow this file type. Whitelist the extension or enable the browser download API.');
+                }
             }
 
             if (!this.gm_download_failed_toasted) {
@@ -4849,9 +4897,11 @@ class Downloader {
         const stem = extension ? task.filename.slice(0, -extension.length) : task.filename;
         const usedNames = new Set();
         let directory;
-        const subtitleDirectory = task.options.subtitleDirectory;
-        if (this.#dirHandle) {
-            try { directory = subtitleDirectory ? await this.#dirHandle.getDirectoryHandle(subtitleDirectory, { create: true }) : this.#dirHandle; }
+        // A subtitle folder needs a real folder API: File System Access, or the browser download API in fallback mode.
+        const subtitleDirectory = this.#dirHandle || GM_info?.downloadMode === 'browser' ? task.options.subtitleDirectory : '';
+        const taskDirectory = task._targetDir || this.#dirHandle;
+        if (taskDirectory) {
+            try { directory = subtitleDirectory ? await taskDirectory.getDirectoryHandle(subtitleDirectory, { create: true }) : taskDirectory; }
             catch (error) {
                 const message = `Could not create the subtitle folder${subtitleDirectory ? ` "${subtitleDirectory}"` : ''}: ${error.message || error}`;
                 task._stats.errors.push(message);
@@ -4880,7 +4930,7 @@ class Downloader {
                     const writer = await fileHandle.createWritable({ keepExistingData: false });
                     await writer.write(bytes);
                     await writer.close();
-                } else await this.#saveBlob(task, new Blob([bytes], { type: dlUtils.anlinkParseHeaders(response.responseHeaders || '').get('content-type') || 'application/octet-stream' }), `${subtitleDirectory ? `${subtitleDirectory}/` : ''}${trackFilename}`);
+                } else await this.#saveBlob(task, new Blob([bytes], { type: dlUtils.anlinkParseHeaders(response.responseHeaders || '').get('content-type') || 'application/octet-stream' }), `${this.#subfolderPrefix(task)}${subtitleDirectory ? `${subtitleDirectory}/` : ''}${trackFilename}`);
                 task._stats.trackIndex++;
                 task._log(`Saved ${track.kind || 'track'} ${track.label || 'unnamed'} as ${subtitleDirectory ? `${subtitleDirectory}/` : ''}${trackFilename}`);
             } catch (error) {
@@ -6139,6 +6189,17 @@ class DownloaderUI {
             .anilink-dl-popover { position: absolute; right: 12px; top: 48px; z-index: 5; width: 230px; padding: 12px; border: 1px solid var(--anilink-glass-border); border-radius: 10px; background: var(--anilink-glass-bg); box-shadow: var(--anilink-glass-shadow); backdrop-filter: var(--anilink-glass-blur); -webkit-backdrop-filter: var(--anilink-glass-blur); } .anilink-dl-popover label, .anilink-dl-settings label { display: block; margin: 8px 0 4px; color: #9eb4b1; font: 11px system-ui, sans-serif; } .anilink-dl-popover input, .anilink-dl-settings input, .anilink-dl-settings select { width: 100%; padding: 7px 8px; border: 1px solid var(--anilink-glass-border-soft); border-radius: 6px; background: var(--anilink-input-bg); color: #ecf7f5; }
             .anilink-dl-empty { padding: 28px 12px; border: 1px dashed var(--anilink-glass-border-soft); border-radius: 10px; color: #829794; text-align: center; font: 13px system-ui, sans-serif; }
             .anilink-dl-settings { padding: 14px; border: 1px solid var(--anilink-glass-border-soft); border-radius: 12px; background: var(--anilink-glass-surface); } .anilink-dl-setting-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } .anilink-dl-setting-wide { grid-column: 1 / -1; } .anilink-dl-help { margin-top: 12px; color: #829794; font: 11px/1.45 system-ui, sans-serif; } .anilink-dl-help a { color: #75cfc5; }
+            .anilink-dl-note { position: relative; margin-bottom: 16px; padding: 12px 34px 12px 14px; border: 1px solid rgba(38,166,154,.32); border-radius: 12px; background: rgba(38,166,154,.08); color: #cfe9e5; font: 12px/1.55 system-ui, sans-serif; }
+            .anilink-dl-note.warn { border-color: rgba(255,183,77,.4); background: rgba(255,183,77,.09); } .anilink-dl-note.ok { border-color: rgba(38,166,154,.22); background: rgba(255,255,255,.03); }
+            .anilink-dl-note p { margin: 0 0 6px; } .anilink-dl-note p:last-child { margin-bottom: 0; } .anilink-dl-note b { color: #eaf7f5; }
+            .anilink-dl-note code { padding: 1px 4px; border-radius: 4px; background: rgba(0,0,0,.32); font: 11px ui-monospace, monospace; }
+            .anilink-dl-note-title { margin-bottom: 4px; color: #9adbd3; font: 700 11px/1.3 system-ui, sans-serif; letter-spacing: .04em; text-transform: uppercase; }
+            .anilink-dl-note-close { position: absolute; top: 7px; right: 8px; width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: #9eb4b1; cursor: pointer; font: 15px/1 system-ui, sans-serif; }
+            .anilink-dl-note[data-action] { cursor: pointer; } .anilink-dl-note[data-action]:hover { border-color: rgba(255,183,77,.62); background: rgba(255,183,77,.13); }
+            .anilink-dl-note-more { margin: 0; color: #ffd08a; font-weight: 600; }
+            .anilink-dl-help-note { margin-left: 6px; color: #6f8a87; opacity: .85; text-decoration: underline dotted; text-underline-offset: 2px; cursor: pointer; }
+            .anilink-dl-note-close:hover { background: rgba(255,255,255,.09); color: #fff; }
+            .anilink-dl-steps { margin: 4px 0 0; padding-left: 18px; } .anilink-dl-steps li { margin: 3px 0; }
             .anilink-dl-settings small { display: block; color: #829794; font: 10px/1.3 system-ui, sans-serif; }
             button[data-action] * { pointer-events: none; }
             @media (max-width: 680px) {
@@ -6225,6 +6286,7 @@ class DownloaderUI {
                 <button class="anilink-dl-icon-btn" data-action="close" title="Close">×</button>
             </div>
             <div class="anilink-dl-body">
+                ${this.renderCompatNotice()}
                 <section class="anilink-dl-section"><div class="anilink-dl-section-head"><span>Active downloads</span>${this.renderActiveActions(active)}</div><div data-region="active"></div></section>
                 <section class="anilink-dl-section"><div class="anilink-dl-section-head">History <span>${history.length ? '<button data-action="clear-history">Clear history</button> ' : ''}<button data-action="toggle-history">${this.historyOpen ? 'Collapse' : 'Expand'}</button></span></div><div data-region="history"></div></section>
             </div>
@@ -6239,6 +6301,82 @@ class DownloaderUI {
         }
         this.bindActions(panel);
         AniLINKUI.updateFab();
+    }
+
+    /**
+     * Browser / userscript-manager download capabilities.
+     * "downloadMode" is exposed by Tampermonkey ("native" | "browser" | "disabled") and Violentmonkey
+     * ("native" | "browser"); ScriptCat always reports "browser". Native mode flattens "folder/file.ext"
+     * into "folder_file.ext", so an anime subfolder is only worth adding in browser mode.
+     */
+    anlinkDownloadCapabilities = () => {
+        const info = typeof GM_info !== 'undefined' && GM_info ? GM_info : {};
+        const mode = typeof info.downloadMode === 'string' ? info.downloadMode : null;
+        return {
+            handler: info.scriptHandler || 'your userscript manager',
+            mode, modeKnown: mode !== null, browserApi: mode === 'browser',
+            hasFsAccess: !!(window.showDirectoryPicker || unsafeWindow?.showDirectoryPicker)
+        };
+    };
+
+    /** How to turn the browser download API on, per manager (used by the compatibility dialog and the notice). */
+    anlinkDownloadApiStepsHtml = handler => {
+        const steps = /violentmonkey/i.test(handler)
+            ? ['Open the <b>Violentmonkey dashboard</b> (extension icon → Dashboard).', 'Go to <b>Settings → Advanced</b>.', 'Turn on <b>"Use browser download API"</b>, then accept the extra “downloads” permission when the browser asks.']
+            : /tampermonkey/i.test(handler)
+                ? ['Open the <b>Tampermonkey Dashboard</b> and switch to the <b>Settings</b> tab.', 'Set <b>Config mode</b> (the first option) to <b>Advanced</b>.', 'Scroll down to the <b>Downloads BETA</b> section.', 'Set <b>Download Mode</b> to <b>Browser API</b> and click <b>Save</b> right below it.', 'Accept the <b>“Manage downloads”</b> permission prompt on the next download.']
+                : /scriptcat/i.test(handler)
+                    ? ['ScriptCat reports the browser downloads API by default, so there is nothing to enable here.']
+                    : ['Open your userscript manager’s <b>Dashboard → Settings</b>, enable the browser download API (it may be called “browser download mode”), and grant the extra <b>downloads</b> permission when asked.'];
+        return `<ol class="anilink-dl-steps">${steps.map(step => `<li>${step}</li>`).join('')}</ol>`;
+    };
+
+    /** Explains the compatibility notice and what can be done about it. */
+    showCompatDialog() {
+        const { handler, mode, modeKnown, hasFsAccess, browserApi } = this.anlinkDownloadCapabilities();
+        const escape = dlUtils.anlinkEscapeHtml;
+        const manager = escape(handler);
+        const modeLabel = modeKnown ? `<code>${escape(mode)}</code>` : `not reported by ${manager}`;
+        const state = browserApi
+            ? `Because the <b>browser download API</b> of ${manager} is enabled (download mode: ${modeLabel}), fallback downloads still keep their <code>Anime Title/</code> subfolder. Only the limits below remain.`
+            : `The <b>browser download API</b> of ${manager} is off (download mode: ${modeLabel}), so fallback downloads are saved as plain single files instead of inside an <code>Anime Title/</code> subfolder.`;
+        const limits = [
+            'Downloads go to the folder your browser saves to by default; AniLINK cannot ask where to put them.',
+            ...(browserApi ? [] : ['Fallback downloads lose the <code>Anime Title/</code> subfolder, so every file name has to carry the anime title.', 'The subtitle folder is ignored, so captions are saved alongside the video instead.']),
+            'Partial files cannot be kept, so an interrupted episode starts over from the beginning.',
+        ];
+        createModal({
+            title: 'Limited browser support',
+            icon: '🧩',
+            subtitle: `${manager} · download mode ${escape(modeKnown ? mode : 'not reported')}`,
+            width: '560px',
+            confirmLabel: 'Got it',
+            cancelLabel: null,
+            bodyHTML: `<div class="anilink-dl-note ok" style="margin: 0;">
+                <div class="anilink-dl-note-title">What this notice means</div>
+                <p>AniLINK prefers to write episodes straight into the folder you pick, using the browser's <code>showDirectoryPicker</code> API. This browser does not support that API, so downloads have to be handed to your userscript manager instead (aka "fallback mode").</p>
+                <p>${state}</p>
+            </div>
+            <div class="anilink-dl-note-title" style="margin-top: 16px;">What you lose in fallback mode</div>
+            <ul class="anilink-dl-steps">${limits.map(limit => `<li>${limit}</li>`).join('')}</ul>
+            <div class="anilink-dl-note-title" style="margin-top: 16px;">How to fix it</div>
+            ${browserApi ? '<p>Nothing to fix: the browser download API is already on. Everything above is solved by a browser with direct folder access, or by picking a folder when one is available.</p>' : this.anlinkDownloadApiStepsHtml(handler)}
+            <p style="margin-top: 14px; color: #9eb4b1;">Chromium browsers (Chrome, Edge, Opera…) can save straight into a folder; see the <a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/showDirectoryPicker#browser_compatibility" target="_blank" rel="noreferrer">MDN compatibility table</a>.</p>`
+        });
+    }
+
+    /** Download Center banner for browsers that can neither save into a folder nor use the browser download API. */
+    renderCompatNotice() {
+        const { handler, mode, modeKnown, hasFsAccess, browserApi } = this.anlinkDownloadCapabilities();
+        if (hasFsAccess || (browserApi && localStorage.getItem('anilink:compat_notice_dismissed'))) return ''; // Folder access works, or the browser download API already covers the fallback.
+        if (window['anilink:compat_notice_dismissed']) return ''; // Dismissed for this page (or this site).
+        const modeLabel = modeKnown ? `<code>${dlUtils.anlinkEscapeHtml(mode)}</code>` : `not reported by ${dlUtils.anlinkEscapeHtml(handler)}`;
+        return `<div class="anilink-dl-note warn" data-action="compat-info" role="button" tabindex="0" title="Click for details and fixes">
+            <button type="button" class="anilink-dl-note-close" data-action="dismiss-compat" title="Dismiss">×</button>
+            <div class="anilink-dl-note-title">Limited browser support</div>
+            <p>This browser cannot save straight into a folder (<code>showDirectoryPicker</code> is unavailable) and the browser download API of ${dlUtils.anlinkEscapeHtml(handler)} is off (download mode: ${modeLabel}). Episodes are saved as single files in your default download folder.</p>
+            <p class="anilink-dl-note-more">Details and fixes ›</p>
+        </div>`;
     }
 
     renderActiveActions(active) {
@@ -6362,13 +6500,14 @@ class DownloaderUI {
     showSettingsDialog() {
         const settings = this.downloader.settings;
         const escape = dlUtils.anlinkEscapeHtml;
+        const caps = this.anlinkDownloadCapabilities();
         const bodyHTML = `<div class="anilink-dl-settings">
             <div class="anilink-dl-setting-grid">
                 <div><label>Parallel downloads</label><input name="maxConcurrentTasks" type="number" min="1" max="8" placeholder="1" value="${settings.maxConcurrentTasks}"></div>
                 <div><label>Default threads</label><input name="defaultThreads" type="number" min="1" max="32" placeholder="6" value="${settings.defaultThreads}"></div>
                 <div><label>Default speed limit (KB/s, 0 = unlimited)</label><input name="defaultSpeedLimitBps" type="number" min="0" placeholder="0" value="${Number.isFinite(settings.defaultSpeedLimitBps) ? Math.round(settings.defaultSpeedLimitBps / 1024) : 0}"></div>
                 <div><label>Preferred stream resolution (360, 720, 1080, etc)</label><input name="preferredResolution" type="number" min="0" step="1" value="${settings.preferredResolution || ''}" placeholder="Auto"></div>
-                <div><label>Subtitle folder (blank = alongside video)</label><input name="subtitleDirectory" type="text" value="${escape(settings.subtitleDirectory || '')}" placeholder="Optional folder name">${window.showDirectoryPicker ? '<small>This feature might not be supported in your browser. See <a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/showDirectoryPicker#browser_compatibility" target="_blank">MDN</a> for more information.</small>' : ''}</div>
+                <div><label>Subtitle folder (blank = alongside video)</label><input name="subtitleDirectory" type="text" value="${escape(settings.subtitleDirectory || '')}" placeholder="Optional folder name">${caps.hasFsAccess || caps.browserApi ? '' : '<small>Ignored here: this browser cannot create a subtitle folder and your manager\'s browser download API is off, so captions are saved alongside the video.</small>'}</div>
                 <div><label>History retention</label><input name="historyLimit" type="number" min="1" max="100" placeholder="15" value="${Math.min(100, settings.historyLimit)}"></div>
                 <div><label>Preferred audio languages</label><input name="audioTrackLanguages" type="text" value="${escape(settings.audioTrackLanguages)}" placeholder="japanese,jpn"><small>Comma-separated language codes or names; blank keeps all audio tracks.</small></div>
                 <div><label>Preferred caption languages</label><input name="captionTrackLanguages" type="text" value="${escape(settings.captionTrackLanguages)}" placeholder="english,enUS,eng"><small>Comma-separated language codes or names; blank keeps all captions.</small></div>
@@ -6383,7 +6522,7 @@ class DownloaderUI {
                     <option value="all" ${settings.notifications==='all' ? 'selected' : '' }>All state changes</option>
                 </select></div>
             </div>
-            <div class="anilink-dl-help">Need help? <a href="https://github.com/jeryjs/Userscripts/issues/new?title=%5BAniLINK%5D%20Downloader%20issue&body=%23%23%20Description%0A%0A%23%23%20Steps%20to%20reproduce%0A1.%20%0A2.%20%0A%0A%23%23%20Expected%20behavior%0A-%20Browser%3A%20%0A-%20Userscript%20manager%3A%20" target="_blank">Report an issue on GitHub</a></div>
+            <div class="anilink-dl-help">Need help? <a href="https://github.com/jeryjs/Userscripts/issues/new?title=%5BAniLINK%5D%20Downloader%20issue&body=%23%23%20Description%0A%0A%23%23%20Steps%20to%20reproduce%0A1.%20%0A2.%20%0A%0A%23%23%20Expected%20behavior%0A-%20Browser%3A%20%0A-%20Userscript%20manager%3A%20" target="_blank">Report an issue on GitHub</a>${caps.hasFsAccess ? '' : '<span style="margin-left: 6px;">•</span><a class="anilink-dl-help-note" data-action="compat-info">Limited browser support</a>'}</div>
         </div>`;
         const { modal } = createModal({
             title: 'Downloader Settings',
@@ -6406,9 +6545,11 @@ class DownloaderUI {
                 this.refresh();
             }
         });
+        modal.querySelector('[data-action="compat-info"]')?.addEventListener('click', () => this.showCompatDialog());
     }
 
     bindActions(panel) {
+        panel.querySelector('[data-action="compat-info"]')?.addEventListener('click', event => { if (!event.target.closest('[data-action="dismiss-compat"]')) this.showCompatDialog(); });
         panel.querySelector('[data-action="back"]')?.addEventListener('click', () => AniLINKUI.switchView('extractor'));
         panel.querySelector('[data-action="close"]')?.addEventListener('click', () => AniLINKUI.close());
         panel.querySelector('[data-action="info"]')?.addEventListener('click', () => showAniLINKInfoDialog());
@@ -6422,7 +6563,11 @@ class DownloaderUI {
             const button = event.target.closest('button[data-action]');
             if (!button) return;
             const action = button.dataset.action;
-            if (action === 'pause-all') {
+            if (action === 'dismiss-compat') {
+                localStorage['anilink:compat_notice_dismissed'] = true;
+                window['anilink:compat_notice_dismissed'] = true;
+                this.render();
+            } else if (action === 'pause-all') {
                 this.downloader.tasks.filter(task => ['preparing', 'downloading'].includes(task.status)).forEach(task => task.pause());
             } else if (action === 'resume-all') {
                 this.downloader.tasks.filter(task => task.status === 'paused').forEach(task => task.resume());
