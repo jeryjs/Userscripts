@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     7.3.0
+// @version     7.4.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -64,6 +64,8 @@
 // @match       https://anihq.cc/*/*
 // @match       https://mkissa.to/anime/*
 // @match       https://youtu-chan.com/archives/*
+// @match       https://kaa.lt/*
+// @match       https://www.kaa.lt/*
 // @connect     gofile.io
 // @connect     xin-cdn.xyz
 // @connect     owocdn.top
@@ -96,6 +98,7 @@
 // @connect     wixmp.com
 // @connect     mp4upload.com
 // @connect     allanime.day
+// @connect     krussdomi.com
 // @connect     xi.pe
 // @connect     paste.rs
 // @connect     cdnjs.cloudflare.com
@@ -1004,6 +1007,49 @@ const Websites = [
             const blob = this._u8(res.data.tobeparsed);
             return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: blob.slice(1, 13) }, key, new Uint8Array([...blob.slice(13, -16), ...blob.slice(-16)]))));
         }
+    },
+    {
+        name: 'KickAssAnime',
+        url: ['kaa.lt'],
+        _chunkSize: 12,
+        addStartButton: id => document.querySelector(".download-pulse-button, div.col:has(a.pulse-button)")?.after(Object.assign(document.createElement('button'), { id, className: 'v-btn v-btn--text v-size--default', innerHTML: '⭳ Extract Episode Links' })),
+        extractEpisodes: async function* (status) {
+            status.text = 'Fetching episode list...';
+            const page = this._page(), showSlug = page.show_slug || location.pathname.split('/').filter(Boolean)[0];
+            let eps = [];
+            for (const lang of [...new Set([page.language, 'ja-JP'])].filter(Boolean)) {   // /api/show/<slug>/episodes only answers when ?lang= matches one of the show's locales
+                eps = (await fetchJSON(location.origin + '/api/show/' + showSlug + '/episodes?lang=' + encodeURIComponent(lang))).result || [];
+                if (eps.length) break;
+            }
+            if (!eps.length) return showToast('No episodes found for ' + showSlug + '.');
+            const byNum = new Map(eps.map(ep => [String(ep.episode_number), ep]));
+            const tiles = [...document.querySelectorAll('.episode-item')].map(el => (el.querySelector('.episode-badge')?.textContent || '').replace(/\D/g, '')).filter(Boolean);   // honour the site's own episode tiles (and their order)
+            const epList = await applyEpisodeRangeFilter((tiles.length ? [...new Set(tiles)].map(n => byNum.get(String(+n))).filter(Boolean) : eps).sort((a, b) => a.episode_number - b.episode_number));
+            const animeTitle = (PREFER_JAP_TITLE ? (page.title || page.title_en) : (page.title_en || page.title)) || showSlug;
+            const first = epList[0], firstHtml = await this._html(showSlug, first);
+            const srcCfg = await showSourceSelector(this._servers(firstHtml).map(s => s.name), 'kaa', { mode: 'single' });   // VidStreaming / CatStream - both served by krussdomi.com
+            for (let i = 0; i < epList.length; i += this._chunkSize)
+                yield* yieldEpisodesFromPromises(epList.slice(i, i + this._chunkSize).map(async ep => {
+                    const num = ep.episode_string || ep.episode_number; status.text = `Extracting episodes ${num - Math.min(num, this._chunkSize) + 1} - ${num}...`;
+                    const links = {}; try {
+                        const byName = new Map(this._servers(ep === first ? firstHtml : await this._html(showSlug, ep)).map(s => [s.name, s.url]));
+                        for (const name of srcCfg.sources.filter(n => byName.has(n))) {   // respect the source picker's priority order
+                            try { const src = await Extractors.use(byName.get(name), location.href); links[name] = { stream: src.file, type: src.type || 'm3u8', tracks: src.tracks || [], referer: src.referer }; }
+                            catch (e) { showToast(name + ' error ep ' + num + ': ' + e); }
+                            if (srcCfg.mode === 'single' && Object.keys(links).length) break;   // first priority hit wins
+                        }
+                    } catch (e) { showToast('Failed to fetch ep-' + num + ': ' + e); }
+                    return new Episode(num, animeTitle, links, ep.thumbnail?.sm ? location.origin + '/image/thumbnail/' + ep.thumbnail.sm + '.jpg' : undefined);
+                }));
+        },
+        _page: function () {   // the SSR'd window.KAA payload has the show slug/language/titles; fall back to scraping it out of the DOM
+            try { const ep = window.KAA?.data?.[0]?.episode; if (ep?.servers) return ep; } catch (e) { }
+            const html = document.documentElement.innerHTML;   // window.KAA is emitted with unquoted keys + \uXXXX escapes, so regex it
+            return { show_slug: html.match(/show_slug:\s*"([^"]*)"/)?.[1], language: html.match(/language:\s*"([^"]*)"/)?.[1], title: html.match(/[^_\w]title:\s*"([^"]*)"/)?.[1], title_en: html.match(/title_en:\s*"([^"]*)"/)?.[1] };
+        },
+        _servers: html => [...((html.match(/servers:\s*\[([\s\S]*?)\]/) || [])[1] || '').matchAll(/name:\s*"([^"]*)"[^}]*?src:\s*"([^"]+)"/g)].map(m => ({ name: m[1], url: m[2].replace(/\\u002F/gi, '/').replace(/\\u0026/gi, '&') })),
+        _epUrl: (showSlug, ep) => location.origin + '/' + showSlug + '/ep-' + (ep.episode_string || ep.episode_number) + '-' + ep.slug,
+        _html: function (showSlug, ep) { return GM_fetch(this._epUrl(showSlug, ep), { headers: { referer: location.origin + '/' } }).then(r => r.text()); },
     }
 ];
 
@@ -1381,6 +1427,16 @@ const Extractors = {
         const src = JSON.parse(await dec(j.data, dkey)).source;
         if (!src?.[0]?.file) throw new Error('vidstreaming: no source in ajax reply');
         return { file: src[0].file, type: src[0].type === 'hls' ? 'm3u8' : 'mp4', tracks: [], referer };
+    },
+    'krussdomi.com': async (url, referer = 'https://kaa.lt/') => {   // kaa.lt "cat player" (Astro SSR): the astro-island props carry the HLS manifest + subtitle list
+        const html = await GM_fetch(url, { headers: { referer } }).then(r => r.text());
+        const props = html.match(/props="([\s\S]*?)"\s/)?.[1];
+        if (!props) throw new Error('krussdomi: no astro props found');
+        const j = JSON.parse(props.replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>'));
+        const file = j.manifest?.[1]?.replace(/^\/\//, 'https://');   // catstream hands back a protocol-relative //bl.krussdomi.com/... manifest
+        if (!file) throw new Error('krussdomi: no manifest in props');
+        const tracks = (j.subtitles?.[1] || []).map(s => s[1]).filter(s => s?.src?.[1]).map(s => ({ file: s.src[1], label: s.name?.[1] || s.language?.[1] || 'Subtitle', kind: 'caption' }));
+        return { file, type: 'm3u8', tracks, referer: 'https://krussdomi.com/' };
     }
 }
 /**
@@ -4246,7 +4302,7 @@ class Downloader {
             speedLimitBps: options.speedLimitBps === Infinity ? Infinity : Number.isFinite(options.speedLimitBps) && options.speedLimitBps > 0 ? options.speedLimitBps : this.#settings.defaultSpeedLimitBps,
             headers: { ...(options.headers || {}) },
             referer: options.referer,
-            origin: options.origin,
+            origin: options.origin || new URL(options.referer || url).origin,
             anonymous: options.anonymous,
             timeout: options.timeout ?? 30000,
             retries: Math.max(0, Math.floor(options.retries ?? 3)),
