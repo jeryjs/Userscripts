@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     7.5.0
+// @version     7.6.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -12,7 +12,7 @@
 // @match       https://animeheaven.me/anime.php?*
 // @match       https://www.miruro.to/*
 // @match       https://www.miruro.tv/*
-// @match       https://www.miruro.ru/*
+// @match       https://www.miruro.cx/*
 // @match       https://www.miruro.bz/*
 // @match       https://anizone.to/*
 // @match       https://www.animegg.org/*
@@ -53,6 +53,7 @@
 // @match       https://aniwave.cz/*
 // @match       https://hianimetv.si/*
 // @match       https://aniwatch.ch/*
+// @match       https://hianime.ec/*
 // @match       https://anichi.to/*
 // @match       https://av1please.com/anime/*
 // @match       https://av1please.com/anime/*
@@ -507,7 +508,7 @@ const Websites = [
     },
     {
         name: 'Miruro',
-        url: ['miruro.to', 'miruro.tv', 'miruro.ru', 'miruro.bz'],
+        url: ['miruro.to', 'miruro.tv', 'miruro.cx', 'miruro.bz'],
         animeTitle: '.anime-title > a',
         thumbnail: 'a[href^="/info?id="] > img',
         baseApiUrl: `${location.origin}/api`,
@@ -886,6 +887,28 @@ const Websites = [
         _fetchSources: async (anilist_id, ep_num) => await fetchJSON(`${location.origin}/api/flix/${anilist_id}/${ep_num}`).then(d => d?.servers.map(s => ({ name: `${s.dataType.toUpperCase()} - ${s.serverName}`, link: s.dataLink }))).catch(e => showToast('Failed to fetch sources: ' + e.message || e)),
     },
     {
+        name: "Hianime Clone",
+        url: ["hianime.ec"],
+        _chunkSize: 12,
+        addStartButton: (id) => document.querySelector('.asc-aniflux-grid-controls')?.insertAdjacentElement('afterend', Object.assign(document.createElement('a'), { id, style: 'color: #82bdff; border-radius: 4px; background: #222; margin-inline: 12px; display: block; text-align: center; padding-block: 4px; cursor: pointer;', innerHTML: 'Extract Episode Links', onclick: extractEpisodes })),
+        async *extractEpisodes(status) {
+            const malId = unsafeWindow.ASC_ANIFLUX?.malId; status.text = 'Fetching episode list...';
+            const eps = await applyEpisodeRangeFilter(await fetch(`/wp-admin/admin-ajax.php?action=asc_aniflux_episodes&mal_id=${malId}`).then(r => r.json()).then(d => d.data));
+            const srcCfg = await showSourceSelector((await fetch(`/wp-admin/admin-ajax.php?action=asc_aniflux_watch&mal_id=${malId}&episode=${parseInt(eps[0].number)}`).then(r => r.json()).then(d => d.data.sources)).map(s => `${s.label} (${s.audioType})`), 'hianime');
+            for (let i = 0; i < eps.length; i += this._chunkSize) {
+                yield* yieldEpisodesFromPromises(eps.slice(i, i + this._chunkSize).map(async ep => {
+                    ep.number = parseInt(ep.number);
+                    status.text = `Extracting episodes ${ep.number - Math.min(ep.number, this._chunkSize) + 1} - ${ep.number}...`;
+                    const sources = await fetch(`/wp-admin/admin-ajax.php?action=asc_aniflux_watch&mal_id=${malId}&episode=${ep.number}`).then(r => r.json()).then(d => d.data.sources);
+                    const links = srcCfg.mode === 'multi' // vidnest.fun, megaplay.buzz, megavid.buzz, tryembed.us.cc
+                        ? Object.fromEntries((await Promise.all(srcCfg.sources.map(async src => { const s = sources.find(x => `${x.label} (${x.audioType})` === src); if (!s) return [src, null]; try { const r = await Extractors.use(s.iframe.match(/src="([^"]*)"/)?.[1]); return [src, { stream: r.file, type: r.type, tracks: r.tracks || [], referer: r.referer }]; } catch (e) { showToast(`Failed Ep ${ep.number} from ${src}: ${e.message || e}`); return [src, null]; } }))).filter(([, v]) => v)) 
+                        : await (async () => { for (const src of srcCfg.sources) { const s = sources.find(x => `${x.label} (${x.audioType})` === src); if (!s) continue; try { const r = await Extractors.use(s.iframe.match(/src="([^"]*)"/)?.[1]); return { [src]: { stream: r.file, type: r.type, tracks: r.tracks || [], referer: r.referer } }; } catch (e) { showToast(`Failed Ep ${ep.number} from ${src}: ${e.message || e}`); } } return {}; })();
+                    return new Episode(ep.number, unsafeWindow.ASC_ANIFLUX?.seriesTitle, links, ep.thumbnail, ep.title);
+                }));
+            }
+        }
+    },
+    {
         name: "AniNeko",
         url: ['anineko.to/'],
         addStartButton: (id) => $('.nv-info-main-column .nv-pill.green, .nv-side-stack .nv-pill').html('Extract Episode Links').click(extractEpisodes).attr('id', id).css({ cursor: 'pointer' }),
@@ -1190,13 +1213,6 @@ const Extractors = {
     'vidnest.fun': async function (url, r = 'https://vidnest.fun/') {
         // adapted from https://github.com/Nyumat/NyumatFlix/blob/8766c2b403b5d97be0a8d4541c2a0d96ca44da2a/lib/scrape/vidnest-shared.ts
         const a = 'RB0fpH8ZEyVLkv7c2i6MAJ5u3IKFDxlS1NTsnGaqmXYdUrtzjwObCgQP94hoeW+/=';
-        let t, s, e, m;
-        const u = new URL(url), p = u.pathname, x = p.match(/^\/([^\/]+)\/(movie|tv)\/(\d+)(?:\/(\d+)\/(\d+))?/);
-        if (x) { m = x[2]; t = x[3]; s = x[4] || '1'; e = x[5] || '1'; } else {
-            const i = url.match(/tmdb[=\/](\d+)/)?.[1] || url.match(/(\d{6,})/)?.[1];
-            if (!i) throw new Error('Invalid VidNest URL');
-            t = i; m = p.includes('tv') ? 'tv' : 'movie'; s = '1'; e = '1';
-        }
         const d = data => {
             const l = {}; for (let i = 0; i < a.length; i++) l[a[i]] = i;
             let o = [];
@@ -1210,38 +1226,65 @@ const Extractors = {
             }
             return new TextDecoder().decode(new Uint8Array(o));
         };
+        const parse = async res => {
+            if (!res.ok) return null;
+            const w = await res.json();
+            const j = JSON.parse(w.encrypted ? d(w.data) : w.data);
+            const src = j.sources?.[0] || j.streams?.[0];
+            const file = src?.file || src?.url || src?.link;
+            if (!file) return null;
+            const tracks = (j.tracks || []).concat(j.captions || []).filter(t => t?.file).map(t => ({ file: t.file, label: t.label || t.lan || t.lanName || 'Unknown', kind: t.kind || 'captions' }));
+            return { file, type: (src.type === 'hls' || /\.m3u8(?:[?#].*|$)/i.test(file)) ? 'm3u8' : 'mp4', tracks, referer: 'https://vidnest.fun/' };
+        };
+        const commonHeaders = r => ({ 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/121.0', Accept: 'application/json, */*', Origin: 'https://vidnest.fun', Referer: r });
+        const p = new URL(url).pathname;
+        // hianime.ec embeds use the 'hianime' resolver with /anime/{id}/{season}/{audio}/{quality} paths; the standard movie/tv form is also supported.
+        const anime = p.match(/^\/anime\/(\d+)\/(\d+)\/(\w+)/);
+        if (anime) {
+            const [, id, season, audio] = anime;
+            const q = p.match(/\/(\w+)$/);
+            for (const quality of [q ? q[1] : 'hd-2', 'hd-2', 'hd-1', 'hd-3', 'sd']) {
+                const api = `https://new.vidnest.fun/hianime/anime/${id}/${season}/${audio}/${quality}`;
+                try { const parsed = await parse(await GM_fetch(api, { headers: commonHeaders(r) })); if (parsed) return parsed; } catch (err) { continue; }
+            }
+            throw new Error('VidNest (hianime) failed');
+        }
+        let t, s, e, m;
+        const x = p.match(/^\/([^\/]+)\/(movie|tv)\/(\d+)(?:\/(\d+)\/(\d+))?/);
+        if (x) { m = x[2]; t = x[3]; s = x[4] || '1'; e = x[5] || '1'; } else {
+            const i = url.match(/tmdb[=\/](\d+)/)?.[1] || url.match(/(\d{6,})/)?.[1];
+            if (!i) throw new Error('Invalid VidNest URL');
+            t = i; m = p.includes('tv') ? 'tv' : 'movie'; s = '1'; e = '1';
+        }
         for (const b of ['moviesapi', 'hollymoviehd', 'allmovies', 'vidlink', 'klikxxi', 'movies4f']) {
             try {
                 const api = m === 'tv' ? `https://new.vidnest.fun/${b}/tv/${t}/${s}/${e}` : `https://new.vidnest.fun/${b}/movie/${t}`;
-                const res = await GM_fetch(api, { headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/121.0', Accept: 'application/json, */*', Origin: 'https://vidnest.fun', Referer: r } });
-                if (!res.ok) continue;
-                const w = await res.json(), data = w.encrypted ? d(w.data) : w.data;
-                const j = JSON.parse(data);
-                if (j.sources?.[0]?.url) return { file: j.sources[0].url, type: j.sources[0].type === 'hls' ? 'm3u8' : 'mp4', tracks: [], referer: 'https://vidnest.fun/' };
-                if (j.streams?.[0]?.url) return { file: j.streams[0].url, type: 'mp4', tracks: [], referer: 'https://vidnest.fun/' };
-                if (j.data?.downloads?.[0]?.url) {
-                    let best = j.data.downloads[0];
-                    for (const x of j.data.downloads.slice(1)) if (x.resolution > best.resolution) best = x;
-                    return { file: best.url, type: 'mp4', tracks: [], referer: 'https://vidnest.fun/' };
-                }
+                return await parse(await GM_fetch(api, { headers: commonHeaders(r) }));
             } catch (err) { continue; }
         }
         throw new Error('All VidNest backends failed');
     },
     'tryembed.us.cc': async function (url) {
-        throw new Error('tryembed.us.cc extractor is not implemented yet. Please use a different source.'); // TODO: Implement the extractor *one day*
-        const nonce = await GM_fetch(url).then(r => r.text()).then(t => t.match(/EMBED_NONCE="(.*?)";/)[1]).catch(() => { throw new Error('Failed to extract nonce from page'); });
-        const [id, ep, aud] = location.href.split('/').slice(-3);
-        const data = await GM_fetchJSON(`https://tryembed.us.cc/api/stream_data?id=${id}&episode=${ep}&audio=${aud}&nonce=${nonce}`).catch(() => { throw new Error('Failed to fetch stream data'); });
-        // retturn 
-    },
-    'flixcloud.cc': async function (url, referer = 'https://flixcloud.cc/') {
-        const page = await GM_fetch(url, { headers: { referer } }).then(r => r.text());
-        const data = eval("(" + page.match(/type:\s*"data",\s*data:\s*(\{.*?\})\s*,\s*uses:/s)[1] + ")");
-        const decToken = await GM_fetch('https://enc-dec.app/api/dec-flixcloud?type=token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data }) }).then(r => r.json()).then(d => d.result);
-        const streamResponse = await GM_fetch(`https://flixcloud.cc/api/m3u8/${decToken.token}`, { headers: { referer } }).then(r => r.json());
-        const decStream = await GM_fetch('https://enc-dec.app/api/dec-flixcloud?type=stream', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: { context: decToken.context, stream_response: streamResponse } }) }).then(r => r.json()).then(d => d.result);
-        return { file: decStream.stream, type: 'm3u8', tracks: data.subtitles?.map(s => ({ file: s.url, label: s.language, kind: 'captions' })) || [], referer };
+        const u = new URL(url), parts = u.pathname.split('/').filter(Boolean);
+        let id, ep, audio;
+        if (parts[0] === 'embed' && parts[1] === 'anime') { id = parts[2]; ep = parts[3]; audio = parts[4] === 'dub' ? 'dub' : 'sub'; } 
+        else { id = u.searchParams.get('id'); ep = u.searchParams.get('episode'); audio = u.searchParams.get('audio') || 'sub'; }
+        if (!id || !ep) throw new Error('tryembed: invalid URL');
+        // getter12 approach: no nonce, proper headers + Chrome TLS fingerprint via GM_fetch
+        const sdUrl = `https://tryembed.us.cc/api/stream_data?id=${id}&episode=${ep}&season=1&audio=${audio}&player=jw`;
+        const data = await GM_fetchJSON(sdUrl, { headers: { 'Origin': 'https://tryembed.us.cc', 'Referer': url, 'Accept': '*/*', 'Accept-Language': 'en-US,en;q=0.9', 'sec-fetch-dest': 'empty', 'sec-fetch-mode': 'cors', 'sec-fetch-site': 'same-origin', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0' }, });
+        if (data?.error) throw new Error('tryembed: ' + data.error);
+        // Extract best quality token (getter12's extractUrls logic)
+        let bestToken = null, bestScore = -1;
+        for (const p of data.providers || [])
+            for (const q of (p.qualities || [])) {
+                const score = { '1080p': 4, '720p': 3, '480p': 2, '360p': 1 }[q.name] || 0;
+                if (score > bestScore) { bestScore = score; bestToken = q.token || q.fallbackToken; }
+            }
+        if (!bestToken) throw new Error('tryembed: no token found');
+        // Parse tracks (captions) from all providers
+        const tracks = (data.providers?.flatMap(p => p.captions || []).filter(c => c.url) || []).map(c => ({ file: c.url, label: c.language || c.label || 'Unknown', kind: 'captions' }));
+        return { file: `https://tryembed.us.cc/s/${bestToken}.m3u8`, type: 'm3u8', tracks, referer: 'https://tryembed.us.cc/' };
     },
     'bibiemb.xyz': async (url) => ({ stream: (await GM_fetch(url).then(r => r.text())).match(/src = "(.*?)";/)[1], referer: 'https://bibiemb.xyz/' }),
     'vivibebe.site': async (url, referer = location.origin+'/') => ({ stream: `https://vivibebe.site/public/stream/${(new URL(url)).pathname.split('/').pop()}/master.m3u8`, referer: 'https://vivibebe.site/' }),
@@ -1498,18 +1541,16 @@ async function fetchWithRetry(url, options = {}, retries = 3, sleep = 1000) {
 /**
  * Asynchronously processes an array of episode promises and yields each resolved episode.
  *
- * @param {Array<Promise>} episodePromises - An array of promises, each resolving to an episode.
- * @returns {AsyncGenerator} An async generator yielding each resolved episode.
+ * @param {Promise<Episode>[]} episodePromises - An array of promises, each resolving to an episode.
+ * @returns {AsyncGenerator} An async generator yielding each resolved episode immediately as it becomes resolved.
  */
 async function* yieldEpisodesFromPromises(episodePromises) {
-    for (const episodePromise of episodePromises) {
-        try {
-            const episode = await episodePromise;
-            if (episode) yield episode;
-        } catch (e) {
-            showToast(e);
-            yield null; // Yield null for failed episodes to maintain order, or choose to skip by not yielding anything
-        }
+    const pending = episodePromises.map((p, i) => ({ i, p: p.then(v => ({ i, v })).catch(e => ({ i, error: e })) }));
+    while (pending.length) {
+        const { i, v, error } = await Promise.race(pending.map(x => x.p));
+        pending.splice(pending.findIndex(x => x.i === i), 1);
+        if (error) showToast(error);
+        else if (v) yield v;
     }
 }
 
