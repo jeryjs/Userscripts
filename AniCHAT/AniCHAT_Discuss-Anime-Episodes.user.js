@@ -1,58 +1,51 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.6.6
+// @version     2.9.15
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
 // @license     MIT
-// @match       https://yugenanime.*/*
-// @match       https://yugenanime.tv/*
-// @match       https://yugenanime.sx/*
-// @match       https://anitaku.*/*
-// @match       https://anitaku.bz/*
-// @match       https://gogoanime.*/*
-// @match       https://gogoanime.to/*
-// @match       https://gogoanime3.*/*
-// @match       https://gogoanime3.co/*
-// @match       https://*pahe.pw/*/*
-// @match       https://aniwave.*/watch/*
-// @match       https://aniwave.to/watch/*
-// @match       https://aniwave.vc/watch/*
-// @match       https://aniwave.ti/watch/*
-// @match       https://aniwatchtv.*/watch/*
-// @match       https://aniwatchtv.to/watch/*
-// @match       https://hianime.*/watch/*
-// @match       https://hianime.to/watch/*
-// @match       https://kayoanime.*/*
+// @match       https://anitaku.tld/*
+// @match       https://anitaku.io/*
+// @match       https://gogoanime.tld/*
+// @match       https://gogoanime3.tld/*
+// @match       https://animepahe.tld/*/*
+// @match       https://animepahe.pw/*/*
+// @match       https://aniwave.tld/watch/*
+// @match       https://aniwave.si/watch/*
+// @match       https://hianime.tld/watch/*
+// @match       https://hianimez.org/*
+// @match       https://hianimes.re/*
+// @match       https://hianimetv.si/*
+// @match       https://hianime.ec/*
+// @match       https://aniwatch.ch/*
 // @match       https://kayoanime.com/*
-// @match       https://kaas.*/*/*
-// @match       https://kaas.to/*/*
-// @match       https://kickassanimes.*/*/*
-// @match       https://kickassanimes.io/*/*
-// @match       https://*.kickassanime.*/*/*
-// @match       https://*.kickassanime.mx/*/*
-// @match       https://anix.*/*/*/*
-// @match       https://anix.to/*/*/*
-// @match       https://anix.ac/*/*/*
+// @match       https://kaas.tld/*/*
+// @match       https://kaa.lt/*
+// @match       https://www.kaa.lt/*
+// @match       https://*.kickassanime.tld/*/*
+// @match       https://anix.tld/*/*/*
 // @match       https://anix.vc/*/*/*
-// @match       https://animeflix.*/watch/*
-// @match       https://animeflix.live/watch/*
-// @match       https://animehub.*/watch/*
-// @match       https://animehub.ac/watch/*
-// @match       https://animesuge.*/anime/*
-// @match       https://animesuge.to/anime/*
-// @match       https://*.miruro.*/*
-// @match       https://*.miruro.tv/watch?id=*
-// @match       https://*.miruro.to/watch?id=*
-// @match       https://*.miruro.online/watch?id=*
-// @match       https://animez.org/*/epi-*
-// @match       https://animekai.to/watch/*
+// @match       https://animesuge.tld/anime/*
+// @match       https://animesuge.re/anime/*
+// @match       https://animesuge.cz/anime/*
+// @match       https://anisuge.tv/anime/*
+// @match       https://www.miruro.tv/*
+// @match       https://www.miruro.to/*
+// @match       https://www.miruro.cx/*
+// @match       https://www.miruro.bz/*
+// @match       https://miruro.to/*
+// @match       https://miruro.online/*
+// @match       https://animekai.tld/watch/*
+// @match       https://animekaitv.to/watch/*
+// @match       https://reanime.tld/*
+// @match       https://reanime.to/*
+// @match       https://reanime.cz/*
 // @grant       GM_getValue
 // @grant       GM_setValue
 // @grant       GM_notification
 // @grant       GM.xmlHttpRequest
-// @require     https://unpkg.com/axios/dist/axios.min.js
 //				Using GM_fetch for bypassing CORS
 // @require     https://cdn.jsdelivr.net/npm/@trim21/gm-fetch@0.2.1
 // @downloadURL https://update.greasyfork.org/scripts/485793/AniCHAT%20-%20Discuss%20Anime%20Episodes.user.js
@@ -65,19 +58,13 @@
 // seconds to wait before loading the discussions (to avoid spamming the service)
 const TIMEOUT = 30000; // in milliseconds
 
+// unofficial MAL API with a Jikan v4-compatible schema. Replaced api.jikan.moe, whose public API was discontinued on 2026-10-01.
+const TENRAI_API = 'https://api.tenrai.org/v1';
+
 /***************************************************************
  * ANIME SITES & SERVICES
  ***************************************************************/
 const animeSites = [
-	{
-		name: "yugenanime",
-		url: ["yugenanime.tv", "yugenanime.sx"],
-		chatArea: ".box.m-10-t.m-25-b.p-15",
-		getAnimeTitle: () => document.querySelector(".ani-info-ep a > h1").textContent,
-		getEpTitle: () => document.querySelector("h1.text-semi-bold.m-5-b").textContent,
-		getEpNum: () => window.location.href.split("/")[6],
-		styles: null,
-	},
 	{
 		name: "animepahe",
 		url: ["animepahe.si", "animepahe"],
@@ -89,11 +76,11 @@ const animeSites = [
 	},
 	{
 		name: "gogoanime",
-		url: ['gogoanime3', 'gogoanimehd', 'gogoanime', 'anitaku'],
-		chatArea: ".anime_video_body_comment_center",
-		getAnimeTitle: () => document.querySelector(".anime-info > a").textContent,
-		getEpTitle: () => document.querySelector(".anime-info > a").textContent,
-		getEpNum: () => window.location.href.split("-episode-")[1],
+		url: ['gogoanime3', 'gogoanimehd', 'gogoanime', 'anitaku', 'aniwave.si'],   // anitaku.io + aniwave.si are Themesia clones with an identical DOM
+		chatArea: '.cmt',
+		getAnimeTitle: () => document.querySelector('.entry-title').textContent.split(/Episode \d+.*/)[0].trim(),	// strip the 'Episode N English Subbed' suffix
+		getEpTitle: () => document.querySelector('.entry-title').textContent.split(/Episode \d+.*/)[0].trim(),
+		getEpNum: () => location.href.split('-episode-')[1]?.split('-')[0],	// URLs look like /<slug>-episode-2-english-subbed-2/
 		styles: `.chat-msg { color: white; font-size: 14px; } .discussion-title > a { font-size: 24px; color: goldenrod; }`
 	},
 	{
@@ -123,69 +110,60 @@ const animeSites = [
 	},
 	{
 		name: "kickassanime",
-		url: ["kaas", "kickassanimes", "kickassanime"],
+		url: ["kaas", "kickassanimes", "kickassanime", "kaa.lt"],	// kaa.lt is the current domain; kickassanimes.io + kickassanime.mx are dead
 		chatArea: () => document.querySelector("#disqus_thread").parentElement,
-		getAnimeTitle: () => document.querySelector(".text-h6").textContent,
-		getEpTitle: () => document.querySelector(".text-h6").textContent,
-		getEpNum: () => document.querySelector(".d-block .text-overline").textContent.split("Episode")[1].trim(),
+		getAnimeTitle: () => document.querySelector("h1").textContent.trim(),
+		getEpTitle: () => document.querySelector("h1").textContent.trim(),
+		getEpNum: () => location.pathname.match(/\/ep-(\d+)/)?.[1],	// /<slug>/ep-3-<hash>; the old .text-overline now reads 'Server:'
 	},
 	{
 		name: "anix",
-		url: ["anix"],
+		url: ["anixtv", "anixx"],		// anix.to is hijacked; the official set is anixx.fun + anixtv.in/.us.cc/.pro
+		chatArea: () => document.querySelector("#disqus_thread")?.parentElement || document.querySelector('#comments'),
+		getAnimeTitle: () => document.querySelector("h1")?.textContent.trim(),
+		getEpTitle: () => document.querySelector("h1")?.textContent.trim(),
+		getEpNum: () => location.pathname.match(/\/ep-(\d+)/)?.[1] ?? new URLSearchParams(location.search).get('ep'),
 		chatArea: () => document.querySelector("#disqus_thread").parentElement,
 		getAnimeTitle: () => document.querySelector(".ani-name").textContent,
 		getEpTitle: () => document.querySelector(".ani-name").textContent,
 		getEpNum: () => window.location.href.split("/ep-")[1],
 	},
 	{
-		name: "animeflix",
-		url: ["animeflix"],
-		chatArea: 'main',
-		getAnimeTitle: () => document.querySelector(".details .title").textContent,
-		getEpTitle: () => document.querySelector(".details .title").textContent,
-		getEpNum: () => window.location.href.split("-episode-")[1],
-	},
-	{
-		name: "animehub",
-		url: ["animehub"],
-		chatArea: 'mawdawin',
-		getAnimeTitle: () => document.querySelector(".dc-title").textContent,
-		getEpTitle: () => document.querySelector(".dc-title").textContent,
-		getEpNum: () => document.querySelector("#current_episode_name").textContent.split("Episode")[1].trim(),
-	},
-	{
 		name: "animesuge",
-		url: ["animesuge.to", "animesuge"],
-        chatArea: '#comment',
-        getAnimeTitle: () => document.querySelector("#media-info .maindata > h1").textContent,
-        getEpTitle: () => document.querySelector("#media-info .maindata > h1").textContent,
-        getEpNum: () => window.location.href.split("/ep-")[1],
+		url: ["animesuge.re", "animesuge.cz", "anisuge.tv"],	// .to/.cc are dead and .su redirects to a scam domain
+		chatArea: '.show-comments',
+		getAnimeTitle: () => document.querySelector("h1").textContent.trim(),
+		getEpTitle: () => document.querySelector("h1").textContent.trim(),
+		getEpNum: () => location.pathname.match(/\/ep-(\d+)/)?.[1],	// /anime/<slug>-<id>/ep-<n>
+		initDelay: 1000,	// Time to wait (for page to load) before attaching the discussion area
 	},
 	{
 		name: "miruro",
-		url: ["miruro.tv", "miruro.to", "miruro.online"],
+		url: ["miruro"],
 		chatArea: '[class^="_commentSectionContainer_"]',
-		getAnimeTitle: () => document.querySelector(".anime-title > a").textContent.trim(),
-		getEpTitle: () => document.querySelector(".title-container .ep-title").textContent.trim(),
+		getAnimeTitle: () => document.querySelector("h1 > a > span").textContent.trim(),
+		getEpTitle: () => document.querySelector('[class^="_titleContainer_"] > span:last-child').textContent.trim(),
 		getEpNum: () => (new URLSearchParams(location.search)).get('ep'),
+		getServiceId: () => ({ MAL: document.querySelector("a[href*='myanimelist.net/']")?.href?.split('/')?.pop(), AL: (document.querySelector("a[href*='anilist.co/anime/']")?.href.match(/anime\/(\d+)/))[1] }),
 		styles: `#AniCHAT a:-webkit-any-link { color: lightblue; } ul.discussion-list { padding-inline-start: 0px; }`,
 		initDelay: 5000,	// Time to wait (for page to load) before attaching the discussion area
 	},
 	{
-		name: "animez",
-		url: ["animez.org"],
-		chatArea: '#box_right_watch',
-		getAnimeTitle: () => document.querySelector("#title-detail-manga").textContent,
-		getEpTitle: () => document.querySelector("#title-detail-manga").textContent,
-		getEpNum: () => document.querySelector(".wp-manga-chapter.active").textContent.replace("-Dub", "").trim(),
+		name: "animekai",
+		url: ["animekai", "anikai", "animekaitv"],	// animekai.to/anikai.to are dead; animekaitv.to is current
+		chatArea: () => document.querySelector("#disqus_thread").parentElement,
+		getAnimeTitle: () => document.querySelector("h1").textContent.trim(),
+		getEpTitle: () => document.querySelector("h1").textContent.trim(),
+		getEpNum: () => location.pathname.match(/\/ep-(\d+)/)?.[1],	// /watch/<slug>-<id>/ep-<n>; the old .eplist a.active is gone
+		initDelay: 1000,	// Time to wait (for page to load) before attaching the discussion area
 	},
 	{
-		name: "animekai",
-		url: ["animekai.to"],
-		chatArea: ".scontent",
-		getAnimeTitle: () => document.querySelector(".title").textContent,
-		getEpTitle: () => document.querySelector(".eplist a > span").textContent,
-		getEpNum: () => document.querySelector(".eplist a.active").getAttribute("num"),
+		name: "reanime",
+		url: ["reanime", "kuudere"],	// kuudere.to now redirects to reanime.to; official domains are .to and .cz
+		chatArea: '.comment-list',
+		getAnimeTitle: () => document.title.split(' - ')[0].trim(),	// the watch page's h1 reads 'Episodes', so the title comes from the <title>
+		getEpTitle: () => document.title.split(' - ')[0].trim(),
+		getEpNum: () => new URLSearchParams(location.search).get('ep'),
 		initDelay: 1000,	// Time to wait (for page to load) before attaching the discussion area
 	},
 ];
@@ -196,18 +174,27 @@ const services = [
 		icon: "https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ",
 		url: "https://myanimelist.net/",
 		_clientId: "dbe5cec5a2f33fdda148a6014384b984",
-		async getDiscussion(animeTitle, epNum) {
+		async getDiscussion(animeTitle, epNum, ids) {
 			let animeId, topic, url, response, data;
 			let headers = {headers: {"X-MAL-CLIENT-ID": this._clientId, 'x-requested-with': 'XMLHttpRequest', 'origin': window.location.origin}};
-			// get the anime's MAL id using MAL API (or use Jikan API if title is too long)
+			// get the anime's MAL id using MAL API (or the Tenrai API if title is too long)
 			try {
-				if (animeTitle.length > 500) {
+				if (ids?.MAL) {
+					animeId = ids.MAL;
+				} else if (ids?.AL) {
+					response = await GM_fetch('https://graphql.anilist.co', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+						body: JSON.stringify({ query: `{ Media(id: ${ids.AL}, type: ANIME) { idMal } }` })
+					});
+					animeId = (await response.json()).data.Media.idMal;
+				} else if (animeTitle.length > 500) {
 					url = `https://api.myanimelist.net/v2/anime?q=${animeTitle}&limit=1`;
 					response = await GM_fetch(url, headers);
 					data = await response.json();
 					animeId = data.data[0].node.id;
 				} else {
-					url = `https://api.jikan.moe/v4/anime?q=${animeTitle}&limit=1`;
+					url = `${TENRAI_API}/anime?q=${animeTitle}&limit=1`;
 					animeId = GM_getValue('cachedId_'+url, null);
 					if (!animeId) {
 						response = await GM_fetch(url, headers);
@@ -222,22 +209,34 @@ const services = [
 			}
 			// get the discussion url from the anime
 			try {
-				url = `https://api.jikan.moe/v4/anime/${animeId}/forum`;
+				url = `${TENRAI_API}/anime/${animeId}/forum`;
 				response = await GM_fetch(url, headers);
 				data = await response.json();
 				topic = data.data.find(it => it.title.includes(`Episode ${epNum} Discussion`));
+				if (!topic) throw new NotFoundError(`No discussion found for episode ${epNum}.`, {
+					// Recoverable: the near-misses go to the picker so the user can choose.
+					candidates: (data?.data || []).map(t => ({ id: t.mal_id, label: t.title, url: t.url })),
+					searchUrl: `https://myanimelist.net/forum/?animeid=${animeId}`
+				});
 				console.log(`topic: ${topic}`);
 			} catch (e) {
-				throw new Error(`No discussion found. Retry after a while or switch to another service.\n${e.code} : ${e}`);
+				if (e instanceof NotFoundError) throw e;	// already carries the candidates
+				throw new NetworkError(`No discussion found. Retry after a while or switch to another service.\n${e.code} : ${e}`);
 			}
+			return this.loadById(topic.mal_id);
+		},
+		// Fetches a MAL forum topic directly by its id, bypassing the episode search.
+		loadById: async function (topicId) {
+			let url, response, data;
+			const headers = { headers: { 'X-MAL-CLIENT-ID': this._clientId, 'x-requested-with': 'XMLHttpRequest', 'origin': window.location.origin } };
 			// get the forum page
 			try {
-				url = `https://api.myanimelist.net/v2/forum/topic/${topic.mal_id}?limit=100`;
+				url = `https://api.myanimelist.net/v2/forum/topic/${topicId}?limit=100`;
 				response = await GM_fetch(url, headers);
 				data = await response.json();
 				console.log(`data: ${data}`);
 			} catch (e) {
-				throw new Error(`Error getting the discusssion (${topic}). Retry after a while or switch to another service.\n${e.code} : ${e}`);
+				throw new NetworkError(`Error getting the discusssion (${topicId}). Retry after a while or switch to another service.`);
 			}
 
 			let chats = [];
@@ -248,11 +247,12 @@ const services = [
 				const msg = this._parseBBCode(post.body);
 				const timestamp = new Date(post.created_at).getTime();
 				const postId = data.data.posts.indexOf(post) + 1;
-				const postLink = `https://myanimelist.net/forum/?goto=post&topicid=${topic.mal_id}&id=${post.id}`;
+				const postLink = `https://myanimelist.net/forum/?goto=post&topicid=${topicId}&id=${post.id}`;
 				chats.push(new Chat(user, userLink, avatar, msg, timestamp, null, postId, postLink));
 			});
 
-			const discussion = new Discussion(topic.title, topic.url, chats);
+			// MAL's forum/topic response carries no `url`, so build it from the id.
+			const discussion = new Discussion(data.data.title, `https://myanimelist.net/forum/?topicid=${topicId}`, chats);
 			return discussion;
 		},
 		_parseBBCode(bbcode) {
@@ -295,7 +295,7 @@ const services = [
 			let headers = {headers: {'x-requested-with': 'XMLHttpRequest', 'origin': window.location.origin}};
 			// get the anime's MAL id
 			try {
-				url = `https://api.jikan.moe/v4/anime?q=${animeTitle}&limit=1`;
+				url = `${TENRAI_API}/anime?q=${animeTitle}&limit=1`;
 				animeId = GM_getValue('cachedId_'+url, '');
 				if (animeId == '') {
 					response = await GM_fetch(url, headers);
@@ -311,19 +311,22 @@ const services = [
 			// Get the discussion
 			try {
 				url = `https://api.reddit.com/r/anime/search.json?q=${animeTitle}+-+Episode+${epNum}+discussion+author:AutoLovepon&restrict_sr=on&include_over_18=on&sort=relevance&limit=50`;
-				response = await axios.get(url);
-				topic = response.data.data.children.find(it => it.data.title.includes(` - Episode ${epNum} discussion`) && it.data.selftext.includes(`[MyAnimeList](https://myanimelist.net/anime/${animeId}`))?.data;
+				topic = (await fetchJson(url)).data.children.find(it => it.data.title.includes(` - Episode ${epNum} discussion`) && it.data.selftext.includes(`[MyAnimeList](https://myanimelist.net/anime/${animeId}`))?.data;
+				if (!topic) throw new NotFoundError(`No discussion found for episode ${epNum}.`, {
+					searchUrl: `https://www.reddit.com/r/anime/search/?q=${encodeURIComponent(animeTitle)} episode ${epNum}`
+				});
+				url = `https://api.reddit.com/r/anime/search.json?q=${animeTitle}+-+Episode+${epNum}+discussion+author:AutoLovepon&restrict_sr=on&include_over_18=on&sort=relevance&limit=50`;
 			} catch (e) {
-				throw new Error(`No discussion found. Retry after a while or switch to another service. (You are probably being rate limited)\n${e.code} : ${e.message}`);
+				if (e instanceof NotFoundError) throw e;
+				throw new RateLimitError(`No discussion found. Retry after a while or switch to another service. (You may be rate limited)`);
 			}
 			// get the comments in the discussion
 			try {
 				url = topic.url.replace('www.reddit.com', 'api.reddit.com');
-				response = await axios.get(url);
-				posts = response.data[1].data.children;
+				posts = (await fetchJson(url))[1].data.children;
 				if (posts[0].data.author == "AutoModerator") posts.shift();	// skip the first bot post
 			} catch (e) {
-				throw new Error(`Error getting the discusssion. Retry after a while or switch to another service.\n${e.code} : ${e.message}`);
+				throw new NetworkError(`Error getting the discussion. Retry after a while or switch to another service.`);
 			}
 
 			let chats = [];
@@ -335,17 +338,124 @@ const services = [
 		_processPost(post) {
 			const user = post.author;
 			const userLink = "https://www.reddit.com/user/" + user;
-			const avatar = axios.get(`https://api.reddit.com/user/${user}/about`).then(r=>r.data.data.icon_img.split('?')[0]);
+			const avatar = GM_fetch(`https://api.reddit.com/user/${user}/about`).then(r => r.json()).then(d => d.data.icon_img.split('?')[0]);
 			const msg = ((el) => { el.innerHTML = post.body_html; return el.value; })(document.createElement('textarea'));
 			const timestamp = post.created_utc * 1000;
 			let replies = [];
 			if (post.replies && post.replies.data)
 				for (let reply of post.replies.data.children)
-					if(reply.data?.body_html) replies.push(this._processPost(reply.data));
-			return new Chat(user, userLink, avatar, msg, timestamp, replies, post.id, "https://www.reddit.com"+post.permalink);
+					if (reply.data?.body_html) replies.push(this._processPost(reply.data));
+			return new Chat(user, userLink, avatar, msg, timestamp, replies, post.id, "https://www.reddit.com" + post.permalink);
+		}
+	},
+	{
+		name: "AniList",
+		icon: "https://anilist.co/img/icons/android-chrome-512x512.png",
+		url: "https://anilist.co/",
+		async getDiscussion(animeTitle, epNum, ids) {
+			let alId, thread, response, data;
+			// Prefer the site-declared AniList id; otherwise resolve it by title.
+			try {
+				if (ids?.AL) {
+					alId = ids.AL;
+				} else {
+					response = await this._gql({ query: 'query($title:String){ Media(search:$title, type:ANIME) { id } }', variables: { title: animeTitle } });
+					alId = (await response.json()).data?.Media?.id;
+				}
+				if (!alId) throw new Error('no id');
+				console.log(`alId: ${alId}`);
+			} catch (e) {
+				throw new Error(`Couldn't find the anime id. Retry after a while or switch to another service.\n${e}`);
+			}
+			// Thread titles use the same "Episode N Discussion" convention as MAL.
+			try {
+				response = await this._gql({ query: 'query($mid:Int){Page(page:1,perPage:50){threads(mediaCategoryId:$mid){id title siteUrl replyCount createdAt body}}}', variables: { mid: parseInt(alId) } });
+				data = await response.json();
+				thread = data.data.Page.threads.find(it => it.title.includes(`Episode ${epNum} Discussion`));
+				console.log(`thread: ${thread?.title}`);
+				if (!thread) throw new NotFoundError(`No discussion found for episode ${epNum}.`, {
+					// Recoverable: the near-misses go to the picker so the user can choose.
+					candidates: (data?.data?.Page?.threads || []).map(t => ({ id: t.id, label: t.title, url: t.siteUrl })),
+					searchUrl: `https://anilist.co/search/anime?search=${encodeURIComponent(animeTitle)}`
+				});
+			} catch (e) {
+				if (e instanceof NotFoundError) throw e;	// already carries the candidates
+				throw new NetworkError(`No discussion found. Retry after a while or switch to another service.\n${e}`);
+			}
+			return this.loadById(thread.id, thread);
+		},
+		// Fetches an AniList thread's replies directly by thread id, bypassing the episode search.
+		loadById: async function (threadId, meta = {}) {
+			let comments = [], response, data;
+			try {
+				response = await this._gql({ query: 'query($tid:Int){ Page(page:1,perPage:100){ threadComments(threadId:$tid){ id comment createdAt likeCount user{ name avatar{ medium } } } } }', variables: { tid: threadId } });
+				data = await response.json();
+				// GraphQL returns HTTP 200 with an `errors` array and null `data`, so check both.
+				if (data.errors) throw new Error(JSON.stringify(data.errors));
+				if (!data.data) throw new Error('AniList returned no data for thread ' + threadId);
+				comments = data.data.Page?.threadComments || [];
+			} catch (e) {
+				throw new NetworkError(`Error getting the discusssion (${meta.title}). Retry after a while or switch to another service.\n${e}`);
+			}
+
+			let chats = [];
+			comments.forEach((post, i) => {
+				const user = post.user?.name || 'Anonymous';
+				const userLink = `https://anilist.co/user/${user}`;
+				const avatar = post.user?.avatar?.medium || this.icon;
+				const msg = this._parseMarkdown(post.comment || '');
+				const timestamp = new Date(post.createdAt * 1000).getTime();
+				chats.push(new Chat(user, userLink, avatar, msg, timestamp, null, i + 1, meta.siteUrl));
+			});
+
+			return new Discussion(meta.title, meta.siteUrl, chats);
+		},
+		_gql: body => GM_fetch('https://graphql.anilist.co', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+			body: JSON.stringify(body)
+		}),
+		// Minimal Markdown -> HTML. AniList comment bodies are Markdown, not BBCode.
+		_parseMarkdown(md) {
+			const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+			const blocks = md.split(/\n{2,}/);
+			const inline = t => esc(t)
+				.replace(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g, '<img src="$2" alt="$1">')
+				.replace(/\[([^\]]+)\]\(([^)\s]+)[^)]*\)/g, '<a href="$2" target="_blank">$1</a>')
+				.replace(/`([^`]+)`/g, '<code>$1</code>')
+				.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>')
+				.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+				.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+				.replace(/__([^_]+)__/g, '<strong>$1</strong>')
+				.replace(/~~([^~]+)~~/g, '<s>$1</s>');
+			return blocks.map(b => {
+				const fenced = b.match(/^```(\w*)\n?([\s\S]*?)```$/);
+				if (fenced) return `<pre><code>${esc(fenced[2])}</code></pre>`;
+				if (/^#{1,6}\s/.test(b)) return `<h4>${inline(b.replace(/^#{1,6}\s*/, ''))}</h4>`;
+				if (/^&gt;\s?/.test(b)) return `<blockquote>${inline(b.replace(/^&gt;\s?/gm, ''))}</blockquote>`;
+				if (/^(-{3,}|\*{3,})$/.test(b.trim())) return '<hr>';
+				const ul = b.split('\n').filter(l => /^\s*[-*+]\s+/.test(l));
+				if (ul.length) return `<ul>${ul.map(l => `<li>${inline(l.replace(/^\s*[-*+]\s+/, ''))}</li>`).join('')}</ul>`;
+				const ol = b.split('\n').filter(l => /^\s*\d+\.\s+/.test(l));
+				if (ol.length) return `<ol>${ol.map(l => `<li>${inline(l.replace(/^\s*\d+\.\s+/, ''))}</li>`).join('')}</ol>`;
+				return `<p>${inline(b).replace(/\n/g, '<br>')}</p>`;
+			}).join('');
 		}
 	},
 ];
+
+// JSON fetch that reports a readable reason instead of a raw parse crash. Reddit answers
+// blocked requests with an HTML page, which makes r.json() throw 'not valid JSON'.
+async function fetchJson(url) {
+	const response = await GM_fetch(url);
+	if (!response.ok) throw new NetworkError(`HTTP ${response.status} ${response.statusText}`);
+	const type = (response.headers.get('content-type') || '').split(';')[0].trim();
+	if (type && type !== 'application/json') {
+		const body = (await response.text()).slice(0, 100);
+		throw new NetworkError(`Expected JSON but got ${type}: ${body}`);
+	}
+	return response.json();
+}
 
 /***************************************************************
  * Classes for handling various data like settings & discussions
@@ -361,6 +471,37 @@ class UserSettings {
 }
 
 // Class to hold each row of a discussion
+// Errors thrown by a service. `candidates` powers the manual picker, so a
+// NotFoundError is recoverable (offer the near-misses) rather than a dead end.
+class AniChatError extends Error {
+	constructor(message) {
+		super(message);
+		this.name = 'AniChatError';
+	}
+}
+
+class NotFoundError extends AniChatError {
+	constructor(message, options = {}) {
+		super(message);
+		this.name = 'NotFoundError';
+		this.candidates = options.candidates || [];   // [{ id, label, url }]
+		this.searchUrl = options.searchUrl || '';     // let the user hunt by hand
+	}
+}
+
+class RateLimitError extends AniChatError {
+	constructor(message) {
+		super(message);
+		this.name = 'RateLimitError';
+	}
+}
+
+class NetworkError extends AniChatError {
+	constructor(message) {
+		super(message);
+		this.name = 'NetworkError';
+	}
+}
 class Chat {
 	constructor(user, userLink, avatar, msg, timestamp, replies, id, link) {
 		this.user = user;
@@ -430,7 +571,29 @@ async function generateDiscussionArea() {
 	discussionTitleText.textContent = `${await site.getAnimeTitle()} Episode ${await site.getEpNum()} Discussion`;
 	discussionTitleText.title = "Click to view the original discussion";
 	discussionTitleText.target = "_blank";
-	discussionTitle.appendChild(discussionTitleText);
+// Wrapped with the title so `space-between` on .discussion-title keeps them adjacent.
+const titleWrap = document.createElement('span');
+titleWrap.className = 'discussion-title__wrap';
+titleWrap.appendChild(discussionTitleText);
+titleWrap.appendChild(buildTitleEditor(discussionTitleText, async query => {
+try {
+// The heading is '<anime title> Episode <n> Discussion', so a corrected episode number
+// has to come back out of the edited text - passing the old epNum ignored the edit.
+const epMatch = query.match(/Episode[s]?[_ ]?(d+)/i);
+const correctedTitle = epMatch ? query.slice(0, epMatch.index).trim() : query;
+const correctedEp = epMatch ? epMatch[1] : await site.getEpNum();
+const ids = site.getServiceId ? await site.getServiceId() : null;
+renderDiscussion(discussionArea, await service.getDiscussion(correctedTitle, correctedEp, ids));
+} catch (e) {
+console.error(e);
+discussionArea.querySelector('.error-message')?.remove();
+const err = document.createElement('span');
+err.className = 'error-message';
+err.textContent = `AniCHAT:${String.fromCharCode(10)}${e.stack || e.message}`;
+discussionArea.appendChild(err);
+}
+}));
+discussionTitle.appendChild(titleWrap);
 
 	const serviceSwitcher = buildServiceSwitcher();
 	discussionTitle.appendChild(serviceSwitcher);
@@ -447,19 +610,31 @@ async function generateDiscussionArea() {
 function buildServiceSwitcher() {
 	const servicesArea = document.createElement('div');
 	servicesArea.id = 'service-switcher';
-	servicesArea.innerHTML = `<img class="service-icon selected" title="Powered by ${service.name}" src="${service.icon}"><a style="padding-right:5px">▶</a>`;
-	services.forEach(it => {
-		servicesArea.innerHTML += `<img class="service-icon other" data-opt="${services.indexOf(it)}" title="Switch to ${it.name}" src="${it.icon}" style="cursor:pointer;">`;
-	});
-	servicesArea.querySelectorAll('.other').forEach(it => {
-		it.addEventListener('click', () =>{
-			const serviceOpt = parseInt(it.getAttribute('data-opt'));
-			console.log(serviceOpt);
-			GM_setValue("service", serviceOpt);
-			service = services[serviceOpt];
+	servicesArea.setAttribute('role', 'group');
+	servicesArea.setAttribute('aria-label', 'Discussion source');
+
+	// The active service is rendered FIRST so the collapsed bar always shows the current
+	// source (the container clips from the left). The rest expand on hover/focus.
+	const ordered = [service, ...services.filter(it => it !== service)];
+	ordered.forEach(it => {
+		const isCurrent = it === service;
+		const i = services.indexOf(it);
+		const btn = document.createElement('button');
+		btn.type = 'button';
+		btn.className = `service-icon ${isCurrent ? 'selected' : 'other'}`;
+		btn.dataset.opt = i;
+		btn.setAttribute('aria-pressed', String(isCurrent));
+		btn.title = isCurrent ? `Powered by ${it.name}` : `Switch to ${it.name}`;
+		btn.innerHTML = `<img src="${it.icon}" alt="${it.name}"><span class="service-name">${it.name}</span>`;
+		btn.addEventListener('click', () => {
+			if (it === service) return;		// already active, nothing to do
+			GM_setValue('service', i);
+			service = it;
 			run();
 		});
+		servicesArea.appendChild(btn);
 	});
+
 	return servicesArea;
 }
 
@@ -611,23 +786,110 @@ const styles = `
 		margin-bottom: 20px;
 	}
 
-	.discussion-title > a {
+/* The title and its editor sit in one flex item so space-between can't split them. */
+.discussion-title__wrap {
+display: inline-flex;
+align-items: center;
+min-width: 0;
+}
+
+.discussion-title__wrap > a {
 		margin-right: 20px;
 	}
 
-	.service-icon {
-		height: 25px;
-		padding-right: 10px;
+	/* Service switcher: collapsed to the active icon, expands to icon + name on hover/focus */
+	#service-switcher {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		max-width: 32px;			/* just the active icon */
+		overflow: hidden;
+		transition: max-width .3s ease-in-out;
+	}
+	#service-switcher:hover,
+	#service-switcher:focus-within {
+		max-width: 100%;
 	}
 
-	#service-switcher {
-		width: 7%;
-		transition: width 0.3s ease-in-out;
-		overflow: hidden;
-		display: flex;
+	.service-icon {
+		display: inline-flex;
+		align-items: center;
+		gap: 7px;
+		flex: 0 0 auto;			/* never shrink - let the container clip instead */
+		padding: 3px 8px;
+		border: 1px solid transparent;
+		border-radius: 6px;
+		background: none;
+		font: inherit;
+		line-height: 1;
+		opacity: .45;
+		cursor: pointer;
+		transition: opacity .2s ease-in-out, background-color .2s ease-in-out, border-color .2s ease-in-out;
 	}
-	#service-switcher:hover {
-		width: ${8+5*services.length}%;
+
+	.title-editor {
+		display: inline-flex;
+		align-items: center;
+		flex: 0 0 auto;
+		margin-left: 8px;
+		padding: 3px;
+		border: none;
+		border-radius: 4px;
+		background: none;
+		color: inherit;
+		opacity: .35;
+		cursor: pointer;
+		transition: opacity .2s ease-in-out, background-color .2s ease-in-out;
+	}
+
+	.title-editor:hover {
+		opacity: 1;
+		background-color: rgba(128, 128, 128, .2);
+	}
+
+	.title-editor:focus-visible {
+		outline: 2px solid currentColor;
+		outline-offset: 1px;
+	}
+
+	.title-editor__input {
+		flex: 1;
+		min-width: 0;
+		margin-right: 20px;	/* matches .discussion-title > a */
+		padding: 2px 6px;
+		border: 1px solid currentColor;
+		border-radius: 4px;
+		background: none;
+		color: inherit;
+		font: inherit;
+	}
+
+	.service-icon img {
+		height: 18px;
+		width: auto;
+		display: block;
+	}
+
+	.service-icon .service-name {
+		font-size: 12px;
+		font-weight: bold;
+		white-space: nowrap;		/* keep names on one line so the expand stays smooth */
+	}
+
+	.service-icon.other:hover {
+		opacity: 1;
+		background-color: rgba(128, 128, 128, .18);
+	}
+
+	.service-icon.selected {
+		opacity: 1;
+		border-color: currentColor;	/* rings the active source so it reads as 'current' */
+		cursor: default;
+	}
+
+	.service-icon:focus-visible {
+		outline: 2px solid currentColor;
+		outline-offset: 1px;
 	}
 
 	ul.discussion-list {
@@ -706,6 +968,62 @@ const styles = `
 		max-width: 100%;
 	}
 
+	.manual-picker {
+		margin: 12px 0;
+		padding: 10px 12px;
+		border: 1px solid #eee;
+		border-radius: 8px;
+	}
+
+	.manual-picker__hint {
+		margin: 0 0 8px;
+		font-size: 14px;
+	}
+
+	.manual-picker__list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.manual-picker__list li {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+
+	.manual-picker__option {
+		flex: 1;
+		text-align: left;
+		padding: 6px 10px;
+		border: 1px solid #ccc;
+		border-radius: 6px;
+		background: none;
+		font: inherit;
+		font-size: 14px;
+		cursor: pointer;
+		transition: background-color .2s ease-in-out, border-color .2s ease-in-out;
+	}
+
+	.manual-picker__option:hover {
+		background-color: rgba(128, 128, 128, .18);
+		border-color: currentColor;
+	}
+
+	.manual-picker__link,
+	.manual-picker__search {
+		font-size: 13px;
+		white-space: nowrap;
+	}
+
+	.manual-picker__search {
+		display: inline-block;
+		margin-top: 10px;
+	}
+
 	.error-message {
 		color: red;
 		white-space: pre-wrap;
@@ -772,6 +1090,118 @@ function withIntersectionObserver(element, callback) {
 }
 
 // Run the script
+
+// Swaps the panel contents for a freshly fetched discussion. Shared by the manual
+// picker and the title editor so both update in place instead of reloading.
+function renderDiscussion(discussionArea, discussion) {
+	const list = discussionArea.querySelector('ul');
+	list.innerHTML = '';
+	discussion.chats.forEach(async chat => list.appendChild(await buildChatRow(chat)));
+	const titleLink = discussionArea.querySelector('.discussion-title a');
+	titleLink.href = discussion.link;
+	titleLink.textContent = discussion.title;
+}
+
+// Rendered beside the heading: turns the title into an editable search box so a
+// mis-matched discussion can be corrected, or another one found, in place.
+function buildTitleEditor(titleText, onSearch) {
+	const btn = document.createElement('button');
+	btn.type = 'button';
+	btn.className = 'title-editor';
+	btn.title = 'Correct or search for a different discussion';
+	btn.setAttribute('aria-label', btn.title);
+	btn.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><line x1="16.2" y1="16.2" x2="21" y2="21"></line></svg>';
+
+	let input = null;
+	const open = () => {
+		if (input) return;		// already editing
+		input = document.createElement('input');
+		input.type = 'search';
+		input.className = 'title-editor__input';
+		input.value = titleText.textContent;
+		titleText.replaceWith(input);
+		input.focus();
+		input.select();
+
+		const close = () => {
+			if (!input) return;
+			input.replaceWith(titleText);
+			input = null;
+		};
+		input.addEventListener('keydown', e => {
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				const query = input.value.trim();
+				close();
+				if (query) onSearch(query);
+			} else if (e.key === 'Escape') {
+				e.preventDefault();
+				close();
+			}
+		});
+		input.addEventListener('blur', close);
+	};
+
+	btn.addEventListener('click', open);
+	return btn;
+}
+
+function buildManualPicker(error) {
+	const box = document.createElement('div');
+	box.className = 'manual-picker';
+	box.innerHTML = '<p class="manual-picker__hint">Could not match this episode automatically. Pick the discussion yourself:</p>';
+
+	if (error.candidates?.length) {
+		const list = document.createElement('ul');
+		list.className = 'manual-picker__list';
+		error.candidates.forEach(c => {
+			const li = document.createElement('li');
+			const btn = document.createElement('button');
+			btn.type = 'button';
+			btn.className = 'manual-picker__option';
+			btn.textContent = c.label;
+			btn.addEventListener('click', async () => {
+				box.innerHTML = '<p class="manual-picker__hint">Loading the discussion you picked...</p>';
+				try {
+						const discussion = await service.loadById(c.id, { title: c.label, siteUrl: c.url });
+					discussion.chats.forEach(async chat => {
+						document.querySelector('#AniCHAT ul').appendChild(await buildChatRow(chat));
+					});
+					const titleLink = document.querySelector('#AniCHAT .discussion-title a');
+					titleLink.href = discussion.link;
+					titleLink.textContent = discussion.title;
+					box.remove();
+				} catch (e) {
+					console.error(e);
+					// Same full error as the main path - message plus stack.
+					box.innerHTML = '<p class="manual-picker__hint">That one failed too:</p><span class="error-message">' + (e.stack || e.message) + '</span>';
+				}
+			});
+			li.appendChild(btn);
+			if (c.url) {
+				const link = document.createElement('a');
+				link.className = 'manual-picker__link';
+				link.href = c.url;
+				link.target = '_blank';
+				link.textContent = 'open';
+				li.appendChild(link);
+			}
+			list.appendChild(li);
+		});
+		box.appendChild(list);
+	}
+
+	if (error.searchUrl) {
+		const search = document.createElement('a');
+		search.className = 'manual-picker__search';
+		search.href = error.searchUrl;
+		search.target = '_blank';
+		search.textContent = 'Search the forum manually';
+		box.appendChild(search);
+	}
+
+	return box;
+}
 async function run() {
     console.info(`Running AniCHAT on ${site.name}...`);
     const discussionArea = await generateDiscussionArea();
@@ -801,7 +1231,8 @@ async function run() {
     const loadDiscussion = async () => {
 		document.body.isFirstLoad = false;	// A flag to disable loading timeout on subsequent loads
         try {
-            const discussion = await service.getDiscussion(await site.getAnimeTitle(), await site.getEpNum());
+            const ids = site.getServiceId ? await site.getServiceId() : null;
+            const discussion = await service.getDiscussion(await site.getAnimeTitle(), await site.getEpNum(), ids);
             discussion.chats.forEach(async chat => {
                 discussionArea.querySelector("ul").appendChild(await buildChatRow(chat));
             });
@@ -809,10 +1240,18 @@ async function run() {
             discussionArea.querySelector(".discussion-title a").textContent = discussion.title;
         } catch (error) {
             console.error(error);
-            const errorElement = document.createElement("span");
-            errorElement.className = "error-message";
-            errorElement.textContent = `AniCHAT:\n${error.stack}\n\nCheck the console logs for more detail.`;
-            discussionArea.appendChild(errorElement);
+            // A NotFoundError is recoverable - offer the near-misses instead of a dead end.
+            if (error instanceof NotFoundError) {
+                discussionArea.appendChild(buildManualPicker(error));
+            } else {
+                const errorElement = document.createElement("span");
+                errorElement.className = "error-message";
+                errorElement.textContent = `AniCHAT:
+${error.stack}
+
+Check the console logs for more detail.`;
+                discussionArea.appendChild(errorElement);
+            }
         } finally {
 			document.querySelector(".loading-anichat")?.remove();
 		}
