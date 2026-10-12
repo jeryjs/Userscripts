@@ -1,40 +1,45 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.5.0
+// @version     2.7.4
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
 // @license     MIT
-// @match       https://yugenanime.tld/*
-// @match       https://yugenanime.tv/*
-// @match       https://yugenanime.sx/*
 // @match       https://anitaku.tld/*
-// @match       https://anitaku.pe/*
+// @match       https://anitaku.io/*
+// @match       https://aniwave.tld/*
+// @match       https://aniwave.si/*
 // @match       https://gogoanime.tld/*
-// @match       https://gogoanime.tv/*
 // @match       https://gogoanime3.tld/*
-// @match       https://gogoanime3.co/*
-// @match       https://*pahe.pw/*
-// @match       https://animesuge.to/*
+// @match       https://animepahe.tld/*
+// @match       https://animepahe.pw/*
+// @match       https://kaa.lt/*
+// @match       https://www.kaa.lt/*
+// @match       https://hianimez.org/*
+// @match       https://anixtv.in/anime
+// @match       https://anixx.fun/anime
 // @match       https://animesuge.tld/*
-// @match       https://*animesuge.cc/*
-// @match       https://www.miruro.tld/*
+// @match       https://animesuge.re/*
+// @match       https://animesuge.cz/*
+// @match       https://anisuge.tv/*
 // @match       https://www.miruro.tv/*
+// @match       https://www.miruro.to/*
 // @match       https://miruro.to/*
 // @match       https://miruro.online/*
 // @match       https://animekai.tld/*
-// @match       https://anikai.tld/*
+// @match       https://reanime.to/*
+// @match       https://reanime.cz/*
+// @match       https://animekaitv.to/*
 // @match       https://animetsu.cc/*
-// @match       https://kaido.to/*
-// @match       https://kuudere.to/*
+// @match       https://kaido.tld/*
+// @match       https://kuudere.tld/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_addStyle
 // @grant       GM_getValue
 // @grant       GM_setValue
 // @grant       GM_notification
 // @grant       GM.xmlHttpRequest
-// @require     https://unpkg.com/axios/dist/axios.min.js
 // @require     https://cdn.jsdelivr.net/npm/@trim21/gm-fetch@0.2.1
 // @downloadURL https://update.greasyfork.org/scripts/470233/AniHIDE%20-%20Hide%20Unrelated%20Episodes.user.js
 // @updateURL https://update.greasyfork.org/scripts/470233/AniHIDE%20-%20Hide%20Unrelated%20Episodes.meta.js
@@ -77,23 +82,34 @@ const manualListKey = 'manualList';
 /***************************************************************
  * ANIME SITES
  * -----------
- * the timeout variable is a workaround for SPA sites like
- * Miruro which generate the page dynamically.
+ * Each site may tune WHEN the first filtering pass runs, since many of
+ * these are SPAs that render their grids after the initial paint. The three
+ * knobs are checked in this priority order (first match wins):
+ *
+ *   timeout    fixed delay in ms before the first pass. Use when the render
+ *             time is known/stable (e.g. 700 or 1200).
+ *   waitUntil  CSS selector; waits until that element exists in the DOM, so
+ *             the pass runs as soon as the grid is actually there. Preferred
+ *             over timeout when the site has a reliable anchor element,
+ *             because it adapts to slow/fast machines instead of guessing.
+ *   observe    CSS selector for a MutationObserver, which re-runs the pass
+ *             (debounced) whenever cards are injected later - e.g. infinite
+ *             scroll, lazy images or tab switching. Only meaningful once the
+ *             first pass has already happened.
+ *
+ * timeout beats waitUntil beats observe. Sites needing none of them simply
+ * omit all three and get an immediate pass.
  ***************************************************************/
 const animeSites = [
     {
-        name: 'yugenanime',
-        url: ['yugenanime.tv', 'yugenanime.sx', 'yugenanime'],
-        item: '.ep-grid > li',
-        title: '.ep-origin-name',
-        thumbnail: '.ep-thumbnail > img'
-    },
-    {
         name: 'gogoanime',
-        url: ['gogoanime3', 'gogoanimehd', 'gogoanime', 'anitaku'],
-        item: '.items > li',
-        title: '.name > a',
-        thumbnail: '.img > a > img'
+        url: ['gogoanime3', 'gogoanimehd', 'gogoanime', 'anitaku', 'aniwave.si'],   // anitaku.io + aniwave.si are Themesia clones with an identical DOM
+        item: '.listupd .bs',
+        title: '.tt',
+        thumbnail: '.limit img',
+        exclude: '.series-gen, article.hentry',   // recommendation/related widgets: hiding suggestions the user deliberately lacks is pointless
+        observe: '.listupd',
+        timeout: 1200   // SPA: wait for the Themesia grid to render before the first pass
     },
     {
         name: 'animepahe',
@@ -106,24 +122,13 @@ const animeSites = [
     },
     {
         name: 'animesuge',
-        url: ['animesuge.to'],
+        url: ['animesuge.re', 'animesuge.cz', 'anisuge.tv'],	// .to/.cc are dead and .su redirects to a scam domain
         item: '.item',
         title: '.name > a',
-        thumbnail: '.poster img'
-    },
-    {
-        name: 'animesuge',
-        url: ['animesuge.cc'],
-        item: '.itemlist > li',
-        title: '.name a',
-        thumbnail: '.poster > img'
-    },
-    {
-        name: 'animesuge',
-        url: ['animesuge.su'],
-        item: '.bs',
-        title: '.tt',
-        thumbnail: 'img'
+        thumbnail: '.poster img',
+        exclude: '.side-panel',	// the anime/watch-page sidebar of recommended anime
+        observe: '.main-card',
+        timeout: 700
     },
     {
         name: 'miruro',
@@ -136,34 +141,44 @@ const animeSites = [
     },
     {
         name: 'animekai',
-        url: ['animekai', 'anikai'],
-        item: '.aitem',
-        title: '.title',
-        thumbnail: 'img',
-        observe: '.tab-body',
+        url: ['animekai', 'anikai', 'animekaitv'],	// animekai.to/anikai.to are dead; animekaitv.to is current (anikai.se redirects there)
+        item: '.item',
+        title: '.name.d-title',
+        thumbnail: '.poster img',
+        exclude: '.w-side-section',	// watch-page sidebar of related/recommended anime
+        observe: '.top-table',
     },
     {
-        name: 'gojo',
-        url: ['animetsu.cc'],
-        item: '.mx-auto > [title], .swiper-slide[title]',
-        title: 'a.font-medium, div.text-xs.tracking-wide',
+        name: 'reanime',
+        url: ['reanime', 'kuudere'],	// kuudere.to now redirects to reanime.to; official domains are .to and .cz
+        item: 'a.group.block',
+        title: 'h3',
         thumbnail: 'img',
-        observe: 'main',
-        timeout: 700
+        waitUntil: 'a.group.block',
+        observe: '[class*=grid-cols-2]'
     },
     {
-        name: 'kaido',
-        url: ['kaido.to'],
+        name: 'kaa',
+        url: ['kaa.lt'],			// kickassanime's current domain; kaas.to + kickassanimes.io are dead
+        item: '.show-item',
+        title: '.show-title a span',	// .show-title itself only has whitespace text nodes
+        thumbnail: '.v-image__image',	// Vuetify renders the cover as a background-image, not an <img>
+        timeout: 1200
+    },
+    {
+        name: 'hianime',
+        url: ['hianimez', 'hianime'],	// hianime.to is dead; hianimez.org is current
         item: '.flw-item',
         title: '.film-name > a',
         thumbnail: '.film-poster > img',
     },
     {
-        name: 'kuudere',
-        url: ['kuudere.to'],
-        item: '.anime-card-wrapper',
-        title: '.title',
-        thumbnail: 'img',
+        name: 'anixtv',
+        url: ['anixtv', 'anixx'],		// anix.to is hijacked; official set is anixx.fun + anixtv.in/.us.cc/.pro. Only the /anime section is supported
+        item: 'A.anime-card',
+        title: '.card-title',
+        thumbnail: '.anime-poster',	// the cover <img> carries no alt text, so the title comes from .card-title
+        observe: '.slider',
         timeout: 700
     }
 ];
@@ -203,8 +218,12 @@ const services = [
                         }
                     }
                 `;
-                const response = await axios.post(this.apiBaseUrl, { query });
-                const data = response.data.data.Page;
+const response = await GM_fetch(this.apiBaseUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ query })
+                });
+const data = (await response.json()).data.Page;
                 entries = entries.concat(data.mediaList);
                 hasNextPage = data.pageInfo.hasNextPage;
                 page = data.pageInfo.currentPage + 1;
@@ -216,18 +235,28 @@ const services = [
         }
     },
     {
-        name: "YugenAnime",
-        icon: "https://yugenanime.tv/static/img/logo__light.png",
-        statuses: [1, 2, 4, 5, 3],
-        apiBaseUrl: 'https://yugenanime.tv/api/mylist',
+        name: "Kitsu",
+        icon: "https://kitsu.app/images/favicon.ico",
+        statuses: ['current', 'planned'],   // JSON:API status values, not MAL's enum
+        apiBaseUrl: 'https://kitsu.app/api/edge',
+        _headers: { Accept: 'application/vnd.api+json' },   // Kitsu requires the JSON:API media type
         async getAnimeList(username, status) {
-            const url = `${this.apiBaseUrl}/?list_status=${status}`;
-            const response = await axios.get(url);
-            const doc = new DOMParser().parseFromString(response.data.query, 'text/html');
-            const list = Array.from(doc.querySelectorAll('.list-entry-row'), row => {
-                return new AnimeEntry([row.querySelector('.list-entry-title a').textContent.trim()]);
-            });
-            return list;
+            // Kitsu is keyed by user id, so resolve the username first.
+            const u = await GM_fetch(`${this.apiBaseUrl}/users?filter[name]=${encodeURIComponent(username)}`, { headers: this._headers });
+            const found = (await u.json()).data;
+            if (!found?.length) throw new Error(`No Kitsu user found for '${username}'.`);
+            const userId = found[0].id;
+
+            const response = await GM_fetch(`${this.apiBaseUrl}/library-entries?filter[user_id]=${userId}&filter[status]=${status}&include=anime&page[limit]=500`, { headers: this._headers });
+            const data = await response.json();
+            // The anime live in `included` (side-loaded via ?include=anime), not in `data`.
+            return (data.included || [])
+                .filter(a => a.type === 'anime')
+                .map(a => {
+                    const at = a.attributes;
+                    const titles = [at.canonicalTitle, at.titles?.en, at.titles?.en_jp, ...(at.abbreviatedTitles || [])].filter(Boolean);
+                    return new AnimeEntry(titles);
+                });
         }
     }
 ];
@@ -321,7 +350,8 @@ class Website {
         // Apply initial CSS styles
         GM_addStyle(`
             /* Show eps on Hover */
-            ${site.item} ${site.thumbnail}:hover {
+            ${site.item} ${site.thumbnail}:hover,
+            ${site.item}:hover ${site.thumbnail} {
                 opacity: 1 !important;
                 filter: brightness(1) !important;
                 transition: .2s ease-in-out !important;
@@ -348,6 +378,7 @@ class Website {
         this.getAnimeItems().forEach(item => {
             const thumbnail = item.querySelector(this.site.thumbnail);
             if (!thumbnail) return;
+            if (this.site.exclude && item.closest(this.site.exclude)) return;   // never hide recommendation-style widgets
             const title = this.getAnimeTitle(item);
             const shouldUndarken = animeList.isEntryExist(title) && !manualList.getEntry(title)?.skip;
             thumbnail.style.cssText = shouldUndarken
@@ -492,6 +523,20 @@ function chooseService(ch) {
     return service;
 }
 
+// Resolves once the given selector exists in the DOM (used by a site's waitUntil).
+// Polls every pollRate ms rather than using a MutationObserver, so it also catches
+// elements that appear without any observable DOM mutation.
+function waitForElm(selector, pollRate = 100) {
+    return new Promise(resolve => {
+        const tick = () => {
+            const elm = document.querySelector(selector);
+            if (elm) return resolve(elm);
+            setTimeout(tick, pollRate);
+        };
+        tick();
+    });
+}
+
 // Undarken related eps based on the anime titles
 function executeAnimeFiltering() {
     const animeSite = getCurrentSite();
@@ -503,17 +548,27 @@ function executeAnimeFiltering() {
     const entriesList = Object.create(animeList);
     entriesList.entries = animeList.entries.concat(manualList.entries);
     manualList.entries.forEach(e => {if (e.skip) entriesList.removeEntry(e)});
-    setTimeout(() => {
-        if (document.querySelector(animeSite.observe)) {
-            let timeoutId;
-            new MutationObserver(() => {
-                clearTimeout(timeoutId); // Debounce the callback
-                timeoutId = setTimeout(() => thisSite.undarkenRelatedEps(entriesList), 100);
-            }).observe(document.querySelector(animeSite.observe), { childList: true, subtree: true, attributeFilter: ['src'] });
-        }
+    // Watch for cards injected after the first pass (lazy images, infinite scroll, tab switches)
+    const observeLaterCards = () => {
+        const targets = document.querySelectorAll(animeSite.observe);	// every matching container, not just the first - pages often have several grids
+        if (!targets.length) return;
+        let timeoutId;
+        const rerun = () => {
+            clearTimeout(timeoutId); // Debounce the callback
+            timeoutId = setTimeout(() => thisSite.undarkenRelatedEps(entriesList), 100);
+        };
+        targets.forEach(target => new MutationObserver(rerun).observe(target, { childList: true, subtree: true, attributeFilter: ['src'] }));
+    };
 
+    const runFirstPass = () => {
+        observeLaterCards();
         thisSite.undarkenRelatedEps(entriesList);
-    }, animeSite.timeout || 0);
+    };
+
+    // Priority: timeout > waitUntil > observe (see the ANIME SITES header above)
+    if (animeSite.timeout != null) setTimeout(runFirstPass, animeSite.timeout);
+    else if (animeSite.waitUntil) waitForElm(animeSite.waitUntil).then(runFirstPass);
+    else runFirstPass();
 }
 
 // Get the current website based on the URL
