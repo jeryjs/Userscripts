@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     7.6.0
+// @version     7.6.1
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -509,8 +509,7 @@ const Websites = [
     {
         name: 'Miruro',
         url: ['miruro.to', 'miruro.tv', 'miruro.cx', 'miruro.bz'],
-        animeTitle: '.anime-title > a',
-        thumbnail: 'a[href^="/info?id="] > img',
+        animeTitle: 'h1 > a > span',   // new watch-page layout; falls back to p.title-romaji / .anime-title > a
         baseApiUrl: `${location.origin}/api`,
         _catalogKey: new TextEncoder().encode('miruro/catalog'),   // XOR key for /api/v1 octet-stream gzip responses
         _obfKey: Uint8Array.from('a54d389c18527d9fd3e7f0643e27edbe'.match(/.{2}/g).map(b => parseInt(b, 16))),   // VITE_PROXY_OBF_KEY from env2.js
@@ -542,12 +541,13 @@ const Websites = [
         },
         extractEpisodes: async function* (status) {
             status.text = 'Fetching episode list...';
-            const animeTitle = (document.querySelector('p.title-romaji') || document.querySelector(this.animeTitle))?.textContent || 'Anime';
+            const animeTitle = document.querySelector('h1 > a > span')?.textContent || document.querySelector('p.title-romaji')?.textContent || document.querySelector(this.animeTitle)?.textContent || document.querySelector('h1')?.textContent?.trim() || 'Anime';
             const animeId = location.pathname.split('/')[2] || new URLSearchParams(location.search).get('id') || document.querySelector('a[href^="/watch/"]')?.href.split('/')[2];
             if (!animeId) return showToast('Anime ID not found.');
 
-            const epData = await this._api('/v1/anime/' + animeId + '/episodes', { kind: 'regular', limit: 10000 });
-            const eps = Object.fromEntries((epData.data || []).map(ep => [ep.episode_number, ep]));
+            // /episodes now takes ONLY `limit` (any `kind` -> HTTP 400) and returns regular+special episodes together, so specials are dropped here.
+            const rawEps = await this._api('/v1/anime/' + animeId + '/episodes', { limit: 10000 }).then(d => d.data || []);
+            const eps = Object.fromEntries(rawEps.filter(ep => ep.kind !== 'special').map(ep => [ep.episode_number, ep]));
             if (!Object.keys(eps).length) return showToast('No episodes found.');
 
             // Providers/servers/streams now only exist in per-episode /play responses (the old /episodes?anilistId= + /sources endpoints are gone),
@@ -555,16 +555,13 @@ const Websites = [
             const playCache = new Map();
             const getPlay = async n => { if (!playCache.has(n)) playCache.set(n, await this._api(`/v1/anime/${animeId}/episodes/${n}/play`)); return playCache.get(n); };
             const sourceMap = play => new Map((play?.tracks || []).flatMap(t => (t.providers || []).map(p => [this._getLocalSourceName(p.provider, t.track), p])));
-            const firstEp = Object.keys(eps).map(Number).sort((a, b) => a - b)[0];
-            const allSources = [...sourceMap(await getPlay(firstEp)).keys()];
-            const srcCfg = await showSourceSelector(allSources, 'miruro', { sources: allSources.filter(s => s.startsWith('kiwi')), mode: 'single' });
+            const allSources = [...sourceMap(await getPlay(Object.keys(eps).map(Number).sort((a, b) => a - b)[0])).keys()]; // get the source list from the first episode (sorted numerically) to show in the source picker
+            const srcCfg = await showSourceSelector(allSources, 'miruro', { sources: allSources.filter(s => s.startsWith('knob') || s.startsWith('sun')), mode: 'single' });
 
             for (const epNum of await applyEpisodeRangeFilter(Object.keys(eps).sort((a, b) => a - b))) {
                 const baseEp = eps[epNum]; status.text = `Fetching Ep ${epNum}...`;
-                const links = {};
-                let available;
-                try { available = sourceMap(await getPlay(epNum)); }
-                catch (e) { showToast(`Failed to fetch ep-${epNum}: ${e}`); yield new Episode(epNum, animeTitle, links, baseEp.thumbnail_url, baseEp.title); continue; }
+                let links = {}, available;
+                try { available = sourceMap(await getPlay(epNum)); } catch (e) { showToast(`Failed to fetch ep-${epNum}: ${e}`); yield new Episode(epNum, animeTitle, links, baseEp.thumbnail_url, baseEp.title); continue; }
                 for (const src of srcCfg.sources) {
                     const provider = available.get(src);
                     if (!provider) continue; // provider+track unavailable for this episode
@@ -651,7 +648,7 @@ const Websites = [
                         const epTitle = epElm.querySelector(this.epTitle)?.textContent?.replace(/^\s:\s/, '');
 
                         status.text = `Extracting episodes ${epNum - Math.min(epNum, throttleLimit) + 1} - ${epNum}...`;
-                        const mediaObject = eval(page.body.querySelector('[x-data*="vidstackPlayer"]').outerHTML.match(/(JSON.parse.*'\)).*/)[1]); 
+                        const mediaObject = eval(page.body.querySelector('[x-data*="vidstackPlayer"]').outerHTML.match(/(JSON.parse.*'\)).*/)[1]);
                         const links = { [page.querySelector('button > span.truncate').textContent]: { stream: mediaObject.src, type: "m3u8", tracks: mediaObject.subtitles.map(t => ({ file: t.file, kind: 'captions', label: `${t.language} | ${t.title}` })).concat(mediaObject.chapter ? [{ file: mediaObject.chapter, kind: 'chapters', label: 'Chapters' }] : []) } };
 
                         return new Episode(epNum, animeTitle, links, mediaObject.snapshot, epTitle);
@@ -739,7 +736,7 @@ const Websites = [
             const epElms = [..._$$('.mp-sr-epgrid>a, .mp-wel-grid>a, .mp-wel-grid>div')]; if (!epElms?.length) return showToast('No episodes found. Please wait for the episode list to load or refresh the page.');
             for (const epElm of await applyEpisodeRangeFilter(epElms))
                 yield* yieldEpisodesFromPromises([epElm].map(async epElm => { try {
-                    const epTitle = epElm.querySelector('.mp-ep-title').textContent; 
+                    const epTitle = epElm.querySelector('.mp-ep-title').textContent;
                     let epNum = epElm.querySelector('.mp-ep-stamp').textContent.slice(1); if (epNum.includes('Now Playing')) epNum = _$('.mp-watch-title').textContent.match(/^E(\d+)\s/)?.[1];
                     status.text = `Extracting Episode ${epNum}...`;
                     const d = await fetch(`${location.origin}/api/v1/episode/${epElm.href.split('/')[4]}/media/dash/ja-JP`).then(r => r.json());
@@ -901,7 +898,7 @@ const Websites = [
                     status.text = `Extracting episodes ${ep.number - Math.min(ep.number, this._chunkSize) + 1} - ${ep.number}...`;
                     const sources = await fetch(`/wp-admin/admin-ajax.php?action=asc_aniflux_watch&mal_id=${malId}&episode=${ep.number}`).then(r => r.json()).then(d => d.data.sources);
                     const links = srcCfg.mode === 'multi' // vidnest.fun, megaplay.buzz, megavid.buzz, tryembed.us.cc
-                        ? Object.fromEntries((await Promise.all(srcCfg.sources.map(async src => { const s = sources.find(x => `${x.label} (${x.audioType})` === src); if (!s) return [src, null]; try { const r = await Extractors.use(s.iframe.match(/src="([^"]*)"/)?.[1]); return [src, { stream: r.file, type: r.type, tracks: r.tracks || [], referer: r.referer }]; } catch (e) { showToast(`Failed Ep ${ep.number} from ${src}: ${e.message || e}`); return [src, null]; } }))).filter(([, v]) => v)) 
+                        ? Object.fromEntries((await Promise.all(srcCfg.sources.map(async src => { const s = sources.find(x => `${x.label} (${x.audioType})` === src); if (!s) return [src, null]; try { const r = await Extractors.use(s.iframe.match(/src="([^"]*)"/)?.[1]); return [src, { stream: r.file, type: r.type, tracks: r.tracks || [], referer: r.referer }]; } catch (e) { showToast(`Failed Ep ${ep.number} from ${src}: ${e.message || e}`); return [src, null]; } }))).filter(([, v]) => v))
                         : await (async () => { for (const src of srcCfg.sources) { const s = sources.find(x => `${x.label} (${x.audioType})` === src); if (!s) continue; try { const r = await Extractors.use(s.iframe.match(/src="([^"]*)"/)?.[1]); return { [src]: { stream: r.file, type: r.type, tracks: r.tracks || [], referer: r.referer } }; } catch (e) { showToast(`Failed Ep ${ep.number} from ${src}: ${e.message || e}`); } } return {}; })();
                     return new Episode(ep.number, unsafeWindow.ASC_ANIFLUX?.seriesTitle, links, ep.thumbnail, ep.title);
                 }));
@@ -945,7 +942,7 @@ const Websites = [
     {
         name: "MKissa",
         url: ['mkissa.to/anime/', 'youtu-chan.com/archives/'],
-        baseApiUrl: 'https://api.mkissa.net',        
+        baseApiUrl: 'https://api.mkissa.net',
         extractEpisodes: async function* (status) {
             const [, showId, epPart = 'p-1-sub'] = (location.pathname.includes('/anime') ? location.pathname : _$('link[href^="/anime"]').href).match(/\/anime\/([^/]+)(?:\/([^/]*))?/) || [], trans = epPart.includes('dub') ? 'dub' : 'sub';
             status.text = 'Fetching episode list...'; const first = await this._api(showId, trans, epPart.replace(/^p-|-(?:sub|dub)$/g, '') || '1').then(d => d.episode).catch(e => { throw `Failed to fetch episode list: ${e.message || e}`; });
@@ -1267,7 +1264,7 @@ const Extractors = {
     'tryembed.us.cc': async function (url) {
         const u = new URL(url), parts = u.pathname.split('/').filter(Boolean);
         let id, ep, audio;
-        if (parts[0] === 'embed' && parts[1] === 'anime') { id = parts[2]; ep = parts[3]; audio = parts[4] === 'dub' ? 'dub' : 'sub'; } 
+        if (parts[0] === 'embed' && parts[1] === 'anime') { id = parts[2]; ep = parts[3]; audio = parts[4] === 'dub' ? 'dub' : 'sub'; }
         else { id = u.searchParams.get('id'); ep = u.searchParams.get('episode'); audio = u.searchParams.get('audio') || 'sub'; }
         if (!id || !ep) throw new Error('tryembed: invalid URL');
         // getter12 approach: no nonce, proper headers + Chrome TLS fingerprint via GM_fetch
@@ -3562,8 +3559,8 @@ function showAniLINKInfoDialog() {
 let toasts = [];
 /**
  * Display a simple toast message on the top right of the screen
- * @param {string|HTMLElement|Error} message 
- * @param {number} duration 
+ * @param {string|HTMLElement|Error} message
+ * @param {number} duration
  */
 function showToast(message, duration = 5000) {
     const maxToastHeight = window.innerHeight * 0.5;
@@ -3846,7 +3843,7 @@ const AniLINKUI = (() => {
             .anilink-fab { right: var(--anilink-fab-right, max(12px, env(safe-area-inset-right))); bottom: var(--anilink-fab-bottom, max(12px, env(safe-area-inset-bottom))); width: var(--anilink-fab-size, 52px); height: var(--anilink-fab-size, 52px); }
             .anilink-fab-icon { font-size: 27px; }
         }
-        @media (prefers-reduced-motion: reduce), .reduced-motion { 
+        @media (prefers-reduced-motion: reduce), .reduced-motion {
             *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
             :host { transition: none !important; --anilink-glass-blur: none !important; --anilink-modal-overlay: rgba(0,0,0,.9); }
         }
@@ -4127,12 +4124,12 @@ class Downloader {
     async init() {
         if (this._initialized) return this;
         if (!window.showDirectoryPicker && !unsafeWindow?.showDirectoryPicker) console.warn('[AniLINK Downloader] File System Access API is unavailable.');
-        
+
         // Example of CSP-safe dependency injection (e.g., if you need a lightweight muxer later)
         // const depUrl = "https://cdn.jsdelivr.net/npm/some-pure-js-lib.js";
         // const scriptText = await this.#fetchXHR(depUrl, { responseType: 'text' });
         // this.#dependencies.SomeLib = new Function(`${scriptText}; return SomeLib;`)();
-        
+
         this._initialized = true;
         return this;
     }
@@ -4493,10 +4490,10 @@ class Downloader {
         return {
             id: task.id, filename: task.filename, anime: task.anime, url: task.url, status: task.status,
             ...task._stats, elapsedMs, elapsed: dlUtils.anlinkFormatDuration(elapsedMs), filesize: task.filesize,
-            totalsize: task.totalsize, trackFilesize: dlUtils.anlinkFormatBytes(task._stats.trackBytesReceived), 
-            trackTotalsize: task._stats.trackBytesTotal ? dlUtils.anlinkFormatBytes(task._stats.trackBytesTotal) : '?', 
-            conversionFilesize: dlUtils.anlinkFormatBytes(task._stats.conversionBytes), 
-            conversionTotalsize: task._stats.conversionTotal ? dlUtils.anlinkFormatBytes(task._stats.conversionTotal) : '?', 
+            totalsize: task.totalsize, trackFilesize: dlUtils.anlinkFormatBytes(task._stats.trackBytesReceived),
+            trackTotalsize: task._stats.trackBytesTotal ? dlUtils.anlinkFormatBytes(task._stats.trackBytesTotal) : '?',
+            conversionFilesize: dlUtils.anlinkFormatBytes(task._stats.conversionBytes),
+            conversionTotalsize: task._stats.conversionTotal ? dlUtils.anlinkFormatBytes(task._stats.conversionTotal) : '?',
             speed: task.speed, eta: task.eta, activeRequests: task._activeRequests.size,
             paused: task._paused, cancelled: task._cancelled, now
         };
@@ -5304,7 +5301,7 @@ class Downloader {
             const midMatch = baseUrl.match(/\/episode\/(.+)\/master\.m3u8/i) || keyUrl.match(/\/episode\/(.+)\/keys\/key\.bin/i);
             if (midMatch) mid = midMatch[1];
             if (!mid) throw new Error('Could not extract x-am-media-id from mediacache URL.');
-            
+
             // Fetch key.bin with required x-am-media-id header
             const body = await this.#withRetry(task, `GET ${keyUrl} (HLS key)`, async () => {
                 const keyResponse = await GM_fetch(keyUrl, { headers: { ...this.#headers(task), 'x-am-media-id': mid } });
@@ -5312,11 +5309,11 @@ class Downloader {
                 return await keyResponse.text();
             });
             const ciphertext = Uint8Array.from(atob(body.trim()), c => c.charCodeAt(0));
-            
+
             // Derive real key and IV from mid
             const realKey = new Uint8Array((await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`key${mid}`)))).slice(0, 16);
             const realIv = new Uint8Array((await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`iv${mid}`)))).slice(0, 16);
-            
+
             // Decrypt ciphertext to get real 16-byte content key
             const keyObj = await crypto.subtle.importKey('raw', realKey, { name: 'AES-CBC' }, false, ['decrypt']);
             return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: realIv }, keyObj, ciphertext));
@@ -5393,7 +5390,7 @@ class Mp4Converter {
     #dirHandle = null;
 
     /** @param {Downloader} downloader */
-    constructor(downloader) { 
+    constructor(downloader) {
         this.downloader = downloader;
         this.#dirHandle = downloader.directoryHandle;
     }
@@ -6574,9 +6571,9 @@ class DownloaderUI {
             onConfirm: dialog => {
                 const value = name => dialog.querySelector(`[name="${name}"]`)?.value;
                 const checked = name => dialog.querySelector(`[name="${name}"]`)?.checked;
-                this.downloader.updateSettings({ 
-                    maxConcurrentTasks: +value('maxConcurrentTasks'), defaultThreads: +value('defaultThreads'), 
-                    defaultSpeedLimitBps: +(value('defaultSpeedLimitBps') || 0) * 1024 || Infinity, 
+                this.downloader.updateSettings({
+                    maxConcurrentTasks: +value('maxConcurrentTasks'), defaultThreads: +value('defaultThreads'),
+                    defaultSpeedLimitBps: +(value('defaultSpeedLimitBps') || 0) * 1024 || Infinity,
                     preferredResolution: +value('preferredResolution') || 0, subtitleDirectory: value('subtitleDirectory'),
                     audioTrackLanguages: value('audioTrackLanguages'), captionTrackLanguages: value('captionTrackLanguages'),
                     fabAlwaysVisible: checked('fabAlwaysVisible'), keepPartialFiles: checked('keepPartialFiles'), convertTsToMp4: checked('convertTsToMp4'),
