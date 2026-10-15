@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.7.4
+// @version     2.8.0
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -34,6 +34,7 @@
 // @match       https://animetsu.cc/*
 // @match       https://kaido.tld/*
 // @match       https://kuudere.tld/*
+// @match       https://otaku-streamers.com/*
 // @grant       GM_registerMenuCommand
 // @grant       GM_addStyle
 // @grant       GM_getValue
@@ -158,6 +159,15 @@ const animeSites = [
         observe: '[class*=grid-cols-2]'
     },
     {
+        name: 'otaku-streamers',
+        url: ['otaku-streamers'],
+        item: '.rcx-card, .item, .season-card, .os-at-list > a, .os-cal-card-wrap, .ru-card',
+        title: '.rcx-title > a, .title, .season-title, .os-at-name, .os-cal-card-title, .ru-title',	// each layout's text holder; getAnimeTitle() only reads its direct text nodes
+        thumbnail: '.rcx-poster img, .retina, .season-card img, .os-at-thumb > img, .os-cal-card-thumb > img, .ru-cover>img',
+        exclude: '#cw-carousel-wrap, .osh-head + .os-tgrid',
+        observe: '#site-content-inner, body'
+    },
+    {
         name: 'kaa',
         url: ['kaa.lt'],			// kickassanime's current domain; kaas.to + kickassanimes.io are dead
         item: '.show-item',
@@ -218,12 +228,12 @@ const services = [
                         }
                     }
                 `;
-const response = await GM_fetch(this.apiBaseUrl, {
+                const response = await GM_fetch(this.apiBaseUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify({ query })
                 });
-const data = (await response.json()).data.Page;
+                const data = (await response.json()).data.Page;
                 entries = entries.concat(data.mediaList);
                 hasNextPage = data.pageInfo.hasNextPage;
                 page = data.pageInfo.currentPage + 1;
@@ -344,19 +354,46 @@ class AnimeList {
 
 // Website class
 class Website {
+    /**
+     * Initialize a new Website instance.
+     * @param {animeSites[0]} site 
+     */
     constructor(site) {
         this.site = site;
 
         // Apply initial CSS styles
+        const items = expandSelectors(site.item, 'body ');
+        const thumbs = site.thumbnail.split(',').map(t => t.trim());
+        const hoverRules = items.flatMap(item => thumbs.flatMap(thumb => [`${item} ${thumb}:hover`, `${item}:hover ${thumb}`]));
         GM_addStyle(`
-            /* Show eps on Hover */
-            ${site.item} ${site.thumbnail}:hover,
-            ${site.item}:hover ${site.thumbnail} {
+            /* Dim state and hover reveal both live in the stylesheet, so :hover can override the dim (inline styles can't be overridden without !important) */
+            body .anihide-dim {
+                opacity: 0.5 !important;
+                filter: brightness(0.3) !important;
+                transition: .4s ease-in-out !important;
+            }
+            ${hoverRules.join(',\n')} {
                 opacity: 1 !important;
                 filter: brightness(1) !important;
                 transition: .2s ease-in-out !important;
             }
         `);
+
+        /**
+         * Prefixes every comma-separated part of a selector with a given prefix and suffix.
+         * This is primarily useful for sites that have multiple selectors separated by ',' 
+         * and for increasing specificity of the selectors to override existing styles.
+         * @param {string} selector A CSS selector string, potentially containing multiple selectors separated by commas.
+         * @param {string?} prefix may include a space at the end to separate it from the selector
+         * @param {string?} suffix can be used to add pseudo-classes like :hover or :active, or any other suffix to the selector
+         * @returns {string[]}
+         * @example 
+         * expandSelectors('.item, .card', 'body ', ':hover') // the space in 'body ' is important to separate it from the class selectors
+         * returns ['body .item:hover', 'body .card:hover']
+         */
+        function expandSelectors(selector, prefix, suffix) {
+            return selector.split(',').map(part => `${prefix || ''}${part.trim()}${suffix || ''}`);
+        }
     }
 
     // Gets all the anime items on the page
@@ -376,14 +413,12 @@ class Website {
 
     undarkenRelatedEps(animeList) {
         this.getAnimeItems().forEach(item => {
+            if (this.site.exclude && item.closest(this.site.exclude)) return;
             const thumbnail = item.querySelector(this.site.thumbnail);
             if (!thumbnail) return;
-            if (this.site.exclude && item.closest(this.site.exclude)) return;   // never hide recommendation-style widgets
             const title = this.getAnimeTitle(item);
             const shouldUndarken = animeList.isEntryExist(title) && !manualList.getEntry(title)?.skip;
-            thumbnail.style.cssText = shouldUndarken
-                ? 'opacity:1;   filter:brightness(1);   transition:.2s ease-in-out'
-                : 'opacity:0.5; filter:brightness(0.3); transition:.4s ease-in-out';
+            thumbnail.classList.toggle('anihide-dim', !shouldUndarken);
         });
     }
 }
