@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.9.15
+// @version     2.10.0
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -42,6 +42,7 @@
 // @match       https://reanime.tld/*
 // @match       https://reanime.to/*
 // @match       https://reanime.cz/*
+// @match       https://otaku-streamers.com/*
 // @grant       GM_getValue
 // @grant       GM_setValue
 // @grant       GM_notification
@@ -164,6 +165,15 @@ const animeSites = [
 		getAnimeTitle: () => document.title.split(' - ')[0].trim(),	// the watch page's h1 reads 'Episodes', so the title comes from the <title>
 		getEpTitle: () => document.title.split(' - ')[0].trim(),
 		getEpNum: () => new URLSearchParams(location.search).get('ep'),
+		initDelay: 1000,	// Time to wait (for page to load) before attaching the discussion area
+	},
+	{
+		name: "otaku-streamers",
+		url: ["otaku-streamers"],
+		chatArea: '.wp-comments',
+		getAnimeTitle: () => [...document.querySelectorAll('.wp-breadcrumb > *')].map(e => e.textContent.trim()).filter(Boolean)[0] || '',
+		getEpTitle: () => '',
+		getEpNum: () => [...document.querySelectorAll('.wp-breadcrumb > *')].map(e => e.textContent.trim()).find(t => /^Episode\s+\d+/i.test(t))?.match(/\d+/)[0] || null,
 		initDelay: 1000,	// Time to wait (for page to load) before attaching the discussion area
 	},
 ];
