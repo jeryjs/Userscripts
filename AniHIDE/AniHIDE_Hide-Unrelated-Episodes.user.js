@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniHIDE - Hide Unrelated Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.8.0
+// @version     2.9.0
 // @description Filter animes in the Home/New-Episodes pages to show only what you are watching or plan to watch based on your anime list on MAL or AL.
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -25,8 +25,16 @@
 // @match       https://anisuge.tv/*
 // @match       https://www.miruro.tv/*
 // @match       https://www.miruro.to/*
+// @match       https://www.miruro.cx/*
+// @match       https://www.miruro.bz/*
+// @match       https://www.miruro.pw/*
+// @match       https://www.miruro.ws/*
+// @match       https://miruro.tv/*
 // @match       https://miruro.to/*
-// @match       https://miruro.online/*
+// @match       https://miruro.cx/*
+// @match       https://miruro.bz/*
+// @match       https://miruro.pw/*
+// @match       https://miruro.ws/*
 // @match       https://animekai.tld/*
 // @match       https://reanime.to/*
 // @match       https://reanime.cz/*
@@ -132,13 +140,22 @@ const animeSites = [
         timeout: 700
     },
     {
-        name: 'miruro',
-        url: ['miruro'],
+        name: 'miruro legacy',
+        url: ['www.miruro'],
         item: 'div.animSlideUp[title]',
         title: 'h3[title^="Title: "] > a',
         thumbnail: 'img[alt^="Play "]',
         observe: 'section[aria-labelledby*="continueWatching"] + div',
         timeout: 1200
+    },
+    {
+        name: 'miruro 2.0',
+        url: ['miruro'],
+        item: '.home-episode-grid > a, article[data-cover-card], a.schedule-card',
+        title: 'p.text-sm, h3, p.side-title, p.truncate.font-semibold',
+        thumbnail: 'img.card-image, img:not(.side-banner), a.schedule-card img',
+        waitUntil: '.home-episode-grid > a, article[data-cover-card], a.schedule-card',
+        observe: '.hz-stagger, .side-list, [class*=schedule]'
     },
     {
         name: 'animekai',
