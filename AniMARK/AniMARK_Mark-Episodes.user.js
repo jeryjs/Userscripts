@@ -3,11 +3,19 @@
 // @namespace   https://github.com/jeryjs
 // @match       https://www.miruro.tv/*
 // @match       https://www.miruro.to/*
-// @match       https://www.miruro.ru/*
+// @match       https://www.miruro.cx/*
 // @match       https://www.miruro.bz/*
+// @match       https://www.miruro.pw/*
+// @match       https://www.miruro.ws/*
+// @match       https://miruro.tv/*
+// @match       https://miruro.to/*
+// @match       https://miruro.cx/*
+// @match       https://miruro.bz/*
+// @match       https://miruro.pw/*
+// @match       https://miruro.ws/*
 // @icon        https://www.miruro.tv/icons/favicon-32x32.png
 // @grant       none
-// @version     1.6
+// @version     1.7
 // @author      Jery
 // @description 2/23/2025, 9:39:09 AM
 // ==/UserScript==
@@ -21,7 +29,7 @@ function getFromStorage(key) {
 	}
 }
 
-const miruro = {
+const miruro_legacy = {
 	// Returns all episode items on the page
 	items: () => document.querySelectorAll('div.animSlideUp[title]'),
 	// Returns the SPA element that should be observed for changes
@@ -40,10 +48,37 @@ const miruro = {
 	},
 	// Extracts the episode number from the item's specific DOM structure
 	getEpNumber: (item) => {
-		const text = item.querySelector(`span > strong`).textContent || "";
+		const text = item.querySelector(`span > strong`)?.textContent || "";
 		return parseInt(text.split("/")[0].trim(), 10) || 0;
 	},
 };
+const miruro = {
+	// Returns all episode items on the page (the "Latest Episodes" grid on the home page)
+	items: () => document.querySelectorAll('.home-episode-grid > a'),
+	// Returns the SPA element that should be observed for changes
+	observeTarget: () => document.querySelector('.home-episode-grid'),
+	// Retrieves progress data from localStorage
+	progressData: () => getFromStorage("hermes:playback"),
+	// Retrieves watched episodes data from localStorage
+	watchedData: () => getFromStorage("hermes:watching")?.history,
+	// Returns the parent element of the thumbnail that the progress bar should be injected under
+	getProgressBarAnchor: (item) => item.querySelector(".card-artwork"),
+	// Extracts the anime ID from the item's href (/watch/<id>/<slug>?ep=<n>)
+	getAnimeId: (item) => {
+		const href = item.getAttribute("href") || "";
+		const idMatch = href.match(/watch\/([^/?]+)/);
+		return idMatch ? idMatch[1] : "";
+	},
+	// Extracts the episode number from the item's href query parameter (?ep=...)
+	getEpNumber: (item) => {
+		const href = item.getAttribute("href") || "";
+		const epMatch = href.match(/[?&]ep=(\d+)/);
+		return epMatch ? parseInt(epMatch[1], 10) : 0;
+	},
+};
+
+// The legacy app lives on the www. hosts, the 2.0 app on the bare ones.
+const site = location.hostname.startsWith("www.") ? miruro_legacy : miruro;
 
 console.log("AniMARK: Injecting progress bars under episode thumbnails...");
 (function () {
@@ -51,12 +86,12 @@ console.log("AniMARK: Injecting progress bars under episode thumbnails...");
 
 	// Injects a progress bar under an episode thumbnail
 	function addProgressBar(item) {
-		const thumbnailAnchor = miruro.getProgressBarAnchor(item);
+		const thumbnailAnchor = site.getProgressBarAnchor(item);
 		if (!thumbnailAnchor) return;
 		thumbnailAnchor.querySelector(".custom-progress-bar")?.remove();
 
-		const animeId = miruro.getAnimeId(item);
-		const epNumber = miruro.getEpNumber(item);
+		const animeId = site.getAnimeId(item);
+		const epNumber = site.getEpNumber(item);
 		// const watched = miruro.watchedData()[animeId] || [];
         // const episodeInfo = watched
         //     .filter((ep) => ep.number == epNumber)
@@ -64,7 +99,7 @@ console.log("AniMARK: Injecting progress bars under episode thumbnails...");
 		// const episodeId = episodeInfo.id || "";
 		const episodeId = `${animeId}:${epNumber}`
 		// if (!episodeId) return;
-		const progressObj = miruro.progressData()[episodeId] || {};
+		const progressObj = site.progressData()[episodeId] || {};
 		const playbackPercentage = progressObj.playbackPercentage || 0;
 
 		const progressDiv = document.createElement("div");
@@ -85,13 +120,13 @@ console.log("AniMARK: Injecting progress bars under episode thumbnails...");
 	// Applies the progress bar injection to all episode items on the page
 	function updateProgressBars() {
         console.log("AniMARK: Updating progress bars...");
-		miruro.items().forEach((item) => addProgressBar(item));
+		site.items().forEach((item) => addProgressBar(item));
 	}
 
 	// Attaches a MutationObserver to monitor SPA changes and update progress bars accordingly
 	function attachObserver() {
         if (observer) observer.disconnect();
-		const target = miruro.observeTarget();
+		const target = site.observeTarget();
 		if (!target) return;
 
 		observer = new MutationObserver((mutations) => {
@@ -114,7 +149,7 @@ console.log("AniMARK: Injecting progress bars under episode thumbnails...");
 			setTimeout(updateProgressBars, 500);
 			attachObserver();
 		} else {
-			setTimeout(() => pollForTarget(miruro.observeTarget()), 1000);
+			setTimeout(() => pollForTarget(site.observeTarget()), 300);
 		}
 	}
 
@@ -135,7 +170,7 @@ console.log("AniMARK: Injecting progress bars under episode thumbnails...");
 	// Initialize the script once the DOM is ready
 	function init() {
         setTimeout(() => {
-            pollForTarget(miruro.observeTarget());
+            pollForTarget(site.observeTarget());
             initNavigationHandler();
         }, 500);
 	}
