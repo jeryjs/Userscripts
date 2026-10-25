@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniCHAT - Discuss Anime Episodes
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     2.10.0
+// @version     2.11.0
 // @description Get discussions from popular sites like MAL and Reddit for the anime you are watching right below your episode
 // @icon        https://image.myanimelist.net/ui/OK6W_koKDTOqqqLDbIoPAiC8a86sHufn_jOI-JGtoCQ
 // @author      Jery
@@ -35,8 +35,14 @@
 // @match       https://www.miruro.to/*
 // @match       https://www.miruro.cx/*
 // @match       https://www.miruro.bz/*
+// @match       https://www.miruro.pw/*
+// @match       https://www.miruro.ws/*
+// @match       https://miruro.tv/*
 // @match       https://miruro.to/*
-// @match       https://miruro.online/*
+// @match       https://miruro.cx/*
+// @match       https://miruro.bz/*
+// @match       https://miruro.pw/*
+// @match       https://miruro.ws/*
 // @match       https://animekai.tld/watch/*
 // @match       https://animekaitv.to/watch/*
 // @match       https://reanime.tld/*
@@ -139,13 +145,23 @@ const animeSites = [
 		initDelay: 1000,	// Time to wait (for page to load) before attaching the discussion area
 	},
 	{
-		name: "miruro",
-		url: ["miruro"],
+		name: "miruro legacy",
+		url: ["www.miruro"],
 		chatArea: '[class^="_commentSectionContainer_"]',
 		getAnimeTitle: () => document.querySelector("h1 > a > span").textContent.trim(),
 		getEpTitle: () => document.querySelector('[class^="_titleContainer_"] > span:last-child').textContent.trim(),
 		getEpNum: () => (new URLSearchParams(location.search)).get('ep'),
 		getServiceId: () => ({ MAL: document.querySelector("a[href*='myanimelist.net/']")?.href?.split('/')?.pop(), AL: (document.querySelector("a[href*='anilist.co/anime/']")?.href.match(/anime\/(\d+)/))[1] }),
+		styles: `#AniCHAT a:-webkit-any-link { color: lightblue; } ul.discussion-list { padding-inline-start: 0px; }`,
+		initDelay: 5000,	// Time to wait (for page to load) before attaching the discussion area
+	},
+	{
+		name: "miruro 2.0",
+		url: ["miruro"],
+		chatArea: () => document.querySelector('iframe[src*="theanimecommunity.com"]')?.parentElement?.parentElement,	// the site's own comments live in a TheAnimeCommunity iframe
+		getAnimeTitle: () => document.querySelector("a.watch-anime-title").textContent.trim(),
+		getEpTitle: () => document.querySelector(".watch-now-row h1")?.textContent.trim() || '',
+		getEpNum: () => (new URLSearchParams(location.search)).get('ep'),
 		styles: `#AniCHAT a:-webkit-any-link { color: lightblue; } ul.discussion-list { padding-inline-start: 0px; }`,
 		initDelay: 5000,	// Time to wait (for page to load) before attaching the discussion area
 	},
