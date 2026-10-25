@@ -7,3 +7,4 @@ package-lock.json
 ER4U/associations_backup.csv
 target/
 .vscode/
+.tmp/

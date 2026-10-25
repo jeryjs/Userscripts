@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        AniLINK - Episode Link Extractor
 // @namespace   https://greasyfork.org/en/users/781076-jery-js
-// @version     7.6.1
+// @version     7.7.0
 // @description Stream or download your favorite anime series effortlessly with AniLINK! Unlock the power to play any anime series directly in your preferred video player or download entire seasons in a single click using popular download managers like IDM. AniLINK generates direct download links for all episodes, conveniently sorted by quality. Elevate your anime-watching experience now!
 // @icon        https://upload-os-bbs.hoyolab.com/upload/2024/06/03/136787680/795963af96e199b14106441a955376fa_6229706912856146042.jpg
 // @author      Jery
@@ -14,6 +14,14 @@
 // @match       https://www.miruro.tv/*
 // @match       https://www.miruro.cx/*
 // @match       https://www.miruro.bz/*
+// @match       https://www.miruro.pw/*
+// @match       https://www.miruro.ws/*
+// @match       https://miruro.to/*
+// @match       https://miruro.tv/*
+// @match       https://miruro.cx/*
+// @match       https://miruro.bz/*
+// @match       https://miruro.pw/*
+// @match       https://miruro.ws/*
 // @match       https://anizone.to/*
 // @match       https://www.animegg.org/*
 // @match       https://www.animeonsen.xyz/watch/*
@@ -55,7 +63,6 @@
 // @match       https://aniwatch.ch/*
 // @match       https://hianime.ec/*
 // @match       https://anichi.to/*
-// @match       https://av1please.com/anime/*
 // @match       https://av1please.com/anime/*
 // @match       https://av1please.com/episodes/*/*
 // @match       https://anidb.app/anime/*
@@ -508,38 +515,41 @@ const Websites = [
     },
     {
         name: 'Miruro',
-        url: ['miruro.to', 'miruro.tv', 'miruro.cx', 'miruro.bz'],
+        url: ['miruro.to', 'miruro.tv', 'miruro.cx', 'miruro.bz', 'miruro.pw', 'miruro.ws'],   // the www. hosts serve the legacy app, the bare hosts the 2.0 one
         animeTitle: 'h1 > a > span',   // new watch-page layout; falls back to p.title-romaji / .anime-title > a
         baseApiUrl: `${location.origin}/api`,
         _catalogKey: new TextEncoder().encode('miruro/catalog'),   // XOR key for /api/v1 octet-stream gzip responses
         _obfKey: Uint8Array.from('a54d389c18527d9fd3e7f0643e27edbe'.match(/.{2}/g).map(b => parseInt(b, 16))),   // VITE_PROXY_OBF_KEY from env2.js
         _proxies: ['https://s1.keeply.top/', 'https://s2.keeply.top/'],
+        // The legacy app lives on the www. hosts, the 2.0 ('hermes') app on the bare ones.
+        _isV2: () => !location.hostname.startsWith('www.'),
         addStartButton: function (id) {
-            let last_known = { location: location.href, source: null };
+            let last_known = { location: location.href, source: null }, isV2 = this._isV2();
             const intervalId = setInterval(() => {
-                const currSource = [...document.querySelectorAll('select')].slice(1).map(e => e.value).toString();
+                const currSource = isV2 ? '' : [...document.querySelectorAll('select')].slice(1).map(e => e.value).toString();
                 if (last_known.location !== location.href || last_known.source !== currSource) {
                     last_known = { location: location.href, source: currSource };
                     AniLINKUI.removeExtractor();
                 }
                 // Append the extract button
-                const target = document.querySelector('div[class^="_tagRow"] > div+div');
+                const target = isV2 ? document.querySelector('.watch-description > div > button, .info-actions > button') : document.querySelector('div[class^="_tagRow"] > div+div, div[class^="_coverColumn_"');
                 if (target && !document.getElementById(id)) {
                     // clearInterval(intervalId);
                     const btn = document.createElement('button');
                     btn.id = id;
-                    btn.style.cssText = `${target.lastChild.style.cssText} display: flex; justify-content: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: auto;`;
-                    btn.className = target.lastChild.className;
+                    btn.style.cssText = isV2 ? 'display: flex; justify-content: center; align-items: center; gap: 0.5rem; width: auto;' : `${target.lastChild.style.cssText} display: flex; justify-content: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: auto;`;
+                    btn.className = isV2 ? target.className : target.lastChild.className + (target.className.includes('_coverColumn_') ? ' _accountLink_1ix17_1 _outlinedAction_1aum1_1' : ''); 
                     btn.innerHTML = `
                         <svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="3 3 18 18"><path fill="currentColor" d="M5 21q-.825 0-1.413-.588T3 19V5q0-.825.588-1.413T5 3h14q.825 0 1.413.588T21 5v14q0 .825-.588 1.413T19 21H5Zm0-2h14V5H5v14Zm3-4.5h2.5v-6H8v6Zm5.25 0h2.5v-6h-2.5v6Zm5.25 0h2.5v-6h-2.5v6Z"/></svg>
-                        <div style="display: flex; justify-content: center; align-items: center;">Extract Episode Links</div>
+                        <div style="display: flex; justify-content: center; align-items: center; margin-left: 0.5rem;">Extract Episode Links</div>
                     `;
                     btn.addEventListener('click', extractEpisodes);
-                    target.appendChild(btn);
+                    isV2 ? target.after(btn) : target.appendChild(btn);
                 }
             }, 500);
         },
         extractEpisodes: async function* (status) {
+            if (this._isV2()) { yield* this._extractV2(status); return; }
             status.text = 'Fetching episode list...';
             const animeTitle = document.querySelector('h1 > a > span')?.textContent || document.querySelector('p.title-romaji')?.textContent || document.querySelector(this.animeTitle)?.textContent || document.querySelector('h1')?.textContent?.trim() || 'Anime';
             const animeId = location.pathname.split('/')[2] || new URLSearchParams(location.search).get('id') || document.querySelector('a[href^="/watch/"]')?.href.split('/')[2];
@@ -571,6 +581,68 @@ const Websites = [
                 }
                 yield new Episode(epNum, animeTitle, links, baseEp.thumbnail_url, baseEp.title);
             }
+        },
+        // Miruro 2.0 (the 'hermes' app on the bare domains) serves everything through SvelteKit's
+        // streamed /__data.json payloads instead of the legacy /api/v1 JSON API.
+        _extractV2: async function* (status) {
+            const [, animeId, slug] = location.pathname.match(/\/(?:watch|info)\/([^/]+)\/([^/?]+)/) || [];
+            if (!animeId || !slug) return showToast('Anime ID not found.');
+            const animeTitle = document.querySelector('a.watch-anime-title')?.textContent.trim() || document.title.replace(/^Watch\s+/, '').replace(/\s+-\s+Miruro$/, '');
+
+            status.text = 'Fetching episode list...';
+            const info = await this._skFetch(`/info/${animeId}/${slug}/__data.json`);
+            const eps = Object.fromEntries((info.episodes || []).filter(ep => ep.kind !== 'special').map(ep => [ep.episode_number, ep]));
+            if (!Object.keys(eps).length) return showToast('No episodes found.');
+
+            // Every episode's sources live in its own /watch/.../__data.json payload.
+            const playCache = new Map();
+            const getPlay = async n => { if (!playCache.has(n)) playCache.set(n, await this._skFetch(`/watch/${animeId}/${slug}/__data.json?ep=${n}`)); return playCache.get(n); };
+            const sourceMap = play => new Map((play?.sources?.tracks || []).flatMap(t => (t.providers || []).map(p => [this._getLocalSourceName(p.provider, t.track), p])));
+            const allSources = [...sourceMap(await getPlay(Object.keys(eps).map(Number).sort((a, b) => a - b)[0])).keys()];
+            const srcCfg = await showSourceSelector(allSources, 'miruro', { sources: allSources.filter(s => s.startsWith('knob') || s.startsWith('sun')), mode: 'single' });
+
+            for (const epNum of await applyEpisodeRangeFilter(Object.keys(eps).sort((a, b) => a - b))) {
+                const baseEp = eps[epNum]; status.text = `Fetching Ep ${epNum}...`;
+                let links = {}, available;
+                try { available = sourceMap(await getPlay(epNum)); }
+                catch (e) { showToast(`Failed to fetch ep-${epNum}: ${e}`); yield new Episode(epNum, animeTitle, links, baseEp.thumbnail_url, baseEp.title); continue; }
+                for (const src of srcCfg.sources) {
+                    const provider = available.get(src);
+                    if (!provider) continue;
+                    try { const link = await this._resolveSource(provider); if (link) links[src] = link; }
+                    catch (e) { showToast(`Failed to fetch ep-${epNum} from ${src}: ${e}`); }
+                    if (srcCfg.mode === 'single' && Object.keys(links).length) break;
+                }
+                yield new Episode(epNum, animeTitle, links, baseEp.thumbnail_url, baseEp.title);
+            }
+        },
+        // SvelteKit streams devalue-flattened payloads: the first line holds the route nodes, later lines resolve promises.
+        _skFetch: async function (path) {
+            const res = await fetch(location.origin + path, { headers: { accept: 'application/json' } });
+            if (!res.ok) throw new Error(`HTTP ${res.status} for ${path}`);
+            const text = await res.text();
+            const unflatten = values => {
+                const hydrate = i => {
+                    if (i === -1 || i === -2) return undefined;
+                    if (i === -3) return NaN; if (i === -4) return Infinity; if (i === -5) return -Infinity; if (i === -6) return -0;
+                    const v = values[i];
+                    if (v === null || typeof v !== 'object') return v;
+                    if (Array.isArray(v)) { const a = []; for (let k = 0; k < v.length; k++) a[k] = hydrate(v[k]); return a; }
+                    const o = {}; for (const k of Object.keys(v)) o[k] = hydrate(v[k]); return o;
+                };
+                return hydrate(0);
+            };
+            const out = { episodes: null, sources: null };
+            for (const line of text.split('\n').filter(Boolean)) {
+                let parsed; try { parsed = JSON.parse(line); } catch (e) { continue; }
+                for (const node of parsed.nodes || [parsed]) {
+                    let root; try { root = unflatten(node.data); } catch (e) { continue; }
+                    if (!root) continue;
+                    if (Array.isArray(root) && root[0] && root[0].episode_number !== undefined) out.episodes = root;   // the /info route's episode list
+                    else if (root.tracks) out.sources = root;   // the /watch route's per-episode sources
+                }
+            }
+            return out;
         },
         _api: async function (path, query) {
             const url = `${this.baseApiUrl}${path}${query ? '?' + new URLSearchParams(query) : ''}`;
