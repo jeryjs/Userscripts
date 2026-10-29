@@ -15,7 +15,7 @@
 // @match       https://miruro.ws/*
 // @icon        https://www.miruro.tv/icons/favicon-32x32.png
 // @grant       none
-// @version     1.7
+// @version     1.7.1
 // @author      Jery
 // @description 2/23/2025, 9:39:09 AM
 // ==/UserScript==
@@ -25,7 +25,7 @@ function getFromStorage(key) {
 		return JSON.parse(localStorage.getItem(key)) || {};
 	} catch (e) {
 		console.error("JSON parse error for", key, e);
-		return {};
+		return localStorage.getItem(key) || {};
 	}
 }
 
@@ -38,6 +38,13 @@ const miruro_legacy = {
 	progressData: () => getFromStorage("priver:playback"),
 	// Retrieves watched episodes data from localStorage
 	watchedData: () => getFromStorage("priver:watching")?.history,
+	// Retrieves progress data for a specific anime and episode
+	getProgress: (animeId, epNumber) => {
+		const data = getFromStorage("priver:navigation")?.animeIds;
+		const mappedAnimeId = data?.[animeId];
+		const progressObj = getFromStorage(`progress/${mappedAnimeId||animeId}/${epNumber}/v1`) || {};
+		return progressObj.progress * 100 || 0;
+	},
 	// Returns the parent element of the thumbnail that the progress bar should be injected under
 	getProgressBarAnchor: (item) => item.querySelector('img[alt^="Play "]')?.parentElement?.parentElement?.parentElement,
 	// Extracts the anime ID from the item's href query parameter (?id=...)
@@ -67,6 +74,9 @@ const miruro = {
 	getAnimeId: (item) => {
 		const href = item.getAttribute("href") || "";
 		const idMatch = href.match(/watch\/([^/?]+)/);
+		const data = getFromStorage("miruro:ui")?.identityMigration?.navigation;
+		const mappedAnimeId = Object.entries(data)?.find(r => r?.[1] == idMatch?.[1])?.[0];
+		if (mappedAnimeId) return mappedAnimeId;
 		return idMatch ? idMatch[1] : "";
 	},
 	// Extracts the episode number from the item's href query parameter (?ep=...)
@@ -100,7 +110,7 @@ console.log("AniMARK: Injecting progress bars under episode thumbnails...");
 		const episodeId = `${animeId}:${epNumber}`
 		// if (!episodeId) return;
 		const progressObj = site.progressData()[episodeId] || {};
-		const playbackPercentage = progressObj.playbackPercentage || 0;
+		const playbackPercentage = site.getProgress?.(animeId, epNumber) || progressObj.playbackPercentage || 0;
 
 		const progressDiv = document.createElement("div");
 		progressDiv.className = "custom-progress-bar";
